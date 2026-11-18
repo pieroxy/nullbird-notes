@@ -7,6 +7,7 @@ import net.pieroxy.notes.utils.reflection.GenericTypeArgumentResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.Reader;
 import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -41,6 +42,9 @@ public abstract class AbstractApiEndpoint<I, O> implements ApiEndpoint {
       // Routine (a restart, or just an old tab): no SEVERE stack trace for it.
       res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
       response = ApiResponse.buildErrResult(e.getMessage());
+    } catch (RequestTooLargeException e) {
+      res.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+      response = ApiResponse.buildErrResult(e.getMessage());
     } catch (TooManyRequestsException e) {
       res.setStatus(429);
       res.setHeader("Retry-After", String.valueOf(e.getRetryAfterSeconds()));
@@ -57,12 +61,23 @@ public abstract class AbstractApiEndpoint<I, O> implements ApiEndpoint {
     return contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("application/json");
   }
 
-  /** A missing or empty body reads as {@code {}}, so an endpoint never gets a null input. */
+  /**
+   * A missing or empty body reads as {@code {}}, so an endpoint never gets a null input. The body
+   * is read in full before parsing so that a {@link RequestTooLargeException} isn't wrapped by Gson.
+   */
   private I readInput(HttpServletRequest req) throws IOException {
     I input = "GET".equals(req.getMethod())
         ? GSON.fromJson(req.getParameter("input"), inputType)
-        : GSON.fromJson(req.getReader(), inputType);
+        : GSON.fromJson(readBody(req), inputType);
     return input != null ? input : GSON.fromJson("{}", inputType);
+  }
+
+  private static String readBody(HttpServletRequest req) throws IOException {
+    StringBuilder body = new StringBuilder();
+    char[] buffer = new char[8192];
+    Reader reader = req.getReader();
+    for (int n; (n = reader.read(buffer)) >= 0; ) body.append(buffer, 0, n);
+    return body.toString();
   }
 
   private void writeResponse(HttpServletResponse res, ApiResponse<O> response) {

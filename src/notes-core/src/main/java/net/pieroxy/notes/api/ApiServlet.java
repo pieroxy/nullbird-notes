@@ -53,7 +53,7 @@ public class ApiServlet extends HttpServlet {
       resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
       return;
     }
-    endpoint.process(req, resp);
+    endpoint.process(new SizeLimitedRequest(req, serviceProvider.getSettingsService().getMaxRequestBytes()), resp);
   }
 
   private synchronized Map<String, ApiEndpoint> getOrDiscoverEndpoints() {

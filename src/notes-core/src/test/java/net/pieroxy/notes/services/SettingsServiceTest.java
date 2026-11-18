@@ -58,6 +58,23 @@ public class SettingsServiceTest {
   }
 
   @Test
+  public void derivesTheRequestCapFromTheNoteSize() {
+    Configuration config = new Configuration();
+    config.setMaxNoteSizeMb(3);
+    SettingsService settings = new SettingsService(config, credentialsFile(), tmp.getRoot());
+
+    assertEquals(3 * 1024 * 1024, settings.getMaxNoteSize());
+    assertEquals(6 * 1024 * 1024 + 64 * 1024, settings.getMaxRequestBytes());
+  }
+
+  @Test
+  public void refusesANoteSizeBelowOneMegabyte() {
+    Configuration config = new Configuration();
+    config.setMaxNoteSizeMb(0);
+    assertThrows(IllegalArgumentException.class, () -> new SettingsService(config, credentialsFile(), tmp.getRoot()));
+  }
+
+  @Test
   public void loadsUsersAndVerifiesTheirPasswords() throws IOException {
     writeUsers("alice", "bob");
     SettingsService settings = start();

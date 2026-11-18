@@ -32,17 +32,22 @@ public class SettingsService implements Service {
   private final File credentialsFile;
   private final File dataFolder;
   private final TrustedProxies trustedProxies;
+  private final long maxNoteSize;
 
   private Map<String, UserCredential> users = Map.of();
   private long credentialsLastModified;
   private long credentialsLength;
 
-  /** @throws IllegalArgumentException if config.json's trustedProxies is invalid. */
+  /** @throws IllegalArgumentException if config.json's trustedProxies or maxNoteSizeMb is invalid. */
   public SettingsService(Configuration config, File credentialsFile, File dataFolder) {
     this.config = config;
     this.credentialsFile = credentialsFile;
     this.dataFolder = dataFolder;
     this.trustedProxies = TrustedProxies.parse(config.getTrustedProxies());
+    if (config.getMaxNoteSizeMb() < 1) {
+      throw new IllegalArgumentException("maxNoteSizeMb must be at least 1, not " + config.getMaxNoteSizeMb() + ".");
+    }
+    this.maxNoteSize = config.getMaxNoteSizeMb() * 1024L * 1024L;
   }
 
   /** @throws IllegalStateException if credentials.json can't be loaded. */
@@ -66,6 +71,19 @@ public class SettingsService implements Service {
 
   public TrustedProxies getTrustedProxies() {
     return trustedProxies;
+  }
+
+  /** The largest note content, in UTF-8 bytes. */
+  public long getMaxNoteSize() {
+    return maxNoteSize;
+  }
+
+  /**
+   * The largest API request body: room for a note at {@link #getMaxNoteSize()} even with JSON
+   * escaping doubling it (newlines, quotes), plus the rest of the request.
+   */
+  public long getMaxRequestBytes() {
+    return 2 * maxNoteSize + 64 * 1024;
   }
 
   public boolean isSessionCookieSecure() {

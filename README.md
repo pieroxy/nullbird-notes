@@ -40,6 +40,7 @@ java -jar notes-core-<version>.jar <configDir>
   - `trustedProxies`: IPs or CIDR ranges of reverse proxies whose `X-Forwarded-For` is believed.
   - `secureCookie`: set to `true` when served over HTTPS.
   - `keepLogFiles`: days of logs to keep; defaults to 30, `0` keeps them forever.
+  - `maxNoteSizeMb`: the largest note; defaults to 10. Larger requests are refused with HTTP 413.
 - `credentials.json` (required, see `credentials.example.json`): one entry per user. It is re-read
   when it changes, so there's no need to restart after adding or removing a user. Usernames are
   lowercase letters, digits, `.`, `_` and `-`.

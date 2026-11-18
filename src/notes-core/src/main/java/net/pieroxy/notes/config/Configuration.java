@@ -16,6 +16,7 @@ public class Configuration {
   private boolean secureCookie;
   /** See {@code LogRetention#days}. */
   private Integer keepLogFiles;
+  private int maxNoteSizeMb = 10;
 
   public File resolveDataFolder(File configDir) {
     File folder = new File(dataFolder);
@@ -60,6 +61,14 @@ public class Configuration {
 
   public void setKeepLogFiles(Integer keepLogFiles) {
     this.keepLogFiles = keepLogFiles;
+  }
+
+  public int getMaxNoteSizeMb() {
+    return maxNoteSizeMb;
+  }
+
+  public void setMaxNoteSizeMb(int maxNoteSizeMb) {
+    this.maxNoteSizeMb = maxNoteSizeMb;
   }
 
   public boolean isSecureCookie() {

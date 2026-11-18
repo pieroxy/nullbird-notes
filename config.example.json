@@ -4,5 +4,6 @@
   "dataFolder": "data",
   "trustedProxies": [],
   "secureCookie": false,
-  "keepLogFiles": 30
+  "keepLogFiles": 30,
+  "maxNoteSizeMb": 10
 }
