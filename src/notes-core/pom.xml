@@ -125,6 +125,10 @@
           <outputFile>${project.build.directory}/typescript-generator/api-types.ts</outputFile>
           <outputFileType>implementationFile</outputFileType>
           <mapEnum>asEnum</mapEnum>
+          <!-- Every other property is optional (field?: T): see Required's javadoc. -->
+          <requiredAnnotations>
+            <requiredAnnotation>net.pieroxy.notes.api.metadata.Required</requiredAnnotation>
+          </requiredAnnotations>
         </configuration>
       </plugin>
       <plugin>

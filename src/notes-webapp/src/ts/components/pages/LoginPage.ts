@@ -47,7 +47,7 @@ export class LoginPage extends AbstractPage {
     this.error = undefined;
     ApiEndpoints.Login.call({ login: this.login, password: this.password })
       .then((output) => {
-        if (output.ok) {
+        if (output.ok && output.username) {
           Auth.setLoggedIn(output.username);
           Routing.goToScreen(Endpoints.HOME);
         } else {

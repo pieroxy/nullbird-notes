@@ -4,6 +4,7 @@ import net.pieroxy.notes.api.metadata.AbstractApiEndpoint;
 import net.pieroxy.notes.api.metadata.ApiContext;
 import net.pieroxy.notes.api.metadata.ApiMethod;
 import net.pieroxy.notes.api.metadata.Endpoint;
+import net.pieroxy.notes.api.metadata.Required;
 import net.pieroxy.notes.api.metadata.TooManyRequestsException;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
 import net.pieroxy.notes.config.PasswordHash;
@@ -71,7 +72,9 @@ public class LoginApi extends AbstractApiEndpoint<LoginApiInput, LoginApiOutput>
 
 @TypeScriptType
 class LoginApiInput {
+  @Required
   private String login;
+  @Required
   private String password;
 
   public String getLogin() {
@@ -93,8 +96,9 @@ class LoginApiInput {
 
 @TypeScriptType
 class LoginApiOutput {
+  @Required
   private boolean ok;
-  /** Null unless ok. */
+  /** Absent unless ok. */
   private String username;
 
   public LoginApiOutput() {

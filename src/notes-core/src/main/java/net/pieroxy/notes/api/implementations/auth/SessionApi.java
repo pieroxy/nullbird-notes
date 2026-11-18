@@ -4,6 +4,7 @@ import net.pieroxy.notes.api.metadata.AbstractApiEndpoint;
 import net.pieroxy.notes.api.metadata.ApiContext;
 import net.pieroxy.notes.api.metadata.ApiMethod;
 import net.pieroxy.notes.api.metadata.Endpoint;
+import net.pieroxy.notes.api.metadata.Required;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
 import net.pieroxy.notes.services.IServiceProvider;
 import net.pieroxy.notes.services.SessionService;
@@ -38,8 +39,9 @@ class SessionApiInput {
 
 @TypeScriptType
 class SessionApiOutput {
+  @Required
   private boolean authenticated;
-  /** Null unless authenticated. */
+  /** Absent unless authenticated. */
   private String username;
 
   public SessionApiOutput() {

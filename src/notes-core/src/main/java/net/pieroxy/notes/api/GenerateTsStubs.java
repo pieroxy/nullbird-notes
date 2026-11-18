@@ -3,6 +3,7 @@ package net.pieroxy.notes.api;
 import net.pieroxy.notes.api.metadata.AbstractApiEndpoint;
 import net.pieroxy.notes.api.metadata.ApiEndpoint;
 import net.pieroxy.notes.api.metadata.Endpoint;
+import net.pieroxy.notes.api.metadata.RequiredFields;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
 import net.pieroxy.notes.utils.reflection.GenericTypeArgumentResolver;
 import net.pieroxy.notes.utils.reflection.GetAccessibleClasses;
@@ -29,6 +30,14 @@ public class GenerateTsStubs {
   }
 
   public static void main(String[] args) throws Exception {
+    List<Class<?>> dtos = GetAccessibleClasses.getClasses("net.pieroxy.notes").stream()
+        .filter(c -> c.isAnnotationPresent(TypeScriptType.class)).toList();
+    List<String> errors = RequiredFields.findOptionalPrimitives(dtos);
+    if (!errors.isEmpty()) {
+      errors.forEach(System.err::println);
+      throw new IllegalStateException(errors.size() + " DTO field(s) break the @Required rule, see above.");
+    }
+
     File out = new File(args[0]);
     writer = new BufferedWriter(new FileWriter(out));
 

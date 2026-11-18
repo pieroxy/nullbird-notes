@@ -4,6 +4,7 @@ import net.pieroxy.notes.api.metadata.AbstractAuthenticatedEndpoint;
 import net.pieroxy.notes.api.metadata.ApiMethod;
 import net.pieroxy.notes.api.metadata.AuthenticatedApiInput;
 import net.pieroxy.notes.api.metadata.Endpoint;
+import net.pieroxy.notes.api.metadata.Required;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
 import net.pieroxy.notes.services.IServiceProvider;
 import net.pieroxy.notes.utils.BuildInfo;
@@ -27,8 +28,10 @@ class VersionApiInput extends AuthenticatedApiInput {
 
 @TypeScriptType
 class VersionApiOutput {
+  @Required
   private String version;
   /** Short git revision of the build. */
+  @Required
   private String revision;
 
   public VersionApiOutput() {

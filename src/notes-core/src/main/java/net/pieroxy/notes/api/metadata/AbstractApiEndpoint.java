@@ -1,6 +1,10 @@
 package net.pieroxy.notes.api.metadata;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import net.pieroxy.notes.api.model.ApiResponse;
 import net.pieroxy.notes.utils.reflection.GenericTypeArgumentResolver;
 
@@ -42,6 +46,9 @@ public abstract class AbstractApiEndpoint<I, O> implements ApiEndpoint {
       // Routine (a restart, or just an old tab): no SEVERE stack trace for it.
       res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
       response = ApiResponse.buildErrResult(e.getMessage());
+    } catch (InvalidInputException e) {
+      res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+      response = ApiResponse.buildErrResult(e.getMessage());
     } catch (RequestTooLargeException e) {
       res.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
       response = ApiResponse.buildErrResult(e.getMessage());
@@ -64,12 +71,23 @@ public abstract class AbstractApiEndpoint<I, O> implements ApiEndpoint {
   /**
    * A missing or empty body reads as {@code {}}, so an endpoint never gets a null input. The body
    * is read in full before parsing so that a {@link RequestTooLargeException} isn't wrapped by Gson.
+   *
+   * @throws InvalidInputException if it isn't JSON, or lacks a {@link Required} field.
    */
   private I readInput(HttpServletRequest req) throws IOException {
-    I input = "GET".equals(req.getMethod())
-        ? GSON.fromJson(req.getParameter("input"), inputType)
-        : GSON.fromJson(readBody(req), inputType);
-    return input != null ? input : GSON.fromJson("{}", inputType);
+    String raw = "GET".equals(req.getMethod()) ? req.getParameter("input") : readBody(req);
+    JsonElement json;
+    try {
+      json = raw == null || raw.isBlank() ? new JsonObject() : JsonParser.parseString(raw);
+    } catch (JsonParseException e) {
+      throw new InvalidInputException("Input is not valid JSON.");
+    }
+    RequiredFields.check(json, inputType);
+    try {
+      return GSON.fromJson(json, inputType);
+    } catch (JsonParseException e) {
+      throw new InvalidInputException("Input doesn't match " + inputType.getSimpleName() + ": " + e.getMessage());
+    }
   }
 
   private static String readBody(HttpServletRequest req) throws IOException {

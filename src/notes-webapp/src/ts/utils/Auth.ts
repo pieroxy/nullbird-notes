@@ -55,7 +55,7 @@ export class Auth {
     Auth.checkInProgress = true;
     ApiEndpoints.Session.call({})
       .then((output) => {
-        Auth.username = output.authenticated ? output.username : null;
+        Auth.username = output.authenticated ? output.username ?? null : null;
         Auth.unreachable = false;
       })
       .catch(() => {
