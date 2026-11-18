@@ -184,7 +184,7 @@ public class UserNoteStoreTest {
 
   @Test
   public void reloadsEverythingFromDisk() throws Exception {
-    ConflictOf conflictOf = new ConflictOf(B, 3, 5);
+    ConflictOf conflictOf = new ConflictOf(B);
     NoteMeta a = store.commit(A, 0, new NoteWrite("copy", false, "c1", "device-1", conflictOf));
     store.commit(B, 0, write("b1", "c2"));
     NoteMeta b = store.commit(B, 1, write("b2", "c3"));
