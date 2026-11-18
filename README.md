@@ -39,6 +39,7 @@ java -jar notes-core-<version>.jar <configDir>
   - `dataFolder`: relative to `<configDir>`; defaults to `data`.
   - `trustedProxies`: IPs or CIDR ranges of reverse proxies whose `X-Forwarded-For` is believed.
   - `secureCookie`: set to `true` when served over HTTPS.
+  - `keepLogFiles`: days of logs to keep; defaults to 30, `0` keeps them forever.
 - `credentials.json` (required, see `credentials.example.json`): one entry per user. It is re-read
   when it changes, so there's no need to restart after adding or removing a user. Usernames are
   lowercase letters, digits, `.`, `_` and `-`.
@@ -48,3 +49,15 @@ To get the `password` object for a user:
 ```
 java -jar notes-core-<version>.jar hash-password
 ```
+
+## Logs
+
+In `<dataFolder>/logs`, rotated at midnight, with older days compressed to lz4 and deleted after
+`keepLogFiles` days:
+
+- `log.txt`: everything logged (application, Tomcat). Archives are `log.txt.1.lz4` (yesterday),
+  `log.txt.2.lz4`, etc.
+- `access-yyyy-MM-dd.log`: one line per HTTP request, in the Combined Log Format followed by the
+  response time. Query strings of `/api/` calls are left out.
+
+Read an archive with `lz4 -dc log.txt.1.lz4`.

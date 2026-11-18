@@ -5,25 +5,33 @@ import jakarta.servlet.http.HttpServletResponse;
 import net.pieroxy.notes.api.metadata.ServletApiContext;
 import net.pieroxy.notes.services.ClientGuardService;
 import net.pieroxy.notes.services.IServiceProvider;
+import net.pieroxy.notes.services.SessionService;
 import net.pieroxy.notes.utils.RateLimiter;
+import net.pieroxy.notes.utils.logging.AccessLog;
 import org.apache.catalina.connector.Request;
 import org.apache.catalina.connector.Response;
 import org.apache.catalina.valves.ValveBase;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.logging.Logger;
 
 /**
  * The web server's front door, on the engine's pipeline: sees every request, whether it's for the
- * API, a static file or a path that doesn't exist.
+ * API, a static file or a path that doesn't exist. As a Tomcat {@link org.apache.catalina.AccessLog},
+ * Tomcat also calls {@link #log} once each response is fully sent (so the byte count includes
+ * buffered output) and for requests rejected before the pipeline (e.g. malformed ones).
  */
-public class AccessValve extends ValveBase {
+public class AccessValve extends ValveBase implements org.apache.catalina.AccessLog {
   private final static Logger LOGGER = Logger.getLogger(AccessValve.class.getName());
   private final static int TOO_MANY_REQUESTS = 429;
 
   private final IServiceProvider serviceProvider;
+  private boolean requestAttributesEnabled;
 
   public AccessValve(IServiceProvider serviceProvider) {
     super(true);
@@ -64,7 +72,7 @@ public class AccessValve extends ValveBase {
 
     // A trusted proxy as the client means its forwarding header was missing: banning it would ban
     // everyone behind it.
-    if (response.getStatus() == HttpServletResponse.SC_NOT_FOUND && !hasValidSession(request)
+    if (response.getStatus() == HttpServletResponse.SC_NOT_FOUND && sessionUser(request) == null
         && !trustedProxies.isTrusted(client) && guard.notFound(client, request.getRequestURI())) {
       LOGGER.warning("Banned " + client + " for " + ClientGuardService.BAN_DURATION.toMinutes() + " min: "
           + ClientGuardService.MAX_NOT_FOUND + " requests answered 404 within "
@@ -72,7 +80,30 @@ public class AccessValve extends ValveBase {
     }
   }
 
-  private boolean hasValidSession(Request request) {
-    return serviceProvider.getSessionService().get(ServletApiContext.sessionIdOf(request.getCookies())) != null;
+  /** {@code time} is ignored: its unit changed across Tomcat versions, so the duration comes from the request's own start. */
+  @Override
+  public void log(Request request, Response response, long time) {
+    org.apache.coyote.Request coyote = request.getCoyoteRequest();
+    ZonedDateTime start = ZonedDateTime.ofInstant(Instant.ofEpochMilli(coyote.getStartTime()), ZoneId.systemDefault());
+    long durationMs = Math.max(0, (System.nanoTime() - coyote.getStartTimeNanos()) / 1_000_000);
+    AccessLog.record(start, AccessLog.format(request.getRemoteAddr(), sessionUser(request), start, request.getMethod(),
+        request.getRequestURI(), request.getQueryString(), request.getProtocol(), response.getStatus(),
+        response.getBytesWritten(false), request.getHeader("Referer"), request.getHeader("User-Agent"), durationMs));
+  }
+
+  @Override
+  public void setRequestAttributesEnabled(boolean requestAttributesEnabled) {
+    this.requestAttributesEnabled = requestAttributesEnabled;
+  }
+
+  @Override
+  public boolean getRequestAttributesEnabled() {
+    return requestAttributesEnabled;
+  }
+
+  /** The username when the request carries a valid session, null otherwise. */
+  private String sessionUser(Request request) {
+    SessionService.Session session = serviceProvider.getSessionService().get(ServletApiContext.sessionIdOf(request.getCookies()));
+    return session != null ? session.getUsername() : null;
   }
 }

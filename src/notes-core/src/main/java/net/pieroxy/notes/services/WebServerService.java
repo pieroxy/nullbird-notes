@@ -2,7 +2,6 @@ package net.pieroxy.notes.services;
 
 import net.pieroxy.notes.api.ApiServlet;
 import net.pieroxy.notes.config.Configuration;
-import net.pieroxy.notes.utils.logging.OneLineLogFormatter;
 import net.pieroxy.notes.webserver.AccessValve;
 import net.pieroxy.notes.webserver.WebappResourceExtractor;
 import org.apache.catalina.LifecycleException;
@@ -40,11 +39,6 @@ public class WebServerService implements Service {
 
   @Override
   public void start() {
-    // Tomcat's logging shim (org.apache.juli.logging.DirectJDKLog) replaces the root logger's
-    // ConsoleHandler formatter the first time any Tomcat class logs, unless this property points
-    // it at ours. Must be set before any Tomcat class loads.
-    System.setProperty("org.apache.juli.formatter", OneLineLogFormatter.class.getName());
-
     SettingsService settings = serviceProvider.getSettingsService();
     Configuration config = settings.getConfig();
     if (config.getHttpPort() < 1 || config.getHttpPort() > 65535) {

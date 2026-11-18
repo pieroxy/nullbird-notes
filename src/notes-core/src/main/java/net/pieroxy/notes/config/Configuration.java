@@ -14,6 +14,8 @@ public class Configuration {
   private List<String> trustedProxies;
   /** Set when the server is reached over HTTPS (typically through a reverse proxy). */
   private boolean secureCookie;
+  /** See {@code LogRetention#days}. */
+  private Integer keepLogFiles;
 
   public File resolveDataFolder(File configDir) {
     File folder = new File(dataFolder);
@@ -50,6 +52,14 @@ public class Configuration {
 
   public void setTrustedProxies(List<String> trustedProxies) {
     this.trustedProxies = trustedProxies;
+  }
+
+  public Integer getKeepLogFiles() {
+    return keepLogFiles;
+  }
+
+  public void setKeepLogFiles(Integer keepLogFiles) {
+    this.keepLogFiles = keepLogFiles;
   }
 
   public boolean isSecureCookie() {

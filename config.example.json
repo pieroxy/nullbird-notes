@@ -3,5 +3,6 @@
   "address": "",
   "dataFolder": "data",
   "trustedProxies": [],
-  "secureCookie": false
+  "secureCookie": false,
+  "keepLogFiles": 30
 }
