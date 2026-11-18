@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>net.pieroxy.notes</groupId>
+    <artifactId>notes-parent</artifactId>
+    <version>0.1.0</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>notes-core</artifactId>
+  <version>0.1.0</version>
+
+  <name>notes-core</name>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tomcat.embed</groupId>
+      <artifactId>tomcat-embed-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <defaultGoal>clean package</defaultGoal>
+    <plugins>
+      <plugin>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>export-version-info</id>
+            <phase>generate-resources</phase>
+            <configuration>
+              <target>
+                <exec failonerror="true" executable="git" outputproperty="GIT_REV">
+                  <arg value="rev-parse"/>
+                  <arg value="--short"/>
+                  <arg value="HEAD"/>
+                </exec>
+                <echo file="${project.build.outputDirectory}/MVN_VER">${project.version}</echo>
+                <echo file="${project.build.outputDirectory}/GIT_REV">${GIT_REV}</echo>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>generate-api-ts-stubs</id>
+            <phase>process-classes</phase>
+            <configuration>
+              <target>
+                <mkdir dir="${basedir}/../notes-webapp/src/ts/auto"/>
+                <java failonerror="true" fork="true" classname="net.pieroxy.notes.api.GenerateTsStubs">
+                  <arg value="${basedir}/../notes-webapp/src/ts/auto/ApiEndpoints.ts"/>
+                  <classpath>
+                    <path refid="maven.runtime.classpath"/>
+                  </classpath>
+                </java>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>build-webapp</id>
+            <phase>prepare-package</phase>
+            <configuration>
+              <target>
+                <copy todir="${basedir}/../notes-webapp/src/ts/auto/">
+                  <fileset dir="${project.build.directory}/typescript-generator/"/>
+                </copy>
+                <exec executable="npm" dir="${basedir}/../notes-webapp" failonerror="true">
+                  <arg value="install"/>
+                </exec>
+                <exec executable="npm" dir="${basedir}/../notes-webapp" failonerror="true">
+                  <arg value="run"/>
+                  <arg value="build"/>
+                </exec>
+                <delete dir="${project.build.outputDirectory}/webapp" failonerror="false"/>
+                <copy todir="${project.build.outputDirectory}/webapp">
+                  <fileset dir="${basedir}/../notes-webapp/dist"/>
+                </copy>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>cz.habarta.typescript-generator</groupId>
+        <artifactId>typescript-generator-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>generate</id>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+            <phase>process-classes</phase>
+          </execution>
+        </executions>
+        <configuration>
+          <jsonLibrary>gson</jsonLibrary>
+          <classesWithAnnotations>
+            <class>net.pieroxy.notes.api.metadata.TypeScriptType</class>
+          </classesWithAnnotations>
+          <outputKind>module</outputKind>
+          <outputFile>${project.build.directory}/typescript-generator/api-types.ts</outputFile>
+          <outputFileType>implementationFile</outputFileType>
+          <mapEnum>asEnum</mapEnum>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>net.pieroxy.notes.standalone.Runner</mainClass>
+                </transformer>
+              </transformers>
+              <filters>
+                <filter>
+                  <!-- Dependencies' signatures would no longer match the merged jar. -->
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

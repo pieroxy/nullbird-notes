@@ -1,0 +1,7 @@
+{
+  "httpPort": 8080,
+  "address": "",
+  "dataFolder": "data",
+  "trustedProxies": [],
+  "secureCookie": false
+}

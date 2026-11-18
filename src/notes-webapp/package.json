@@ -1,0 +1,28 @@
+{
+  "name": "notes-webapp",
+  "version": "0.1.0",
+  "description": "Notes web UI",
+  "private": true,
+  "scripts": {
+    "dev": "webpack --mode development",
+    "build": "webpack --mode production"
+  },
+  "license": "GPL-2.0-only",
+  "dependencies": {
+    "mithril": "2.3.8"
+  },
+  "devDependencies": {
+    "@types/mithril": "2.2.9",
+    "copy-webpack-plugin": "14.0.0",
+    "css-loader": "7.1.5",
+    "html-webpack-plugin": "5.6.8",
+    "mini-css-extract-plugin": "2.10.2",
+    "sass": "1.108.2",
+    "sass-loader": "17.1.0",
+    "style-loader": "4.0.0",
+    "ts-loader": "9.6.2",
+    "typescript": "6.0.3",
+    "webpack": "5.112.2",
+    "webpack-cli": "7.3.1"
+  }
+}

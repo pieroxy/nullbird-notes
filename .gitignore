@@ -1,1 +1,7 @@
 tests
+target/
+.idea/
+*.iml
+.DS_Store
+# Local runs: see README.md
+/run/

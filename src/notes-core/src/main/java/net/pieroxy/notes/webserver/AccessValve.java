@@ -1,0 +1,78 @@
+package net.pieroxy.notes.webserver;
+
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletResponse;
+import net.pieroxy.notes.api.metadata.ServletApiContext;
+import net.pieroxy.notes.services.ClientGuardService;
+import net.pieroxy.notes.services.IServiceProvider;
+import net.pieroxy.notes.utils.RateLimiter;
+import org.apache.catalina.connector.Request;
+import org.apache.catalina.connector.Response;
+import org.apache.catalina.valves.ValveBase;
+
+import java.io.IOException;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.logging.Logger;
+
+/**
+ * The web server's front door, on the engine's pipeline: sees every request, whether it's for the
+ * API, a static file or a path that doesn't exist.
+ */
+public class AccessValve extends ValveBase {
+  private final static Logger LOGGER = Logger.getLogger(AccessValve.class.getName());
+  private final static int TOO_MANY_REQUESTS = 429;
+
+  private final IServiceProvider serviceProvider;
+
+  public AccessValve(IServiceProvider serviceProvider) {
+    super(true);
+    this.serviceProvider = serviceProvider;
+  }
+
+  /**
+   * Behind a trusted reverse proxy, swaps the proxy's address for the client's (see
+   * {@link TrustedProxies}), for everything downstream. Refuses a banned client outright, and
+   * counts its 404s otherwise (see {@link ClientGuardService#notFound}).
+   */
+  @Override
+  public void invoke(Request request, Response response) throws IOException, ServletException {
+    TrustedProxies trustedProxies = serviceProvider.getSettingsService().getTrustedProxies();
+    if (!trustedProxies.isEmpty()) {
+      Enumeration<String> headers = request.getHeaders("X-Forwarded-For");
+      String forwardedFor = headers == null || !headers.hasMoreElements() ? null : String.join(",", Collections.list(headers));
+      String client = trustedProxies.clientAddress(request.getRemoteAddr(), forwardedFor);
+      if (!client.equals(request.getRemoteAddr())) {
+        request.setRemoteAddr(client);
+        request.setRemoteHost(client);
+      }
+    }
+
+    ClientGuardService guard = serviceProvider.getClientGuardService();
+    String client = request.getRemoteAddr();
+    try {
+      guard.checkBanned(client);
+    } catch (RateLimiter.RateExceededException e) {
+      response.setStatus(TOO_MANY_REQUESTS);
+      response.setHeader("Retry-After", String.valueOf(Math.max(1, (e.getRetryAfterMillis() + 999) / 1000)));
+      response.setContentType("text/plain;charset=UTF-8");
+      response.getWriter().write("Too many requests.");
+      return;
+    }
+
+    getNext().invoke(request, response);
+
+    // A trusted proxy as the client means its forwarding header was missing: banning it would ban
+    // everyone behind it.
+    if (response.getStatus() == HttpServletResponse.SC_NOT_FOUND && !hasValidSession(request)
+        && !trustedProxies.isTrusted(client) && guard.notFound(client, request.getRequestURI())) {
+      LOGGER.warning("Banned " + client + " for " + ClientGuardService.BAN_DURATION.toMinutes() + " min: "
+          + ClientGuardService.MAX_NOT_FOUND + " requests answered 404 within "
+          + ClientGuardService.NOT_FOUND_WINDOW.toSeconds() + " s, last one " + request.getRequestURI());
+    }
+  }
+
+  private boolean hasValidSession(Request request) {
+    return serviceProvider.getSessionService().get(ServletApiContext.sessionIdOf(request.getCookies())) != null;
+  }
+}
