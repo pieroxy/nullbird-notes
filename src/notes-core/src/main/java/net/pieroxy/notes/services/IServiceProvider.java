@@ -13,5 +13,7 @@ public interface IServiceProvider {
 
   ClientGuardService getClientGuardService();
 
+  NoteStoreService getNoteStoreService();
+
   WebServerService getWebServerService();
 }

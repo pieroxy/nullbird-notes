@@ -15,17 +15,20 @@ public class ServiceProvider implements IServiceProvider {
   private final SettingsService settingsService;
   private final SessionService sessionService;
   private final ClientGuardService clientGuardService;
+  private final NoteStoreService noteStoreService;
   private final WebServerService webServerService;
   private final List<Service> services;
   private final List<Service> startedInOrder = new ArrayList<>();
 
   public ServiceProvider(SettingsService settingsService, SessionService sessionService,
-                         ClientGuardService clientGuardService, WebServerService webServerService) {
+                         ClientGuardService clientGuardService, NoteStoreService noteStoreService,
+                         WebServerService webServerService) {
     this.settingsService = settingsService;
     this.sessionService = sessionService;
     this.clientGuardService = clientGuardService;
+    this.noteStoreService = noteStoreService;
     this.webServerService = webServerService;
-    this.services = List.of(settingsService, sessionService, clientGuardService, webServerService);
+    this.services = List.of(settingsService, sessionService, clientGuardService, noteStoreService, webServerService);
   }
 
   @Override
@@ -41,6 +44,11 @@ public class ServiceProvider implements IServiceProvider {
   @Override
   public ClientGuardService getClientGuardService() {
     return clientGuardService;
+  }
+
+  @Override
+  public NoteStoreService getNoteStoreService() {
+    return noteStoreService;
   }
 
   @Override
