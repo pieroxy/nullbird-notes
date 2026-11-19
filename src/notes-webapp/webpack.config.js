@@ -20,7 +20,8 @@ module.exports = (env, argv) => {
           test: /\.s[ac]ss$/i,
           include: path.resolve(__dirname, 'src/css'),
           use: [
-            devMode ? 'style-loader' : MiniCssExtractPlugin.loader,
+            // A file in both modes: the CSP refuses the <style> elements style-loader would inject.
+            MiniCssExtractPlugin.loader,
             { loader: 'css-loader', options: { sourceMap: true } },
             { loader: 'sass-loader', options: { sourceMap: true } },
           ],

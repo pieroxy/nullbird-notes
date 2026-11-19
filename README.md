@@ -65,6 +65,8 @@ to an older version needs a backup made before the upgrade.
 ## Behind a reverse proxy
 
 - Set `trustedProxies` to the proxy's address, and `secureCookie` to `true` if it serves HTTPS.
+- Over HTTPS, have the proxy send `Strict-Transport-Security`: the server can't know the site is
+  served over HTTPS, so it doesn't.
 - Clients wait for changes with requests held open up to 25 s: the proxy's read timeout must be
   longer (nginx's default of 60 s is fine).
 - The proxy's own request body limit must allow twice `maxNoteSizeMb`.

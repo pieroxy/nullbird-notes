@@ -3,12 +3,16 @@ package net.pieroxy.notes.services;
 import net.pieroxy.notes.api.ApiServlet;
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.webserver.AccessValve;
+import net.pieroxy.notes.webserver.SecurityHeadersFilter;
 import net.pieroxy.notes.webserver.WebappResourceExtractor;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.connector.Connector;
 import org.apache.catalina.core.StandardContext;
 import org.apache.catalina.servlets.DefaultServlet;
 import org.apache.catalina.startup.Tomcat;
+import org.apache.catalina.valves.ErrorReportValve;
+import org.apache.tomcat.util.descriptor.web.FilterDef;
+import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.apache.tomcat.util.modeler.Registry;
 
 import java.io.File;
@@ -56,6 +60,11 @@ public class WebServerService implements Service {
       tomcat.setBaseDir(new File(settings.getDataFolder(), "tomcat").getAbsolutePath());
       tomcat.setConnector(newConnector(config.getHttpPort(), config.getAddress()));
       tomcat.getEngine().getPipeline().addValve(new AccessValve(serviceProvider));
+      // In place of the host's default one, which would show Tomcat's version and stack traces.
+      ErrorReportValve errorReport = new ErrorReportValve();
+      errorReport.setShowReport(false);
+      errorReport.setShowServerInfo(false);
+      tomcat.getHost().getPipeline().addValve(errorReport);
 
       StandardContext ctx = (StandardContext) tomcat.addContext("", webappDir.getAbsolutePath());
       ctx.addWelcomeFile("index.html");
@@ -64,6 +73,7 @@ public class WebServerService implements Service {
       // Async: a long poll waits for changes without holding a thread (see BaseApiEndpoint).
       tomcat.addServlet("", "api", new ApiServlet(endpointServiceProvider())).setAsyncSupported(true);
       ctx.addServletMappingDecoded("/api/*", "api");
+      addSecurityHeaders(ctx);
       addMimeTypes(ctx);
 
       tomcat.start();
@@ -145,6 +155,18 @@ public class WebServerService implements Service {
     // the socket and bypasses the output filters, compression included.
     c.setProperty("useSendfile", "false");
     return c;
+  }
+
+  private static void addSecurityHeaders(StandardContext ctx) {
+    FilterDef def = new FilterDef();
+    def.setFilterName("securityHeaders");
+    def.setFilter(new SecurityHeadersFilter());
+    def.setAsyncSupported("true");
+    ctx.addFilterDef(def);
+    FilterMap map = new FilterMap();
+    map.setFilterName("securityHeaders");
+    map.addURLPatternDecoded("/*");
+    ctx.addFilterMap(map);
   }
 
   private static void addMimeTypes(StandardContext ctx) {

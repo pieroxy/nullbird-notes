@@ -176,6 +176,12 @@ class TestServer implements AutoCloseable {
       return new Response(response.statusCode(), response.body());
     }
 
+    /** Any path, e.g. a static file: the raw response, headers included. */
+    HttpResponse<String> raw(String path) throws Exception {
+      return http.send(withBuild(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))).build(),
+          HttpResponse.BodyHandlers.ofString());
+    }
+
     private HttpRequest.Builder withBuild(HttpRequest.Builder builder) {
       return build == null ? builder : builder.header(ApiServlet.BUILD_HEADER, build);
     }
