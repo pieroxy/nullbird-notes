@@ -7,14 +7,20 @@ export interface ApiResponse<T> {
   result?: T;
 }
 
-export interface ApiCallOptions<I> {
+/** What callers of the generated ApiEndpoints can pass. */
+export interface CallOptions {
+  /** Aborting it fails the call as UNREACHABLE: how callers put a timeout on it. */
+  signal?: AbortSignal;
+}
+
+export interface ApiCallOptions<I> extends CallOptions {
   method: "GET" | "POST";
   endpoint: string;
   body: I;
 }
 
 export enum ApiErrorKind {
-  /** No response at all: offline, DNS failure, server down. */
+  /** No response at all: offline, DNS failure, server down, or aborted (timed out). */
   UNREACHABLE,
   /** A response that isn't the API's JSON, e.g. a reverse proxy's error page. */
   BAD_RESPONSE,
@@ -42,20 +48,22 @@ export class Api {
     let response: Response;
     try {
       response = options.method === "GET"
-        ? await fetch(url + "?input=" + encodeURIComponent(JSON.stringify(options.body)))
+        ? await fetch(url + "?input=" + encodeURIComponent(JSON.stringify(options.body)), { signal: options.signal })
         : await fetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(options.body),
+            signal: options.signal,
           });
     } catch {
-      throw new ApiError(ApiErrorKind.UNREACHABLE, "Cannot reach the server.");
+      throw new ApiError(ApiErrorKind.UNREACHABLE, options.signal?.aborted ? "The server took too long to answer." : "Cannot reach the server.");
     }
 
     let payload: ApiResponse<O>;
     try {
       payload = await response.json();
     } catch {
+      if (options.signal?.aborted) throw new ApiError(ApiErrorKind.UNREACHABLE, "The server took too long to answer.");
       throw new ApiError(ApiErrorKind.BAD_RESPONSE, "Unexpected response from the server (HTTP " + response.status + ").", response.status);
     }
 

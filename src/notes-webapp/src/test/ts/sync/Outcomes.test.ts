@@ -1,7 +1,7 @@
 import { NoteInfo, PushResult, PushStatus, RejectReason } from "../../../ts/auto/api-types";
 import { LocalNote } from "../../../ts/sync/LocalNote";
 import {
-  applyPushResult, applyRemote, created, deletedLocally, edited, forResync, haveRevision, isPushable, needsFetch,
+  applyPushResult, applyRemote, changeOf, created, deletedLocally, edited, forResync, haveRevision, isPushable, needsFetch,
   prepareChange, remoteText, sortKey,
 } from "../../../ts/sync/Outcomes";
 import { computeSplice, fullSplice } from "../../../ts/sync/Splice";
@@ -60,6 +60,13 @@ describe("prepareChange", () => {
     expect(change.content).toBeUndefined();
     expect(change.splice).toBeUndefined();
     expect(note.pending).toEqual({ changeId: "c1", submitted: BASE, deleted: true });
+  });
+
+  test("a retry sends the very same change, whatever was typed since", () => {
+    const { change, note } = prepareChange(edited(synced(BASE, 3), BASE + "first", 600), "c1");
+    const typedMore = edited(note, BASE + "first and more", 700);
+
+    expect(changeOf(typedMore)).toEqual(change);
   });
 
   test("carries basedOnChangeId", () => {

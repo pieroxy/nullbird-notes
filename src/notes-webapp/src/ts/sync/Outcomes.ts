@@ -13,26 +13,31 @@ export function isPushable(note: LocalNote): boolean {
   return note.dirty && !note.pending && !note.error;
 }
 
-/**
- * The change pushing {@code note}, without its contentHash (computing it is asynchronous). The
- * caller saves the returned pending change before sending.
- */
+/** {@code note} with its push in flight: the pending change is saved before sending. */
 export function prepareChange(note: LocalNote, changeId: string): { change: Omit<NoteChange, "contentHash">; note: LocalNote } {
-  const submitted = note.deleted ? note.baseText : note.text;
-  const pending = { changeId, submitted, deleted: note.deleted };
+  const pendingNote = { ...note, pending: { changeId, submitted: note.deleted ? note.baseText : note.text, deleted: note.deleted } };
+  return { change: changeOf(pendingNote), note: pendingNote };
+}
+
+/**
+ * The change {@code note}'s pending push sends, without its contentHash (computing it is
+ * asynchronous). Rebuilt identically for a retry, whatever was typed since: same changeId, same text.
+ */
+export function changeOf(note: LocalNote): Omit<NoteChange, "contentHash"> {
+  const pending = note.pending!;
   const change: Omit<NoteChange, "contentHash"> = {
-    changeId,
+    changeId: pending.changeId,
     noteId: note.id,
     baseRevision: note.baseRevision,
     basedOnChangeId: note.basedOnChangeId,
-    deleted: note.deleted,
+    deleted: pending.deleted,
   };
-  if (!note.deleted) {
-    const splice = computeSplice(note.baseText, note.text);
-    if (!note.forceFull && splice.middle.length < note.text.length) change.splice = splice;
-    else change.content = note.text;
+  if (!pending.deleted) {
+    const splice = computeSplice(note.baseText, pending.submitted);
+    if (!note.forceFull && splice.middle.length < pending.submitted.length) change.splice = splice;
+    else change.content = pending.submitted;
   }
-  return { change, note: { ...note, pending } };
+  return change;
 }
 
 /**

@@ -44,7 +44,7 @@ public class GenerateTsStubs {
     write("/* tslint:disable */");
     write("/* eslint-disable */");
     write("// Generated on " + new Date());
-    write("import { Api } from \"../utils/api/Api\";");
+    write("import { Api, CallOptions } from \"../utils/api/Api\";");
     writeLater("export class ApiEndpoints {");
 
     Set<String> toImport = new HashSet<>();
@@ -60,11 +60,12 @@ public class GenerateTsStubs {
         if (!output.equals("any")) toImport.add(output);
 
         writeLater("    public static " + name + " = {");
-        writeLater("        call:(input:" + input + "):Promise<" + output + "> => {");
+        writeLater("        call:(input:" + input + ", options?:CallOptions):Promise<" + output + "> => {");
         writeLater("            return Api.call<" + input + ", " + output + ">({");
         writeLater("                    method:\"" + endpoint.method() + "\",");
         writeLater("                    body:input,");
-        writeLater("                    endpoint:\"" + name + "\"");
+        writeLater("                    endpoint:\"" + name + "\",");
+        writeLater("                    signal:options?.signal");
         writeLater("            });");
         writeLater("        }");
         writeLater("    }");
