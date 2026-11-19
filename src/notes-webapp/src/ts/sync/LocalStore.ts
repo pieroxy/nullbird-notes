@@ -56,7 +56,14 @@ export class LocalStore {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(NOTES, "readwrite");
       const store = transaction.objectStore(NOTES);
-      for (const note of notes) store.put(note);
+      try {
+        for (const note of notes) store.put(note);
+      } catch (e) {
+        // A put that throws (e.g. no id) doesn't stop the transaction: the ones before it would commit.
+        transaction.abort();
+        reject(e);
+        return;
+      }
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error);
