@@ -3,6 +3,7 @@ package net.pieroxy.notes.standalone;
 import com.google.gson.Gson;
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.services.ClientGuardService;
+import net.pieroxy.notes.services.NoteService;
 import net.pieroxy.notes.services.NoteStoreService;
 import net.pieroxy.notes.services.ServiceProvider;
 import net.pieroxy.notes.services.SessionService;
@@ -69,7 +70,7 @@ public class Runner {
 
     try {
       serviceProvider = new ServiceProvider(new SettingsService(config, credentialsFile, dataFolder), new SessionService(),
-          new ClientGuardService(), new NoteStoreService(), new WebServerService());
+          new ClientGuardService(), new NoteStoreService(), new NoteService(), new WebServerService());
       serviceProvider.init();
     } catch (IllegalStateException | IllegalArgumentException e) {
       LOGGER.severe(e.getMessage());

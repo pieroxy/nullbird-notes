@@ -29,7 +29,7 @@ public class WebServerService implements Service {
 
   @Override
   public List<Class<? extends Service>> getDependencies() {
-    return List.of(SettingsService.class, SessionService.class, ClientGuardService.class, NoteStoreService.class);
+    return List.of(SettingsService.class, SessionService.class, ClientGuardService.class, NoteStoreService.class, NoteService.class);
   }
 
   @Override
@@ -106,6 +106,11 @@ public class WebServerService implements Service {
       @Override
       public NoteStoreService getNoteStoreService() {
         return scoped.getNoteStoreService();
+      }
+
+      @Override
+      public NoteService getNoteService() {
+        return scoped.getNoteService();
       }
 
       @Override

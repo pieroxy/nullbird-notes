@@ -35,7 +35,8 @@ public class ServiceProviderTest {
   /** Never init()ed: nothing touches disk or network. */
   private ServiceProvider buildServiceProvider() {
     SettingsService settingsService = new SettingsService(new Configuration(), new File(tmp.getRoot(), "credentials.json"), tmp.getRoot());
-    return new ServiceProvider(settingsService, new SessionService(), new ClientGuardService(), new NoteStoreService(), new WebServerService());
+    return new ServiceProvider(settingsService, new SessionService(), new ClientGuardService(), new NoteStoreService(), new NoteService(),
+        new WebServerService());
   }
 
   @Test

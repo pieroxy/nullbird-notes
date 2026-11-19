@@ -41,6 +41,21 @@ public class RequiredFieldsTest {
     boolean flag;
   }
 
+  @TypeScriptType
+  enum Kind { A, B }
+
+  @TypeScriptType
+  static class WithEnum {
+    @Required
+    Kind kind;
+  }
+
+  @Test
+  public void enumsAreValuesNotObjects() {
+    assertEquals(List.of(), RequiredFields.findOptionalPrimitives(List.of(Kind.class, WithEnum.class)));
+    RequiredFields.check(JsonParser.parseString("{\"kind\":\"A\"}"), WithEnum.class);
+  }
+
   private static void check(String json) {
     RequiredFields.check(JsonParser.parseString(json), Input.class);
   }

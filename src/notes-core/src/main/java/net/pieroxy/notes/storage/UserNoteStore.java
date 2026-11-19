@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import net.jpountz.lz4.LZ4FrameInputStream;
 import net.jpountz.lz4.LZ4FrameOutputStream;
 import net.pieroxy.notes.utils.AtomicFiles;
+import net.pieroxy.notes.utils.Hashes;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -14,13 +15,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -130,7 +128,7 @@ public class UserNoteStore {
     Path contentFile = noteDir(noteId).resolve("content.txt");
     if (Files.isRegularFile(contentFile)) {
       byte[] bytes = Files.readAllBytes(contentFile);
-      if (sha256(bytes).equals(meta.contentHash())) return new String(bytes, StandardCharsets.UTF_8);
+      if (Hashes.sha256(bytes).equals(meta.contentHash())) return new String(bytes, StandardCharsets.UTF_8);
     }
     LOGGER.warning("Note " + noteId + " of " + root.getFileName() + ": content.txt doesn't match revision " + meta.revision()
         + ", restoring it from that revision");
@@ -179,7 +177,7 @@ public class UserNoteStore {
     AtomicFiles.write(noteDir.resolve("content.txt"), content);
     commitHook.after(CommitStep.CONTENT);
     NoteMeta meta = new NoteMeta(noteId, revision, seq, current == null ? now : current.createdAt(), now, write.deleted(),
-        title(write.content()), content.length, sha256(content), write.changeId(), write.conflictOf());
+        title(write.content()), content.length, Hashes.sha256(content), write.changeId(), write.conflictOf());
     AtomicFiles.write(noteDir.resolve("note.json"), PRETTY_GSON.toJson(meta).getBytes(StandardCharsets.UTF_8));
 
     index.put(noteId, meta);
@@ -197,7 +195,7 @@ public class UserNoteStore {
   }
 
   /** The first non-blank line, trimmed, at most {@link #TITLE_MAX_LENGTH} code points. */
-  static String title(String content) {
+  public static String title(String content) {
     for (String line : content.split("\n", -1)) {
       String trimmed = line.strip();
       if (trimmed.isEmpty()) continue;
@@ -271,13 +269,5 @@ public class UserNoteStore {
       out.write(data);
     }
     return bytes.toByteArray();
-  }
-
-  private static String sha256(byte[] data) {
-    try {
-      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(data));
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 is a mandatory JDK algorithm", e);
-    }
   }
 }

@@ -19,11 +19,13 @@ public final class RequiredFields {
 
   /**
    * @return one message per primitive field of {@code types} (and their superclasses) without
-   *     {@link Required}: absent, it would silently read as 0 or false.
+   *     {@link Required}: absent, it would silently read as 0 or false. Enums, serialized as
+   *     their names, have no fields to check.
    */
   public static List<String> findOptionalPrimitives(List<Class<?>> types) {
     List<String> errors = new ArrayList<>();
     for (Class<?> type : types) {
+      if (type.isEnum()) continue;
       for (Field field : serializedFields(type)) {
         if (field.getType().isPrimitive() && !field.isAnnotationPresent(Required.class)) {
           errors.add(field.getDeclaringClass().getName() + "." + field.getName()
@@ -58,7 +60,7 @@ public final class RequiredFields {
   }
 
   private static void checkValue(JsonElement value, Type type, String path) {
-    if (type instanceof Class<?> c && c.isAnnotationPresent(TypeScriptType.class)) {
+    if (type instanceof Class<?> c && c.isAnnotationPresent(TypeScriptType.class) && !c.isEnum()) {
       if (!value.isJsonObject()) throw new InvalidInputException(path + " must be an object.");
       checkObject(value.getAsJsonObject(), c, path + ".");
     } else if (type instanceof ParameterizedType p && p.getRawType() instanceof Class<?> raw

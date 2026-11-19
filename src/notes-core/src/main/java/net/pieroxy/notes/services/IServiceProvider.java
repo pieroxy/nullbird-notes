@@ -15,5 +15,7 @@ public interface IServiceProvider {
 
   NoteStoreService getNoteStoreService();
 
+  NoteService getNoteService();
+
   WebServerService getWebServerService();
 }
