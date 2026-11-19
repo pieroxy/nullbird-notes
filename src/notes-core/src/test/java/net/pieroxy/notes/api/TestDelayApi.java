@@ -21,7 +21,6 @@ public class TestDelayApi extends BaseApiEndpoint<TestDelayApi.Input, TestDelayA
 
   public static class Output {
     String value;
-    String thread;
   }
 
   @Override
@@ -31,7 +30,6 @@ public class TestDelayApi extends BaseApiEndpoint<TestDelayApi.Input, TestDelayA
       if (input.fail) throw new InvalidInputException("Failed on purpose.");
       Output output = new Output();
       output.value = input.value;
-      output.thread = Thread.currentThread().getName();
       return output;
     }, later);
   }

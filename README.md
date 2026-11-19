@@ -51,6 +51,13 @@ To get the `password` object for a user:
 java -jar notes-core-<version>.jar hash-password
 ```
 
+## Behind a reverse proxy
+
+- Set `trustedProxies` to the proxy's address, and `secureCookie` to `true` if it serves HTTPS.
+- Clients wait for changes with requests held open up to 25 s: the proxy's read timeout must be
+  longer (nginx's default of 60 s is fine).
+- The proxy's own request body limit must allow twice `maxNoteSizeMb`.
+
 ## Logs
 
 In `<dataFolder>/logs`, rotated at midnight, with older days compressed to lz4 and deleted after

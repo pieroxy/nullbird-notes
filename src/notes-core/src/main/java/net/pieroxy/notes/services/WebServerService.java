@@ -9,6 +9,7 @@ import org.apache.catalina.connector.Connector;
 import org.apache.catalina.core.StandardContext;
 import org.apache.catalina.servlets.DefaultServlet;
 import org.apache.catalina.startup.Tomcat;
+import org.apache.tomcat.util.modeler.Registry;
 
 import java.io.File;
 import java.io.IOException;
@@ -49,6 +50,8 @@ public class WebServerService implements Service {
       File webappDir = new File(settings.getDataFolder(), "webapp-ui");
       WebappResourceExtractor.extract(webappDir);
 
+      // Tomcat's JMX beans are unused: without them, several servers can share a JVM (as in tests).
+      Registry.disableRegistry();
       tomcat = new Tomcat();
       tomcat.setBaseDir(new File(settings.getDataFolder(), "tomcat").getAbsolutePath());
       tomcat.setConnector(newConnector(config.getHttpPort(), config.getAddress()));
