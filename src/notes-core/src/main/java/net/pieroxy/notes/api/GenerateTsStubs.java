@@ -1,6 +1,6 @@
 package net.pieroxy.notes.api;
 
-import net.pieroxy.notes.api.metadata.AbstractApiEndpoint;
+import net.pieroxy.notes.api.metadata.BaseApiEndpoint;
 import net.pieroxy.notes.api.metadata.ApiEndpoint;
 import net.pieroxy.notes.api.metadata.Endpoint;
 import net.pieroxy.notes.api.metadata.RequiredFields;
@@ -80,7 +80,7 @@ public class GenerateTsStubs {
   }
 
   private static String getType(Class<?> leafClass, int argIndex) {
-    Class<?> clazz = GenericTypeArgumentResolver.resolve(leafClass, AbstractApiEndpoint.class, argIndex);
+    Class<?> clazz = GenericTypeArgumentResolver.resolve(leafClass, BaseApiEndpoint.class, argIndex);
     String res;
     if (clazz == Object.class) {
       res = "any";

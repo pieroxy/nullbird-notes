@@ -14,6 +14,7 @@ import net.pieroxy.notes.sync.PushStatus;
 import net.pieroxy.notes.sync.RejectReason;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.utils.Hashes;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -24,6 +25,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -60,6 +63,11 @@ public class NoteServiceTest {
         new WebServerService());
     stores.init(provider);
     service.init(provider);
+  }
+
+  @After
+  public void tearDown() {
+    service.destroy();
   }
 
   private String nextChangeId() {
@@ -395,6 +403,55 @@ public class NoteServiceTest {
     assertEquals(List.of(), none.notes());
     assertEquals(5, none.seq());
     assertEquals(first.storeId(), none.storeId());
+  }
+
+  @Test
+  public void awaitingChangesAnswersRightAwayWhenThereAreSome() throws Exception {
+    push(A, 0, "a");
+    CompletableFuture<ChangesPage> future = service.awaitChanges("alice", 0, 60_000);
+
+    assertTrue(future.isDone());
+    assertEquals(List.of(A), future.get().notes().stream().map(NoteInfo::id).toList());
+  }
+
+  @Test
+  public void awaitingChangesWithACursorAheadOfTheServerAnswersRightAway() throws Exception {
+    push(A, 0, "a");
+    CompletableFuture<ChangesPage> future = service.awaitChanges("alice", 9, 60_000);
+
+    assertTrue(future.isDone());
+    assertEquals(1, future.get().seq());
+  }
+
+  @Test
+  public void awaitingChangesWakesUpOnTheNextChange() throws Exception {
+    push(A, 0, "a");
+    CompletableFuture<ChangesPage> future = service.awaitChanges("alice", 1, 60_000);
+    assertFalse(future.isDone());
+
+    push(B, 0, "b");
+    ChangesPage page = future.get(5, TimeUnit.SECONDS);
+    assertEquals(List.of(B), page.notes().stream().map(NoteInfo::id).toList());
+    assertEquals(2, page.seq());
+  }
+
+  @Test
+  public void awaitingChangesTimesOutWithNothingNew() throws Exception {
+    push(A, 0, "a");
+    long start = System.nanoTime();
+    ChangesPage page = service.awaitChanges("alice", 1, 200).get(5, TimeUnit.SECONDS);
+
+    assertTrue(System.nanoTime() - start >= 200_000_000L);
+    assertEquals(List.of(), page.notes());
+    assertEquals(1, page.seq());
+  }
+
+  @Test
+  public void awaitingChangesOnlyWakesUpForThatUser() throws Exception {
+    CompletableFuture<ChangesPage> alice = service.awaitChanges("alice", 0, 300);
+    service.push("bob", "device-9", edit(nextChangeId(), A, 0, "bob's"));
+
+    assertEquals(List.of(), alice.get(5, TimeUnit.SECONDS).notes());
   }
 
   @Test

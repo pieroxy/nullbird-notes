@@ -12,9 +12,9 @@ import java.util.Map;
  * directly but through one or more intermediate generic superclasses, each of which only knows
  * *its own* type variables, not the leaf class's concrete types. For example: {@code VersionApi
  * extends AbstractAuthenticatedEndpoint<VersionApiInput, VersionApiOutput> extends
- * AbstractApiEndpoint<I, O>} — reading {@code AbstractApiEndpoint}'s declared type argument at
+ * AbstractApiEndpoint<I, O> extends BaseApiEndpoint<I, O>} — reading {@code BaseApiEndpoint}'s declared type argument at
  * that middle level would just return the type variable {@code I}, not {@code VersionApiInput}.
- * Shared by {@code AbstractApiEndpoint} (at endpoint construction time) and
+ * Shared by {@code BaseApiEndpoint} (at endpoint construction time) and
  * {@code GenerateTsStubs} (at TS-stub generation time).
  */
 public class GenericTypeArgumentResolver {

@@ -73,6 +73,7 @@ public class UserNoteStore {
   private final Map<String, ChangeRecord> changes = new HashMap<>();
   private long lastSeq;
   private String storeId;
+  private final List<Runnable> seqWaiters = new ArrayList<>();
   CommitHook commitHook = step -> {};
 
   private UserNoteStore(Path root, Clock clock) {
@@ -109,6 +110,28 @@ public class UserNoteStore {
    */
   public synchronized String getStoreId() {
     return storeId;
+  }
+
+  /**
+   * Runs {@code callback} once, as soon as {@link #getLastSeq()} differs from {@code seq}: right
+   * away if it already does, otherwise on the next commit. It runs while this store is locked: it
+   * must return quickly, and hand any real work to another thread.
+   *
+   * @return cancels the wait; a no-op once {@code callback} has run.
+   */
+  public synchronized Runnable awaitSeqChange(long seq, Runnable callback) {
+    if (lastSeq != seq) {
+      callback.run();
+      return () -> {};
+    }
+    // A wrapper per call: removing by identity, even if the same callback waits twice.
+    Runnable waiter = callback::run;
+    seqWaiters.add(waiter);
+    return () -> {
+      synchronized (this) {
+        seqWaiters.remove(waiter);
+      }
+    };
   }
 
   /** @return null if there's no such note. */
@@ -183,6 +206,7 @@ public class UserNoteStore {
     index.put(noteId, meta);
     lastSeq = seq;
     if (write.changeId() != null) changes.put(write.changeId(), new ChangeRecord(noteId, revision));
+    wakeSeqWaiters();
     commitHook.after(CommitStep.META);
 
     try {
@@ -192,6 +216,18 @@ public class UserNoteStore {
     }
     commitHook.after(CommitStep.USER_STATE);
     return meta;
+  }
+
+  private void wakeSeqWaiters() {
+    List<Runnable> waiters = new ArrayList<>(seqWaiters);
+    seqWaiters.clear();
+    for (Runnable waiter : waiters) {
+      try {
+        waiter.run();
+      } catch (RuntimeException e) {
+        LOGGER.log(Level.SEVERE, "A seq waiter of " + root.getFileName() + " failed", e);
+      }
+    }
   }
 
   /** The first non-blank line, trimmed, at most {@link #TITLE_MAX_LENGTH} code points. */

@@ -17,6 +17,18 @@ public abstract class AbstractAuthenticatedEndpoint<I extends AuthenticatedApiIn
 
   @Override
   public final O process(I input, ApiContext context) throws Exception {
+    authenticate(serviceProvider, input, context);
+    return processAuthenticated(input);
+  }
+
+  public abstract O processAuthenticated(I input) throws Exception;
+
+  /**
+   * Fills {@code input}'s identity from the session cookie.
+   *
+   * @throws NotAuthenticatedException if there's no valid session.
+   */
+  static void authenticate(IServiceProvider serviceProvider, AuthenticatedApiInput input, ApiContext context) {
     String sessionId = context.getSessionId();
     SessionService.Session session = serviceProvider.getSessionService().get(sessionId);
     if (session == null) {
@@ -24,8 +36,5 @@ public abstract class AbstractAuthenticatedEndpoint<I extends AuthenticatedApiIn
     }
     input.setSessionId(sessionId);
     input.setUsername(session.getUsername());
-    return processAuthenticated(input);
   }
-
-  public abstract O processAuthenticated(I input) throws Exception;
 }

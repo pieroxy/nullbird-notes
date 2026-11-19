@@ -1,7 +1,7 @@
 package net.pieroxy.notes.api.metadata;
 
 /**
- * Special-cased by {@link AbstractApiEndpoint} into an HTTP 429 with a {@code Retry-After}
+ * Special-cased by {@link BaseApiEndpoint} into an HTTP 429 with a {@code Retry-After}
  * header, its message shown to the user as is. Not logged there: the endpoint throwing it knows
  * best what's worth logging.
  */

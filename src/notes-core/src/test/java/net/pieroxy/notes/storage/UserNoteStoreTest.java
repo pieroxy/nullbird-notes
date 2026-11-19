@@ -91,6 +91,51 @@ public class UserNoteStoreTest {
   }
 
   @Test
+  public void aSeqWaiterRunsRightAwayWhenTheSeqAlreadyDiffers() throws Exception {
+    store.commit(A, 0, write("a", "c1"));
+    int[] runs = {0};
+
+    store.awaitSeqChange(0, () -> runs[0]++);
+    store.awaitSeqChange(5, () -> runs[0]++);
+    assertEquals(2, runs[0]);
+  }
+
+  @Test
+  public void aSeqWaiterRunsOnceOnTheNextCommit() throws Exception {
+    int[] runs = {0};
+    store.awaitSeqChange(0, () -> runs[0]++);
+    assertEquals(0, runs[0]);
+
+    store.commit(A, 0, write("a", "c1"));
+    store.commit(A, 1, write("b", "c2"));
+    assertEquals(1, runs[0]);
+  }
+
+  @Test
+  public void aCancelledSeqWaiterNeverRuns() throws Exception {
+    int[] runs = {0};
+    Runnable callback = () -> runs[0]++;
+    Runnable cancel = store.awaitSeqChange(0, callback);
+    store.awaitSeqChange(0, callback);
+    cancel.run();
+
+    store.commit(A, 0, write("a", "c1"));
+    assertEquals(1, runs[0]);
+  }
+
+  @Test
+  public void aFailingSeqWaiterDoesNotBreakTheCommitNorTheOtherWaiters() throws Exception {
+    int[] runs = {0};
+    store.awaitSeqChange(0, () -> {
+      throw new IllegalStateException("boom");
+    });
+    store.awaitSeqChange(0, () -> runs[0]++);
+
+    assertEquals(1, store.commit(A, 0, write("a", "c1")).revision());
+    assertEquals(1, runs[0]);
+  }
+
+  @Test
   public void createsANote() throws Exception {
     NoteMeta meta = store.commit(A, 0, write("Shopping\nmilk", "c1"));
 

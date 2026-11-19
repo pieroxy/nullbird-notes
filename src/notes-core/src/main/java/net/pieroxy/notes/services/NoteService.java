@@ -22,10 +22,16 @@ import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.utils.Hashes;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 /**
@@ -45,6 +51,7 @@ public class NoteService implements Service {
   private final int changesPageSize;
   private SettingsService settings;
   private NoteStoreService noteStores;
+  private ScheduledExecutorService timer;
 
   public NoteService() {
     this(CHANGES_PAGE_SIZE);
@@ -63,6 +70,16 @@ public class NoteService implements Service {
   public void init(IServiceProvider serviceProvider) {
     settings = serviceProvider.getSettingsService();
     noteStores = serviceProvider.getNoteStoreService();
+    timer = Executors.newSingleThreadScheduledExecutor(r -> {
+      Thread t = new Thread(r, "long-poll-timer");
+      t.setDaemon(true);
+      return t;
+    });
+  }
+
+  @Override
+  public void destroy() {
+    if (timer != null) timer.shutdownNow();
   }
 
   public PushResult push(String username, String deviceId, NoteChange change) throws IOException {
@@ -87,6 +104,33 @@ public class NoteService implements Service {
       long seq = more ? page.get(page.size() - 1).seq() : store.getLastSeq();
       return new ChangesPage(store.getStoreId(), seq, page.stream().map(NoteService::info).toList(), more);
     }
+  }
+
+  /**
+   * {@link #changes} as soon as there's something to report: right away if the user's seq isn't
+   * {@code since} (including a cursor ahead of the server, which the client must learn about),
+   * otherwise on their next change, or after {@code timeoutMillis} with nothing new. Waiting holds
+   * no thread.
+   */
+  public CompletableFuture<ChangesPage> awaitChanges(String username, long since, long timeoutMillis) throws IOException {
+    UserNoteStore store = noteStores.getStore(username);
+    CompletableFuture<Void> signal = new CompletableFuture<>();
+    Runnable cancel = store.awaitSeqChange(since, () -> signal.complete(null));
+    if (signal.isDone()) return CompletableFuture.completedFuture(changes(username, since));
+
+    ScheduledFuture<?> timeout = timer.schedule(() -> signal.complete(null), timeoutMillis, TimeUnit.MILLISECONDS);
+    signal.whenComplete((ignored, error) -> {
+      timeout.cancel(false);
+      cancel.run();
+    });
+    // Off the thread that completed the signal: possibly a commit, holding the store's lock.
+    return signal.thenApplyAsync(ignored -> {
+      try {
+        return changes(username, since);
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    });
   }
 
   /** @throws InvalidInputException past {@link #MAX_NOTES_PER_REQUEST}. */

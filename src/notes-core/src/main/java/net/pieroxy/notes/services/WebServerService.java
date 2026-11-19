@@ -58,7 +58,8 @@ public class WebServerService implements Service {
       ctx.addWelcomeFile("index.html");
       tomcat.addServlet("", "default", new DefaultServlet());
       ctx.addServletMappingDecoded("/", "default");
-      tomcat.addServlet("", "api", new ApiServlet(endpointServiceProvider()));
+      // Async: a long poll waits for changes without holding a thread (see BaseApiEndpoint).
+      tomcat.addServlet("", "api", new ApiServlet(endpointServiceProvider())).setAsyncSupported(true);
       ctx.addServletMappingDecoded("/api/*", "api");
       addMimeTypes(ctx);
 
