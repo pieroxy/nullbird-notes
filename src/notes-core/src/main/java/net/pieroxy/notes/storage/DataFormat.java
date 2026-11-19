@@ -18,7 +18,7 @@ import java.util.logging.Logger;
  */
 public final class DataFormat {
   private final static Logger LOGGER = Logger.getLogger(DataFormat.class.getName());
-  public static final int CURRENT_VERSION = 1;
+  public static final int CURRENT_VERSION = 2;
   static final String FILE_NAME = "format.json";
   private static final Gson GSON = new Gson();
 
@@ -30,7 +30,16 @@ public final class DataFormat {
   }
 
   /** In order: one per version below {@link #CURRENT_VERSION}. */
-  private static final List<Migration> MIGRATIONS = List.of();
+  private static final List<Migration> MIGRATIONS = List.of(
+      // 2 stores older revisions as deltas: format 1's complete revision files are still valid.
+      new Unchanged(1));
+
+  /** A version bump with nothing to rewrite: it only keeps older servers off newer data. */
+  private record Unchanged(int from) implements Migration {
+    @Override
+    public void migrate(Path dataFolder) {
+    }
+  }
 
   private record Format(Integer version) {}
 

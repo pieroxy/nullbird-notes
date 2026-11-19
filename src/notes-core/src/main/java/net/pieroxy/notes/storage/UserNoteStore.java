@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.jpountz.lz4.LZ4FrameInputStream;
 import net.jpountz.lz4.LZ4FrameOutputStream;
+import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.utils.AtomicFiles;
 import net.pieroxy.notes.utils.Hashes;
 
@@ -39,16 +40,22 @@ import java.util.stream.Collectors;
  * notes/&lt;id&gt;/revisions/NNNNNN.json.lz4   every {@link Revision}
  * notes/&lt;id&gt;/meta/NNNNNN.json  every {@link MetaRevision}
  * </pre>
+ * The head revision's file holds its text; an older one's, a splice turning the next revision's
+ * text back into its own (a reverse delta), except every {@link #FULL_REVISION_INTERVAL}th one
+ * and those the splice wouldn't make much smaller. Reading a revision applies the splices from
+ * the nearest complete one: recent revisions, the ones sync reads, are the cheapest.
  * Every note's note.json is loaded into memory when the store opens: listing and change queries
  * never touch the disk. Methods are synchronized: commits for a user are serialized.
  * <p>
  * A commit writes, each atomically, the revision, content.txt, note.json (the commit point) and
- * user.json; a metadata commit, the metadata revision, note.json and user.json. What an
- * interruption leaves behind never needs a repair pass on startup:
+ * user.json, then turns the previous revision into a delta; a metadata commit, the metadata
+ * revision, note.json and user.json. What an interruption leaves behind never needs a repair pass
+ * on startup:
  * <ul>
  *   <li>a revision (or metadata revision) past note.json's is never read, and the next commit overwrites it;</li>
  *   <li>a content.txt not matching note.json's hash is rewritten from the head revision when read;</li>
  *   <li>a stale user.json is superseded by the notes' own seq on load;</li>
+ *   <li>a previous revision not turned into a delta stays complete: only bigger;</li>
  *   <li>a note folder without note.json (an interrupted creation) is ignored.</li>
  * </ul>
  */
@@ -57,11 +64,13 @@ public class UserNoteStore {
   /** Lowercase UUID: note IDs name folders. */
   public static final Pattern NOTE_ID_PATTERN = Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
   static final int TITLE_MAX_LENGTH = 100;
+  /** Bounds the splices applied to read an old revision. */
+  static final int FULL_REVISION_INTERVAL = 200;
   private final static Gson GSON = new Gson();
   private final static Gson PRETTY_GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
   /** The steps of a commit, in order. */
-  enum CommitStep { REVISION, CONTENT, META, USER_STATE }
+  enum CommitStep { REVISION, CONTENT, META, USER_STATE, PREVIOUS_AS_DELTA }
 
   /** Visible for tests: throwing from it simulates a crash right after that step. */
   interface CommitHook {
@@ -69,6 +78,19 @@ public class UserNoteStore {
   }
 
   private record UserState(long lastSeq, String storeId) {}
+
+  /**
+   * A revision file: {@code content}, or {@code delta} applied to revision {@code deltaBase}'s
+   * text, which must give {@code contentHash}. The submitted text is {@code submittedDelta} applied
+   * to the revision's text; format 1 files hold it whole, in {@code submittedContent}.
+   */
+  private record StoredRevision(int revision, long seq, long at, String changeId, String deviceId, boolean deleted, String content,
+                                Integer deltaBase, Splice delta, String contentHash, String submittedContent, Splice submittedDelta) {
+    Revision toRevision(String text) {
+      String submitted = submittedDelta != null ? submittedDelta.apply(text) : submittedContent;
+      return new Revision(revision, seq, at, changeId, deviceId, deleted, text, submitted);
+    }
+  }
 
   private final Path root;
   private final Path notesDir;
@@ -82,6 +104,8 @@ public class UserNoteStore {
   private String storeId;
   private final List<Runnable> seqWaiters = new ArrayList<>();
   CommitHook commitHook = step -> {};
+  /** Visible for tests. */
+  int fullRevisionInterval = FULL_REVISION_INTERVAL;
 
   private UserNoteStore(Path root, Clock clock) {
     this.root = root;
@@ -205,9 +229,10 @@ public class UserNoteStore {
     if (Files.exists(revisionFile)) {
       LOGGER.info("Note " + noteId + " of " + root.getFileName() + ": overwriting revision " + revision + " left by an interrupted commit");
     }
-    String submitted = write.content().equals(write.submittedContent()) ? null : write.submittedContent();
-    Revision rev = new Revision(revision, seq, now, write.changeId(), write.deviceId(), write.deleted(), write.content(), submitted);
-    AtomicFiles.write(revisionFile, lz4(GSON.toJson(rev).getBytes(StandardCharsets.UTF_8)));
+    Splice submitted = write.submittedContent() == null || write.content().equals(write.submittedContent()) ? null
+        : Splice.compute(write.content(), write.submittedContent());
+    writeRevisionFile(noteId, new StoredRevision(revision, seq, now, write.changeId(), write.deviceId(), write.deleted(), write.content(),
+        null, null, null, null, submitted));
     commitHook.after(CommitStep.REVISION);
     AtomicFiles.write(noteDir.resolve("content.txt"), content);
     commitHook.after(CommitStep.CONTENT);
@@ -220,7 +245,27 @@ public class UserNoteStore {
     writeMeta(meta);
     if (write.changeId() != null) changes.put(write.changeId(), new ChangeRecord(noteId, revision));
     afterMetaWritten();
+    storeAsDelta(noteId, head, write.content());
+    commitHook.after(CommitStep.PREVIOUS_AS_DELTA);
     return meta;
+  }
+
+  /** Turns {@code revision}, until now the head, into a splice of the new head's text. Failing leaves it complete. */
+  private void storeAsDelta(String noteId, int revision, String nextText) {
+    if (revision < 1 || revision % fullRevisionInterval == 0) return;
+    try {
+      StoredRevision stored = readStored(noteId, revision);
+      if (stored.content() == null) return;
+      String text = stored.content();
+      Splice delta = Splice.compute(nextText, text);
+      if (delta.middle().length() > text.length() / 2) return;
+      Splice submitted = stored.submittedDelta() != null ? stored.submittedDelta()
+          : stored.submittedContent() != null ? Splice.compute(text, stored.submittedContent()) : null;
+      writeRevisionFile(noteId, new StoredRevision(stored.revision(), stored.seq(), stored.at(), stored.changeId(), stored.deviceId(),
+          stored.deleted(), null, revision + 1, delta, Hashes.sha256(text), null, submitted));
+    } catch (IOException | RuntimeException e) {
+      LOGGER.log(Level.WARNING, "Note " + noteId + " of " + root.getFileName() + ": revision " + revision + " stays complete", e);
+    }
   }
 
   /**
@@ -372,10 +417,34 @@ public class UserNoteStore {
     return noteDir(noteId).resolve("meta").resolve(String.format("%06d.json", metaRevision));
   }
 
+  /** Follows the deltas up to a complete revision, then applies them back down. */
   private Revision readRevisionFile(String noteId, int revision) throws IOException {
-    try (InputStream in = new LZ4FrameInputStream(Files.newInputStream(revisionFile(noteId, revision)))) {
-      return GSON.fromJson(new String(in.readAllBytes(), StandardCharsets.UTF_8), Revision.class);
+    List<StoredRevision> deltas = new ArrayList<>();
+    StoredRevision stored = readStored(noteId, revision);
+    while (stored.content() == null) {
+      if (stored.delta() == null || stored.deltaBase() == null || stored.deltaBase() <= stored.revision()) {
+        throw new IOException("Note " + noteId + " of " + root.getFileName() + ": revision " + stored.revision() + " is corrupt");
+      }
+      deltas.add(stored);
+      stored = readStored(noteId, stored.deltaBase());
     }
+    String text = stored.content();
+    for (int i = deltas.size() - 1; i >= 0; i--) text = deltas.get(i).delta().apply(text);
+    StoredRevision requested = deltas.isEmpty() ? stored : deltas.get(0);
+    if (requested.contentHash() != null && !Hashes.sha256(text).equals(requested.contentHash())) {
+      throw new IOException("Note " + noteId + " of " + root.getFileName() + ": revision " + revision + " doesn't match its hash");
+    }
+    return requested.toRevision(text);
+  }
+
+  private StoredRevision readStored(String noteId, int revision) throws IOException {
+    try (InputStream in = new LZ4FrameInputStream(Files.newInputStream(revisionFile(noteId, revision)))) {
+      return GSON.fromJson(new String(in.readAllBytes(), StandardCharsets.UTF_8), StoredRevision.class);
+    }
+  }
+
+  private void writeRevisionFile(String noteId, StoredRevision stored) throws IOException {
+    AtomicFiles.write(revisionFile(noteId, stored.revision()), lz4(GSON.toJson(stored).getBytes(StandardCharsets.UTF_8)));
   }
 
   private static byte[] lz4(byte[] data) throws IOException {

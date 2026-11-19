@@ -1,11 +1,18 @@
 package net.pieroxy.notes.storage;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import net.jpountz.lz4.LZ4FrameInputStream;
+import net.jpountz.lz4.LZ4FrameOutputStream;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,6 +20,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -488,5 +496,113 @@ public class UserNoteStoreTest {
   public void aMetadataChangeToAnUnknownNoteWritesNothing() throws Exception {
     assertNull(store.commitMeta(A, meta("m1", List.of("x"), null, null, null)));
     assertEquals(0, store.getLastSeq());
+  }
+
+  private Path revisionPath(String noteId, int revision) {
+    return root.resolve("notes").resolve(noteId).resolve("revisions").resolve(String.format("%06d.json.lz4", revision));
+  }
+
+  private JsonObject storedRevision(String noteId, int revision) throws IOException {
+    try (InputStream in = new LZ4FrameInputStream(Files.newInputStream(revisionPath(noteId, revision)))) {
+      return JsonParser.parseString(new String(in.readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject();
+    }
+  }
+
+  private void writeStoredRevision(String noteId, int revision, JsonObject json) throws IOException {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (OutputStream out = new LZ4FrameOutputStream(bytes)) {
+      out.write(json.toString().getBytes(StandardCharsets.UTF_8));
+    }
+    Files.write(revisionPath(noteId, revision), bytes.toByteArray());
+  }
+
+  @Test
+  public void olderRevisionsAreStoredAsSmallDeltasAndReadBackExactly() throws Exception {
+    String big = "Line of a long note.\n".repeat(50_000);
+    List<String> texts = new ArrayList<>();
+    for (int i = 0; i < 12; i++) {
+      String text = big.substring(0, 500_000) + "edit " + i + "\n" + big.substring(500_000);
+      texts.add(text);
+      store.commit(A, i, write(text, "c" + i));
+    }
+
+    for (int i = 1; i < 12; i++) {
+      assertTrue(storedRevision(A, i).has("delta"));
+      assertTrue(Files.size(revisionPath(A, i)) < 1_000);
+      assertEquals(texts.get(i - 1), store.readRevision(A, i).content());
+    }
+    assertTrue(storedRevision(A, 12).has("content"));
+    assertEquals(texts.get(11), store.readRevision(A, 12).content());
+  }
+
+  @Test
+  public void theSubmittedContentSurvivesBeingStoredAsADelta() throws Exception {
+    store.commit(A, 0, new NoteWrite("merged text", false, "c1", "device-1", "what the client sent", null));
+    store.commit(A, 1, write("merged text, then edited", "c2"));
+
+    assertTrue(storedRevision(A, 1).has("delta"));
+    Revision first = store.readRevision(A, 1);
+    assertEquals("merged text", first.content());
+    assertEquals("what the client sent", first.submittedContent());
+  }
+
+  @Test
+  public void everyIntervalARevisionStaysComplete() throws Exception {
+    int interval = 5;
+    store.fullRevisionInterval = interval;
+    for (int i = 0; i <= interval + 1; i++) store.commit(A, i, write("text " + i, "c" + i));
+
+    assertTrue(storedRevision(A, interval).has("content"));
+    assertTrue(storedRevision(A, interval - 1).has("delta"));
+    assertTrue(storedRevision(A, interval + 1).has("delta"));
+    assertEquals("text 0", store.readRevision(A, 1).content());
+  }
+
+  @Test
+  public void aRevisionAsBigAsItsDeltaStaysComplete() throws Exception {
+    store.commit(A, 0, write("short", "c1"));
+    store.commit(A, 1, write("entirely different", "c2"));
+
+    assertTrue(storedRevision(A, 1).has("content"));
+    assertEquals("short", store.readRevision(A, 1).content());
+  }
+
+  @Test
+  public void crashBeforeTheDeltaLeavesThePreviousRevisionComplete() throws Exception {
+    store.commit(A, 0, write("a long enough first text", "c1"));
+    commitCrashingAfter(UserNoteStore.CommitStep.USER_STATE, A, 1, "a long enough first text, edited");
+    reopen();
+
+    assertTrue(storedRevision(A, 1).has("content"));
+    assertEquals("a long enough first text", store.readRevision(A, 1).content());
+    assertEquals("a long enough first text, edited", store.readRevision(A, 2).content());
+    store.commit(A, 2, write("a long enough first text, edited twice", "c3"));
+    assertTrue(storedRevision(A, 2).has("delta"));
+    assertEquals("a long enough first text", store.readRevision(A, 1).content());
+  }
+
+  @Test
+  public void aDeltaThatDoesntRebuildItsRevisionIsReported() throws Exception {
+    store.commit(A, 0, write("a long enough first text", "c1"));
+    store.commit(A, 1, write("a long enough first text, edited", "c2"));
+    JsonObject stored = storedRevision(A, 1);
+    stored.getAsJsonObject("delta").addProperty("middle", "!");
+    writeStoredRevision(A, 1, stored);
+
+    assertThrows(IOException.class, () -> store.readRevision(A, 1));
+  }
+
+  @Test
+  public void aFormatOneRevisionIsReadAndTurnedIntoADelta() throws Exception {
+    store.commit(A, 0, write("a long enough first text", "c1"));
+    JsonObject legacy = storedRevision(A, 1);
+    legacy.addProperty("submittedContent", "what was sent");
+    writeStoredRevision(A, 1, legacy);
+    assertEquals("what was sent", store.readRevision(A, 1).submittedContent());
+
+    store.commit(A, 1, write("a long enough first text, edited", "c2"));
+    assertTrue(storedRevision(A, 1).has("delta"));
+    assertEquals("a long enough first text", store.readRevision(A, 1).content());
+    assertEquals("what was sent", store.readRevision(A, 1).submittedContent());
   }
 }
