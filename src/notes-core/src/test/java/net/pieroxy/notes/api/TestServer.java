@@ -3,6 +3,7 @@ package net.pieroxy.notes.api;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import net.pieroxy.notes.api.metadata.ServletApiContext;
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.config.CredentialsFile;
 import net.pieroxy.notes.config.PasswordHasher;
@@ -19,6 +20,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.CookieManager;
+import java.net.HttpCookie;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -77,7 +79,12 @@ class TestServer implements AutoCloseable {
 
   /** A device: its own cookies, so its own session. */
   Client client() {
-    return new Client();
+    return new Client(new CookieManager());
+  }
+
+  /** The same device (same cookies) talking to this server, e.g. after a restart. */
+  Client client(Client device) {
+    return new Client(device.cookies);
   }
 
   @Override
@@ -98,7 +105,13 @@ class TestServer implements AutoCloseable {
   }
 
   class Client {
-    private final HttpClient http = HttpClient.newBuilder().cookieHandler(new CookieManager()).build();
+    private final CookieManager cookies;
+    private final HttpClient http;
+
+    private Client(CookieManager cookies) {
+      this.cookies = cookies;
+      http = HttpClient.newBuilder().cookieHandler(cookies).build();
+    }
 
     Client login(String username, String password) throws Exception {
       JsonObject input = new JsonObject();
@@ -106,6 +119,20 @@ class TestServer implements AutoCloseable {
       input.addProperty("password", password);
       if (!post("Login", input.toString()).result().get("ok").getAsBoolean()) throw new AssertionError("Login refused");
       return this;
+    }
+
+    /** @return the session cookie's value, null if none. */
+    String sessionCookie() {
+      return cookies.getCookieStore().getCookies().stream()
+          .filter(c -> c.getName().equals(ServletApiContext.SESSION_COOKIE)).map(HttpCookie::getValue).findFirst().orElse(null);
+    }
+
+    /** Sends {@code value} as the session cookie from now on, as a client ignoring the server's cookies would. */
+    void setSessionCookie(String value) {
+      HttpCookie cookie = new HttpCookie(ServletApiContext.SESSION_COOKIE, value);
+      cookie.setPath("/");
+      cookie.setVersion(0);
+      cookies.getCookieStore().add(URI.create(base()), cookie);
     }
 
     Response get(String endpoint, String input) throws Exception {

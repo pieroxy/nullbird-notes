@@ -24,15 +24,19 @@ public abstract class AbstractAuthenticatedEndpoint<I extends AuthenticatedApiIn
   public abstract O processAuthenticated(I input) throws Exception;
 
   /**
-   * Fills {@code input}'s identity from the session cookie.
+   * Fills {@code input}'s identity from the session cookie, and records the session's use.
    *
    * @throws NotAuthenticatedException if there's no valid session.
    */
   static void authenticate(IServiceProvider serviceProvider, AuthenticatedApiInput input, ApiContext context) {
     String sessionId = context.getSessionId();
-    SessionService.Session session = serviceProvider.getSessionService().get(sessionId);
+    SessionService sessions = serviceProvider.getSessionService();
+    SessionService.Session session = sessions.use(sessionId);
     if (session == null) {
       throw new NotAuthenticatedException("Session expired.");
+    }
+    if (sessions.cookieRefreshDue(session)) {
+      context.setSessionCookie(sessionId, serviceProvider.getSettingsService().isSessionCookieSecure());
     }
     input.setSessionId(sessionId);
     input.setUsername(session.getUsername());

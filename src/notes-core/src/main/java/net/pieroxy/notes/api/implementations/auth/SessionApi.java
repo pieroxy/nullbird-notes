@@ -25,9 +25,13 @@ public class SessionApi extends AbstractApiEndpoint<SessionApiInput, SessionApiO
   @Override
   public SessionApiOutput process(SessionApiInput input, ApiContext context) {
     String sessionId = context.getSessionId();
-    SessionService.Session session = serviceProvider.getSessionService().get(sessionId);
+    SessionService sessions = serviceProvider.getSessionService();
+    SessionService.Session session = sessions.resume(sessionId);
+    boolean secure = serviceProvider.getSettingsService().isSessionCookieSecure();
     if (session == null && sessionId != null) {
-      context.clearSessionCookie(serviceProvider.getSettingsService().isSessionCookieSecure());
+      context.clearSessionCookie(secure);
+    } else if (session != null && sessions.cookieRefreshDue(session)) {
+      context.setSessionCookie(sessionId, secure);
     }
     return new SessionApiOutput(session != null, session != null ? session.getUsername() : null);
   }

@@ -54,6 +54,10 @@ To get the `password` object for a user:
 java -jar notes-core-<version>.jar hash-password
 ```
 
+A login lasts until 30 days without use. Sessions survive restarts: they're kept in
+`<dataFolder>/sessions.json`, which holds only hashes of the session cookies. Deleting it logs
+everyone out.
+
 ## Behind a reverse proxy
 
 - Set `trustedProxies` to the proxy's address, and `secureCookie` to `true` if it serves HTTPS.

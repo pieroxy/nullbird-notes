@@ -52,7 +52,7 @@ public class LoginApi extends AbstractApiEndpoint<LoginApiInput, LoginApiOutput>
       return new LoginApiOutput(false, null);
     }
     guard.loginSucceeded(client);
-    String sessionId = serviceProvider.getSessionService().create(user.getUsername());
+    String sessionId = serviceProvider.getSessionService().create(user.getUsername(), context.getUserAgent());
     context.setSessionCookie(sessionId, serviceProvider.getSettingsService().isSessionCookieSecure());
     LOGGER.info("User \"" + user.getUsername() + "\" logged in from " + client);
     return new LoginApiOutput(true, user.getUsername());
