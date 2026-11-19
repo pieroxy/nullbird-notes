@@ -9,6 +9,7 @@ import net.pieroxy.notes.services.ServiceProvider;
 import net.pieroxy.notes.services.SessionService;
 import net.pieroxy.notes.services.SettingsService;
 import net.pieroxy.notes.services.WebServerService;
+import net.pieroxy.notes.storage.DataFormat;
 import net.pieroxy.notes.utils.BuildInfo;
 import net.pieroxy.notes.utils.logging.LogRetention;
 import net.pieroxy.notes.utils.logging.LoggingBootstrap;
@@ -69,10 +70,11 @@ public class Runner {
     LOGGER.info("Config directory: " + configDir.getAbsoluteFile().toPath().normalize() + ", data folder: " + dataFolder);
 
     try {
+      DataFormat.upgrade(dataFolder.toPath());
       serviceProvider = new ServiceProvider(new SettingsService(config, credentialsFile, dataFolder), new SessionService(),
           new ClientGuardService(), new NoteStoreService(), new NoteService(), new WebServerService());
       serviceProvider.init();
-    } catch (IllegalStateException | IllegalArgumentException e) {
+    } catch (IllegalStateException | IllegalArgumentException | IOException e) {
       LOGGER.severe(e.getMessage());
       if (serviceProvider != null) serviceProvider.destroy();
       System.exit(1);

@@ -58,6 +58,10 @@ A login lasts until 30 days without use. Sessions survive restarts: they're kept
 `<dataFolder>/sessions.json`, which holds only hashes of the session cookies. Deleting it logs
 everyone out.
 
+`<dataFolder>/format.json` holds the version of the data's format. On startup, data in an older
+format is migrated; data in a newer one (written by a later version) stops the server: going back
+to an older version needs a backup made before the upgrade.
+
 ## Behind a reverse proxy
 
 - Set `trustedProxies` to the proxy's address, and `secureCookie` to `true` if it serves HTTPS.
