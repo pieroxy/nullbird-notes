@@ -30,7 +30,7 @@ public class AsyncEndpointTest {
 
   @After
   public void tearDown() {
-    server.close();
+    if (server != null) server.close();
   }
 
   @Test

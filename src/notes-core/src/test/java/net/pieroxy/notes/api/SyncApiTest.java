@@ -43,7 +43,7 @@ public class SyncApiTest {
 
   @After
   public void tearDown() {
-    server.close();
+    if (server != null) server.close();
   }
 
   private static String pushInput(String deviceId, NoteChange... changes) {

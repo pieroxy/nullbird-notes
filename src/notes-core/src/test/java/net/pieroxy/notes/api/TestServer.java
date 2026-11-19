@@ -17,6 +17,7 @@ import net.pieroxy.notes.services.WebServerService;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.CookieManager;
 import java.net.ServerSocket;
 import java.net.URI;
@@ -26,6 +27,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +35,17 @@ import java.util.concurrent.CompletableFuture;
 
 /** The whole server on a free local port, for tests going through HTTP. */
 class TestServer implements AutoCloseable {
+  static {
+    // catalina.home is JVM-wide: unset, the first Tomcat would set it to its own base dir, deleted
+    // with its test while servers of tests running in parallel still use it.
+    try {
+      Path home = Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir"), "notes-tests-catalina-home"));
+      System.setProperty("catalina.home", home.toString());
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
   private final ServiceProvider services;
   private final int port;
 
