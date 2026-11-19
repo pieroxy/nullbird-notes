@@ -15,6 +15,10 @@
 
   <name>notes-core</name>
 
+  <properties>
+    <skipTests>false</skipTests>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.google.code.gson</groupId>
@@ -85,12 +89,16 @@
             <id>build-webapp</id>
             <phase>prepare-package</phase>
             <configuration>
-              <target>
+              <target xmlns:unless="ant:unless">
                 <copy todir="${basedir}/../notes-webapp/src/ts/auto/">
                   <fileset dir="${project.build.directory}/typescript-generator/"/>
                 </copy>
                 <exec executable="npm" dir="${basedir}/../notes-webapp" failonerror="true">
                   <arg value="install"/>
+                </exec>
+                <!-- Skipped along with the Java tests by -DskipTests. -->
+                <exec executable="npm" dir="${basedir}/../notes-webapp" failonerror="true" unless:true="${skipTests}">
+                  <arg value="test"/>
                 </exec>
                 <exec executable="npm" dir="${basedir}/../notes-webapp" failonerror="true">
                   <arg value="run"/>
