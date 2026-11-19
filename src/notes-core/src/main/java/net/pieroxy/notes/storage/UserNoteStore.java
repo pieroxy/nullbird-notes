@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -31,7 +32,7 @@ import java.util.stream.Collectors;
 /**
  * One user's notes on disk:
  * <pre>
- * user.json                      {"lastSeq": N}
+ * user.json                      {"lastSeq": N, "storeId": "uuid"}
  * notes/&lt;id&gt;/note.json           {@link NoteMeta}
  * notes/&lt;id&gt;/content.txt         the head revision's content, plain UTF-8
  * notes/&lt;id&gt;/revisions/NNNNNN.json.lz4   every {@link Revision}
@@ -64,7 +65,7 @@ public class UserNoteStore {
     void after(CommitStep step) throws IOException;
   }
 
-  private record UserState(long lastSeq) {}
+  private record UserState(long lastSeq, String storeId) {}
 
   private final Path root;
   private final Path notesDir;
@@ -73,6 +74,7 @@ public class UserNoteStore {
   // Only each note's last change survives a restart (see NoteMeta#lastChangeId).
   private final Map<String, ChangeRecord> changes = new HashMap<>();
   private long lastSeq;
+  private String storeId;
   CommitHook commitHook = step -> {};
 
   private UserNoteStore(Path root, Clock clock) {
@@ -101,6 +103,14 @@ public class UserNoteStore {
 
   public synchronized long getLastSeq() {
     return lastSeq;
+  }
+
+  /**
+   * Random, created with user.json and never changed: a client whose cursor came with another
+   * storeId must resync from scratch (the data was restored from a backup, or user.json was lost).
+   */
+  public synchronized String getStoreId() {
+    return storeId;
   }
 
   /** @return null if there's no such note. */
@@ -162,7 +172,8 @@ public class UserNoteStore {
     if (Files.exists(revisionFile)) {
       LOGGER.info("Note " + noteId + " of " + root.getFileName() + ": overwriting revision " + revision + " left by an interrupted commit");
     }
-    Revision rev = new Revision(revision, seq, now, write.changeId(), write.deviceId(), write.deleted(), write.content());
+    String submitted = write.content().equals(write.submittedContent()) ? null : write.submittedContent();
+    Revision rev = new Revision(revision, seq, now, write.changeId(), write.deviceId(), write.deleted(), write.content(), submitted);
     AtomicFiles.write(revisionFile, lz4(GSON.toJson(rev).getBytes(StandardCharsets.UTF_8)));
     commitHook.after(CommitStep.REVISION);
     AtomicFiles.write(noteDir.resolve("content.txt"), content);
@@ -177,7 +188,7 @@ public class UserNoteStore {
     commitHook.after(CommitStep.META);
 
     try {
-      AtomicFiles.write(root.resolve("user.json"), GSON.toJson(new UserState(seq)).getBytes(StandardCharsets.UTF_8));
+      writeUserState();
     } catch (IOException e) {
       LOGGER.log(Level.SEVERE, "Could not write user.json of " + root.getFileName() + " (recovered from the notes on next load)", e);
     }
@@ -196,12 +207,29 @@ public class UserNoteStore {
     return "";
   }
 
+  /** A missing storeId is created and saved right away: it must not change once a client has seen it. */
   private void load() throws IOException {
     Path userState = root.resolve("user.json");
     if (Files.isRegularFile(userState)) {
       UserState state = GSON.fromJson(Files.readString(userState, StandardCharsets.UTF_8), UserState.class);
-      if (state != null) lastSeq = state.lastSeq();
+      if (state != null) {
+        lastSeq = state.lastSeq();
+        storeId = state.storeId();
+      }
     }
+    loadNotes();
+    if (storeId == null) {
+      storeId = UUID.randomUUID().toString();
+      writeUserState();
+      LOGGER.info("New store ID for " + root.getFileName() + ": its clients will resync from scratch");
+    }
+  }
+
+  private void writeUserState() throws IOException {
+    AtomicFiles.write(root.resolve("user.json"), GSON.toJson(new UserState(lastSeq, storeId)).getBytes(StandardCharsets.UTF_8));
+  }
+
+  private void loadNotes() throws IOException {
     if (!Files.isDirectory(notesDir)) return;
     try (DirectoryStream<Path> dirs = Files.newDirectoryStream(notesDir, Files::isDirectory)) {
       for (Path dir : dirs) {

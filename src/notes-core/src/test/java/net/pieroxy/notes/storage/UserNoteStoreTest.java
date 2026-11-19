@@ -16,6 +16,8 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -73,7 +75,7 @@ public class UserNoteStoreTest {
   }
 
   private static NoteWrite write(String content, String changeId) {
-    return new NoteWrite(content, false, changeId, "device-1", null);
+    return new NoteWrite(content, false, changeId, "device-1", null, null);
   }
 
   private NoteMeta commitCrashingAfter(UserNoteStore.CommitStep crashStep, String noteId, int expectedRevision, String content)
@@ -132,7 +134,7 @@ public class UserNoteStoreTest {
   @Test
   public void aDeletedNoteKeepsItsContent() throws Exception {
     store.commit(A, 0, write("keep me", "c1"));
-    NoteMeta deleted = store.commit(A, 1, new NoteWrite("keep me", true, "c2", "device-1", null));
+    NoteMeta deleted = store.commit(A, 1, new NoteWrite("keep me", true, "c2", "device-1", null, null));
 
     assertTrue(deleted.deleted());
     assertEquals("keep me", store.readContent(A));
@@ -185,7 +187,7 @@ public class UserNoteStoreTest {
   @Test
   public void reloadsEverythingFromDisk() throws Exception {
     ConflictOf conflictOf = new ConflictOf(B);
-    NoteMeta a = store.commit(A, 0, new NoteWrite("copy", false, "c1", "device-1", conflictOf));
+    NoteMeta a = store.commit(A, 0, new NoteWrite("copy", false, "c1", "device-1", null, conflictOf));
     store.commit(B, 0, write("b1", "c2"));
     NoteMeta b = store.commit(B, 1, write("b2", "c3"));
 
@@ -251,13 +253,46 @@ public class UserNoteStoreTest {
   }
 
   @Test
-  public void theSeqNeverGoesBackwardsWithoutUserJson() throws Exception {
+  public void theSeqNeverGoesBackwardsWithoutUserJsonButTheStoreIdChanges() throws Exception {
     store.commit(A, 0, write("a", "c1"));
     store.commit(A, 1, write("a", "c2"));
+    String storeId = store.getStoreId();
     Files.delete(root.resolve("user.json"));
 
     reopen();
     assertEquals(2, store.getLastSeq());
+    assertNotEquals(storeId, store.getStoreId());
+  }
+
+  @Test
+  public void theStoreIdIsCreatedOnceAndSavedRightAway() throws Exception {
+    String storeId = store.getStoreId();
+    assertNotNull(storeId);
+    assertTrue(Files.readString(root.resolve("user.json")).contains(storeId));
+
+    store.commit(A, 0, write("a", "c1"));
+    reopen();
+    assertEquals(storeId, store.getStoreId());
+  }
+
+  @Test
+  public void anOldUserJsonWithoutStoreIdGetsOne() throws Exception {
+    store.commit(A, 0, write("a", "c1"));
+    Files.writeString(root.resolve("user.json"), "{\"lastSeq\":1}");
+
+    reopen();
+    assertNotNull(store.getStoreId());
+    assertEquals(1, store.getLastSeq());
+    assertEquals(store.getStoreId(), reopen().getStoreId());
+  }
+
+  @Test
+  public void keepsTheSubmittedContentOnlyWhenItDiffers() throws Exception {
+    store.commit(A, 0, new NoteWrite("merged", false, "c1", "device-1", "what the client sent", null));
+    store.commit(A, 1, new NoteWrite("same", false, "c2", "device-1", "same", null));
+
+    assertEquals("what the client sent", store.readRevision(A, 1).submittedContent());
+    assertNull(store.readRevision(A, 2).submittedContent());
   }
 
   @Test
