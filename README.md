@@ -12,6 +12,9 @@ its state. License: GPLv2.
 | `src/notes-apple` | iOS / macOS app (Swift). Not started. |
 | `src/notes-android` | Android app (Java). Not started. |
 
+The web UI's icons are copied from [Lucide](https://lucide.dev) (ISC and MIT licenses, see
+`src/notes-webapp/src/licenses/lucide.txt`).
+
 The web UI's API types and calls (`src/notes-webapp/src/ts/auto/`) are generated from the
 backend's Java classes during the Maven build: never edit them.
 

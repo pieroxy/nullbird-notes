@@ -44,7 +44,10 @@ module.exports = (env, argv) => {
       }),
       // Referenced by absolute URLs from index.html, so webpack wouldn't emit them on its own.
       new CopyPlugin({
-        patterns: [{ from: 'src/icons', to: 'icons', globOptions: { ignore: ['**/.DS_Store'] } }],
+        patterns: [
+          { from: 'src/icons', to: 'icons', globOptions: { ignore: ['**/.DS_Store'] } },
+          { from: 'src/licenses', to: 'licenses' },
+        ],
       }),
     ],
   };

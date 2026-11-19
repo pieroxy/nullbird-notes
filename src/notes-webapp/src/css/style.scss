@@ -14,6 +14,7 @@
   --status-offline: #d9822b;
   --conflict-bg: #fff4d6;
   --error-bg: #fde7e7;
+  --shadow: 0 4px 16px rgba(0, 0, 0, .12);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -33,6 +34,7 @@
     --status-offline: #e59a4f;
     --conflict-bg: #4a3d17;
     --error-bg: #4d2222;
+    --shadow: 0 4px 16px rgba(0, 0, 0, .5);
   }
 }
 
@@ -124,22 +126,36 @@ button {
 
   .topbar {
     display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--border);
     min-height: 48px;
+    border-bottom: 1px solid var(--border);
 
-    .appname {
-      font-weight: 600;
+    .listside, .noteside {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 8px;
+    }
+
+    // As wide as the list below it.
+    .listside {
+      width: 300px;
+      flex-shrink: 0;
+      padding-left: 12px;
+      border-right: 1px solid var(--border);
+      background: var(--bg-pane);
+    }
+
+    .noteside {
+      flex: 1;
+      justify-content: flex-end;
     }
 
     .spacer {
       flex: 1;
     }
 
-    .username {
-      color: var(--text-muted);
+    .back {
+      display: none;
     }
   }
 
@@ -163,15 +179,6 @@ button {
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-pane);
-
-  .notelisthead {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
-
-    button {
-      width: 100%;
-    }
-  }
 
   ul {
     list-style: none;
@@ -250,27 +257,6 @@ button {
 
   &.none {
     justify-content: center;
-
-    .version {
-      text-align: center;
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-  }
-
-  .editorhead {
-    display: flex;
-    align-items: center;
-    padding: 6px 12px;
-    border-bottom: 1px solid var(--border);
-
-    .spacer {
-      flex: 1;
-    }
-
-    .back {
-      display: none;
-    }
   }
 
   textarea {
@@ -302,6 +288,84 @@ button {
   }
 }
 
+button.icon, button.plain {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+
+  &:hover {
+    background: var(--bg-selected);
+  }
+}
+
+svg.icon {
+  width: 20px;
+  height: 20px;
+}
+
+.dropdown {
+  position: relative;
+  min-width: 0;
+}
+
+.dropdownpanel {
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: 10;
+  min-width: 220px;
+  max-width: calc(100vw - 16px);
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+
+  &.left {
+    left: 0;
+  }
+
+  &.right {
+    right: 0;
+  }
+
+  p, .menuuser, .menuversion {
+    margin: 0;
+    padding: 6px 14px;
+  }
+
+  .muted, .menuuser, .menuversion {
+    color: var(--text-muted);
+  }
+
+  .menuversion {
+    font-size: 12px;
+  }
+
+  .menuitem {
+    display: block;
+    width: 100%;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+
+    &:hover {
+      background: var(--bg-selected);
+    }
+  }
+
+  .panelretry {
+    margin: 4px 14px;
+  }
+}
+
 button.link {
   padding: 0;
   border: none;
@@ -328,20 +392,36 @@ button.link {
 
 .syncindicator {
   display: flex;
+  flex: 1;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   font-size: 13px;
+
+  .dropdowntrigger {
+    gap: 8px;
+    max-width: 100%;
+    min-width: 0;
+    font-size: inherit;
+  }
+
+  .inlineretry {
+    flex-shrink: 0;
+  }
 }
 
 .syncstatus {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+
+  .detail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   &::before {
     content: "";
@@ -378,8 +458,24 @@ button.link {
 
 @media (max-width: 700px) {
   .notespage {
-    .topbar .username {
-      display: none;
+    .topbar {
+      .listside {
+        flex: 1;
+        width: auto;
+        border-right: none;
+        background: transparent;
+      }
+
+      .noteside {
+        flex: none;
+      }
+    }
+
+    // Only the state; the rest is in its panel.
+    .syncindicator {
+      .detail, .chip, .inlineretry {
+        display: none;
+      }
     }
 
     .notelist {
@@ -398,10 +494,10 @@ button.link {
 
       .editor {
         display: flex;
+      }
 
-        .back {
-          display: inline;
-        }
+      .topbar .back {
+        display: inline-flex;
       }
     }
   }

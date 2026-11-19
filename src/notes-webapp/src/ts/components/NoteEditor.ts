@@ -9,9 +9,7 @@ export interface NoteEditorAttrs {
   /** For a note with unresolved conflict copies: their ids. */
   conflictCopies: string[];
   onEdit: (text: string) => void;
-  onDelete: () => void;
   onOpen: (id: string) => void;
-  onBack: () => void;
 }
 
 /**
@@ -43,15 +41,6 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   view({ attrs }: m.Vnode<NoteEditorAttrs>): m.Children {
     const note = attrs.note;
     return m("section.editor", [
-      m(".editorhead", [
-        m("button.link.back", { onclick: attrs.onBack }, "‹ Notes"),
-        m("span.spacer"),
-        m("button.secondary", {
-          onclick: () => {
-            if (confirm("Delete this note?")) attrs.onDelete();
-          },
-        }, "Delete"),
-      ]),
       note.info?.conflictOf ? m(".banner.conflict", [
         "Conflict copy: this device's version of ",
         m("button.link", { onclick: () => attrs.onOpen(note.info!.conflictOf!.noteId) }, "“" + (attrs.originalTitle || "a note") + "”"),

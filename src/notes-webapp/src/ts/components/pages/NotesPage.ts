@@ -8,6 +8,8 @@ import { Auth } from "../../utils/Auth";
 import { titleAndExcerpt } from "../../utils/format";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
+import { Dropdown } from "../Dropdown";
+import { icon, iconButton } from "../Icons";
 import { NoteEditor } from "../NoteEditor";
 import { NoteList } from "../NoteList";
 import { SyncStatusIndicator } from "../SyncStatusIndicator";
@@ -58,13 +60,28 @@ export class NotesPage extends AbstractPage {
   }
 
   render(): m.Children {
+    const engine = this.phase === "active" ? this.engine : undefined;
+    const selected = engine && this.selectedId ? engine.get(this.selectedId) : undefined;
     return m("main.notespage" + (this.selectedId ? ".editing" : ""), [
+      // Its two sides line up with the panes: the list's controls, then the selected note's.
       m("header.topbar", [
-        m("span.appname", "Notes"),
-        this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : null,
-        m("span.spacer"),
-        m("span.username", Auth.getUsername()),
-        m("button.secondary", { onclick: () => void this.logout() }, "Log out"),
+        m(".listside", [
+          this.selectedId ? iconButton("chevron-left", "Back to the notes", () => this.select(undefined), "back") : null,
+          this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : m("span.spacer"),
+          engine ? iconButton("plus", "New note", () => this.select(engine.create())) : null,
+        ]),
+        m(".noteside", [
+          engine && selected && !selected.deleted ? iconButton("trash-2", "Delete note", () => {
+            if (!confirm("Delete this note?")) return;
+            engine.delete(selected.id);
+            this.selectedId = undefined;
+          }) : null,
+          m(Dropdown, { label: "Menu", triggerClass: "icon", align: "right", trigger: icon("ellipsis") }, [
+            m(".menuuser", Auth.getUsername()),
+            m("button.menuitem", { type: "button", onclick: () => void this.logout() }, "Log out"),
+            this.version ? m(".menuversion", "Version " + this.version) : null,
+          ]),
+        ]),
       ]),
       this.body(),
     ]);
@@ -99,7 +116,6 @@ export class NotesPage extends AbstractPage {
         notes,
         selectedId: this.selectedId,
         onSelect: (id: string) => this.select(id),
-        onCreate: () => this.select(engine.create()),
       }),
       selected
         ? m(NoteEditor, {
@@ -108,17 +124,9 @@ export class NotesPage extends AbstractPage {
           originalTitle: original ? titleAndExcerpt(original.text).title : undefined,
           conflictCopies,
           onEdit: (text: string) => engine.edit(selected.id, text),
-          onDelete: () => {
-            engine.delete(selected.id);
-            this.selectedId = undefined;
-          },
           onOpen: (id: string) => this.select(id),
-          onBack: () => this.select(undefined),
         })
-        : m("section.editor.none", { key: "none" }, [
-          m(".empty", "Select a note or create one."),
-          this.version ? m(".version", "Version " + this.version) : null,
-        ]),
+        : m("section.editor.none", { key: "none" }, m(".empty", "Select a note or create one.")),
     ]);
   }
 

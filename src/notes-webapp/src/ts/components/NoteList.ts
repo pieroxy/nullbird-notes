@@ -7,13 +7,11 @@ export interface NoteListAttrs {
   notes: LocalNote[];
   selectedId?: string;
   onSelect: (id: string) => void;
-  onCreate: () => void;
 }
 
 export class NoteList implements m.ClassComponent<NoteListAttrs> {
   view({ attrs }: m.Vnode<NoteListAttrs>): m.Children {
     return m("aside.notelist", [
-      m(".notelisthead", m("button", { onclick: attrs.onCreate }, "New note")),
       attrs.notes.length === 0 ? m(".empty", "No notes yet.") : m("ul", attrs.notes.map((note) => this.item(note, attrs))),
     ]);
   }
