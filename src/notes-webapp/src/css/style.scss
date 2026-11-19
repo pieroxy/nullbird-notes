@@ -148,6 +148,7 @@ button {
     .noteside {
       flex: 1;
       justify-content: flex-end;
+      padding-left: 16px;
     }
 
     .spacer {
@@ -458,16 +459,42 @@ button.link {
 
 @media (max-width: 700px) {
   .notespage {
+    // One row: back, status, then the buttons.
     .topbar {
-      .listside {
-        flex: 1;
-        width: auto;
-        border-right: none;
-        background: transparent;
+      align-items: center;
+      gap: 4px;
+      padding: 0 8px;
+
+      .listside, .noteside {
+        display: contents;
       }
 
-      .noteside {
-        flex: none;
+      .listside > .spacer {
+        display: none;
+      }
+
+      .back {
+        order: 1;
+      }
+
+      .noteside > .spacer {
+        order: 2;
+      }
+
+      .syncindicator {
+        order: 2;
+      }
+
+      .new {
+        order: 3;
+      }
+
+      .delete {
+        order: 4;
+      }
+
+      .noteside > .dropdown {
+        order: 5;
       }
     }
 

@@ -63,19 +63,20 @@ export class NotesPage extends AbstractPage {
     const engine = this.phase === "active" ? this.engine : undefined;
     const selected = engine && this.selectedId ? engine.get(this.selectedId) : undefined;
     return m("main.notespage" + (this.selectedId ? ".editing" : ""), [
-      // Its two sides line up with the panes: the list's controls, then the selected note's.
+      // Its two sides line up with the panes. The status is on the wider one: it must never be cut.
       m("header.topbar", [
         m(".listside", [
           this.selectedId ? iconButton("chevron-left", "Back to the notes", () => this.select(undefined), "back") : null,
-          this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : m("span.spacer"),
-          engine ? iconButton("plus", "New note", () => this.select(engine.create())) : null,
+          m("span.spacer"),
+          engine ? iconButton("plus", "New note", () => this.select(engine.create()), "new") : null,
         ]),
         m(".noteside", [
+          this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : m("span.spacer"),
           engine && selected && !selected.deleted ? iconButton("trash-2", "Delete note", () => {
             if (!confirm("Delete this note?")) return;
             engine.delete(selected.id);
             this.selectedId = undefined;
-          }) : null,
+          }, "delete") : null,
           m(Dropdown, { label: "Menu", triggerClass: "icon", align: "right", trigger: icon("ellipsis") }, [
             m(".menuuser", Auth.getUsername()),
             m("button.menuitem", { type: "button", onclick: () => void this.logout() }, "Log out"),
