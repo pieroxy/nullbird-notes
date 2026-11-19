@@ -35,7 +35,7 @@ describe("LocalStore", () => {
     const full = note("a", "Café ☕ " + String.fromCharCode(0xd83d, 0xde00) + "\n".repeat(3) + "x".repeat(1_000_000), {
       info: {
         id: "a", revision: 3, seq: 7, createdAt: 10, modifiedAt: 20, deleted: false, title: "Café", size: 42, contentHash: "h",
-        conflictOf: { noteId: "b" },
+        conflictOf: { noteId: "b" }, tags: ["work", "Café"], options: { nowrap: "true" },
       },
       baseRevision: 3, baseText: "base", basedOnChangeId: "c0",
       pending: { changeId: "c1", submitted: "sent", deleted: false },

@@ -2,6 +2,7 @@ import m from "mithril";
 import { ApiEndpoints } from "../../auto/ApiEndpoints";
 import { LocalStore } from "../../sync/LocalStore";
 import { HttpSyncApi } from "../../sync/SyncApi";
+import { isOn, MONOSPACE, NOWRAP, tagsOf } from "../../sync/Metadata";
 import { SyncEngine } from "../../sync/SyncEngine";
 import { TabClaim } from "../../sync/TabClaim";
 import { Auth } from "../../utils/Auth";
@@ -78,6 +79,12 @@ export class NotesPage extends AbstractPage {
             this.selectedId = undefined;
           }, "delete") : null,
           m(Dropdown, { label: "Menu", triggerClass: "icon", align: "right", trigger: icon("ellipsis") }, [
+            engine && selected && !selected.deleted ? [
+              m(".menusection", "This note"),
+              checkItem("Fixed-width font", isOn(selected, MONOSPACE), (on) => engine.setOption(selected.id, MONOSPACE, on)),
+              checkItem("Wrap long lines", !isOn(selected, NOWRAP), (on) => engine.setOption(selected.id, NOWRAP, !on)),
+              m(".menuseparator"),
+            ] : null,
             m(".menuuser", Auth.getUsername()),
             m("button.menuitem", { type: "button", onclick: () => void this.logout() }, "Log out"),
             this.version ? m(".menuversion", "Version " + this.version) : null,
@@ -124,8 +131,13 @@ export class NotesPage extends AbstractPage {
           note: selected,
           originalTitle: original ? titleAndExcerpt(original.text).title : undefined,
           conflictCopies,
+          tags: tagsOf(selected),
+          monospace: isOn(selected, MONOSPACE),
+          nowrap: isOn(selected, NOWRAP),
           onEdit: (text: string) => engine.edit(selected.id, text),
           onOpen: (id: string) => this.select(id),
+          onAddTag: (tag: string) => engine.addTag(selected.id, tag),
+          onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),
         })
         : m("section.editor.none", { key: "none" }, m(".empty", "Select a note or create one.")),
     ]);
@@ -197,4 +209,12 @@ export class NotesPage extends AbstractPage {
     await Auth.logout();
     Routing.goToScreen(Endpoints.LOGIN);
   }
+}
+
+/** A menu entry with a check mark: {@code onToggle} gets the new state. */
+function checkItem(label: string, on: boolean, onToggle: (on: boolean) => void): m.Children {
+  return m("button.menuitem.checkitem", { type: "button", role: "menuitemcheckbox", "aria-checked": String(on), onclick: () => onToggle(!on) }, [
+    m("span.checkmark", on ? icon("check") : null),
+    label,
+  ]);
 }

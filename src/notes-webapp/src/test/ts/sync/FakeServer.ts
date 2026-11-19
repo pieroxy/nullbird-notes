@@ -1,4 +1,6 @@
-import { ChangesPage, NoteChange, NoteInfo, NoteRequest, NotesResult, PushResult, PushStatus } from "../../../ts/auto/api-types";
+import {
+  ChangesPage, MetaChange, NoteChange, NoteInfo, NoteRequest, NotesResult, PushApiOutput, PushResult, PushStatus, RejectReason,
+} from "../../../ts/auto/api-types";
 import { ApiError, ApiErrorKind } from "../../../ts/utils/api/Api";
 import { sha256Bytes } from "../../../ts/sync/Sha256";
 import { applySplice, computeSplice, fullSplice } from "../../../ts/sync/Splice";
@@ -19,8 +21,10 @@ export class FakeServer implements SyncApi {
   storeId = "store-1";
   seq = 0;
   readonly notes = new Map<string, ServerNote>();
-  /** Every push received, in order. */
+  /** Every push received, in order (text changes only). */
   readonly pushes: NoteChange[][] = [];
+  /** The metadata changes of every push that had some, in order. */
+  readonly metaPushes: MetaChange[][] = [];
   /** The next calls throw UNREACHABLE. */
   failNext = 0;
   /** Calls throw a 401. */
@@ -31,6 +35,10 @@ export class FakeServer implements SyncApi {
   onPush?: (change: NoteChange) => PushResult | undefined;
   /** Holds pushes until resolved, to act while one is in flight. */
   gate?: Promise<void>;
+  /** Holds note fetches likewise. */
+  fetchGate?: Promise<void>;
+  /** Every fetch received, in order. */
+  readonly fetches: NoteRequest[][] = [];
   private readonly replays = new Map<string, PushResult>();
   private waiters: (() => void)[] = [];
 
@@ -57,6 +65,8 @@ export class FakeServer implements SyncApi {
 
   async getNotes(requests: NoteRequest[]): Promise<NotesResult> {
     this.check();
+    this.fetches.push(requests);
+    if (this.fetchGate) await this.fetchGate;
     const notes = [];
     const missing = [];
     for (const request of requests) {
@@ -73,17 +83,23 @@ export class FakeServer implements SyncApi {
     return { notes, missing };
   }
 
-  async push(_deviceId: string, changes: NoteChange[]): Promise<PushResult[]> {
+  async push(_deviceId: string, changes: NoteChange[], metaChanges: MetaChange[]): Promise<PushApiOutput> {
     this.check();
-    this.pushes.push(changes);
+    if (changes.length > 0) this.pushes.push(changes);
+    if (metaChanges.length > 0) this.metaPushes.push(metaChanges);
     if (this.gate) await this.gate;
-    return changes.map((change) => {
-      const replay = this.replays.get(change.changeId);
-      if (replay) return replay;
-      const result = this.onPush?.(change) ?? this.fastForward(change);
-      this.replays.set(change.changeId, result);
-      return result;
-    });
+    const results = changes.map((change) => this.once(change.changeId, () => this.onPush?.(change) ?? this.fastForward(change)));
+    const metaResults = metaChanges.map((change) => this.once(change.changeId, () => this.applyMeta(change)));
+    return { results, metaResults };
+  }
+
+  /** Another device's tag and option change. */
+  writeMeta(id: string, tags: string[], options: { [key: string]: string }): NoteInfo {
+    const note = this.notes.get(id)!;
+    this.seq++;
+    note.info = { ...note.info, seq: this.seq, tags, options };
+    this.wake();
+    return note.info;
   }
 
   /** Another device's change. */
@@ -93,18 +109,41 @@ export class FakeServer implements SyncApi {
     this.seq++;
     const info: NoteInfo = {
       id, revision, seq: this.seq, createdAt: note?.info.createdAt ?? 1000, modifiedAt: 1000 + this.seq, deleted,
-      title: text.split("\n")[0], size: text.length, contentHash: hash(text),
+      title: text.split("\n")[0], size: text.length, contentHash: hash(text), tags: note?.info.tags ?? [], options: note?.info.options ?? {},
     };
     this.notes.set(id, { info, revisions: [...(note?.revisions ?? []), text] });
-    const waiters = this.waiters;
-    this.waiters = [];
-    for (const wake of waiters) wake();
+    this.wake();
     return info;
   }
 
   text(id: string): string | undefined {
     const note = this.notes.get(id);
     return note?.revisions[note.revisions.length - 1];
+  }
+
+  private once(changeId: string, apply: () => PushResult): PushResult {
+    const replay = this.replays.get(changeId);
+    if (replay) return replay;
+    const result = apply();
+    this.replays.set(changeId, result);
+    return result;
+  }
+
+  private applyMeta(change: MetaChange): PushResult {
+    const note = this.notes.get(change.noteId);
+    if (!note) return { changeId: change.changeId, status: PushStatus.REJECTED, reason: RejectReason.UNKNOWN_NOTE, message: "No such note." };
+    const tags = note.info.tags.filter((tag) => !change.removeTags?.includes(tag));
+    for (const tag of change.addTags ?? []) if (!tags.includes(tag)) tags.push(tag);
+    const options = { ...note.info.options };
+    for (const key of change.unsetOptions ?? []) delete options[key];
+    Object.assign(options, change.setOptions);
+    return { changeId: change.changeId, status: PushStatus.APPLIED, note: this.writeMeta(change.noteId, tags, options) };
+  }
+
+  private wake() {
+    const waiters = this.waiters;
+    this.waiters = [];
+    for (const wake of waiters) wake();
   }
 
   private fastForward(change: NoteChange): PushResult {

@@ -3,6 +3,7 @@ package net.pieroxy.notes.services;
 import net.pieroxy.notes.api.metadata.InvalidInputException;
 import net.pieroxy.notes.storage.ChangeRecord;
 import net.pieroxy.notes.storage.ConflictOf;
+import net.pieroxy.notes.storage.MetaWrite;
 import net.pieroxy.notes.storage.NoteMeta;
 import net.pieroxy.notes.storage.NoteWrite;
 import net.pieroxy.notes.storage.Revision;
@@ -10,6 +11,7 @@ import net.pieroxy.notes.storage.StaleRevisionException;
 import net.pieroxy.notes.storage.UserNoteStore;
 import net.pieroxy.notes.sync.ChangesPage;
 import net.pieroxy.notes.sync.Merge3;
+import net.pieroxy.notes.sync.MetaChange;
 import net.pieroxy.notes.sync.NoteChange;
 import net.pieroxy.notes.sync.NoteContent;
 import net.pieroxy.notes.sync.NoteInfo;
@@ -25,7 +27,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -33,6 +37,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  * The sync rules, on top of each user's {@link UserNoteStore}. A push is decided and committed
@@ -41,12 +46,19 @@ import java.util.logging.Logger;
  * A push's text is merged with what happened since the text it derives from (its ancestor): a
  * clean merge is stored, a conflict leaves the other side in the note and puts the client's side
  * in a new copy (see {@link ConflictOf}). Edits beat deletes, both ways. Nothing is ever dropped.
+ * <p>
+ * Tags and options change on their own (see {@link MetaChange}), never conflicting with the text.
  */
 public class NoteService implements Service {
   private final static Logger LOGGER = Logger.getLogger(NoteService.class.getName());
   static final int CHANGES_PAGE_SIZE = 500;
   static final int MAX_NOTES_PER_REQUEST = 200;
   private final static int MAX_ID_LENGTH = 64;
+  static final int MAX_TAGS = 100;
+  static final int MAX_TAG_LENGTH = 64;
+  static final int MAX_OPTIONS = 32;
+  static final int MAX_OPTION_VALUE_LENGTH = 256;
+  private static final Pattern OPTION_KEY_PATTERN = Pattern.compile("[A-Za-z0-9-]{1,64}");
 
   private final int changesPageSize;
   private SettingsService settings;
@@ -92,6 +104,28 @@ public class NoteService implements Service {
       NoteMeta head = store.get(change.noteId());
       String ancestor = ancestor(store, change, head);
       return change.deleted() ? delete(store, deviceId, change, head, ancestor) : edit(store, username, deviceId, change, head, ancestor);
+    }
+  }
+
+  /** A metadata change to a deleted note is accepted, and ignored. */
+  public PushResult pushMeta(String username, String deviceId, MetaChange change) throws IOException {
+    String invalid = validate(deviceId, change);
+    if (invalid != null) return rejected(change.changeId(), change.noteId(), RejectReason.INVALID, invalid);
+    UserNoteStore store = noteStores.getStore(username);
+    synchronized (store) {
+      NoteMeta head = store.get(change.noteId());
+      if (head == null) return rejected(change.changeId(), change.noteId(), RejectReason.UNKNOWN_NOTE, "No such note.");
+      if (head.deleted() || change.noteId().equals(store.findMetaChange(change.changeId()))) return applied(change.changeId(), head);
+      MetaWrite write = new MetaWrite(change.changeId(), deviceId, change.addTags(), change.removeTags(), change.setOptions(),
+          change.unsetOptions());
+      List<String> tags = UserNoteStore.tagsAfter(head, write);
+      Map<String, String> options = UserNoteStore.optionsAfter(head, write);
+      if (tags.size() > MAX_TAGS) return rejected(change.changeId(), change.noteId(), RejectReason.INVALID, "At most " + MAX_TAGS + " tags.");
+      if (options.size() > MAX_OPTIONS) {
+        return rejected(change.changeId(), change.noteId(), RejectReason.INVALID, "At most " + MAX_OPTIONS + " options.");
+      }
+      if (tags.equals(head.tags()) && options.equals(head.options())) return applied(change.changeId(), head);
+      return applied(change.changeId(), store.commitMeta(head.id(), write));
     }
   }
 
@@ -167,6 +201,42 @@ public class NoteService implements Service {
     if ((change.content() == null) == (change.splice() == null)) return "Exactly one of content and splice is expected.";
     if (change.contentHash() == null) return "contentHash is required.";
     return null;
+  }
+
+  private String validate(String deviceId, MetaChange change) {
+    if (change.changeId() == null || change.changeId().isEmpty() || change.changeId().length() > MAX_ID_LENGTH) return "Invalid changeId.";
+    if (change.noteId() == null || !UserNoteStore.NOTE_ID_PATTERN.matcher(change.noteId()).matches()) return "Invalid noteId.";
+    if (deviceId != null && deviceId.length() > MAX_ID_LENGTH) return "Invalid deviceId.";
+    for (List<String> tags : Arrays.asList(change.addTags(), change.removeTags())) {
+      if (tags == null) continue;
+      if (tags.size() > MAX_TAGS) return "At most " + MAX_TAGS + " tags.";
+      for (String tag : tags) {
+        if (!isValidTag(tag)) return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.";
+      }
+    }
+    if (change.setOptions() != null) {
+      if (change.setOptions().size() > MAX_OPTIONS) return "At most " + MAX_OPTIONS + " options.";
+      for (Map.Entry<String, String> option : change.setOptions().entrySet()) {
+        if (!isValidOptionKey(option.getKey())) return "Invalid option name.";
+        if (option.getValue() == null || option.getValue().length() > MAX_OPTION_VALUE_LENGTH) return "Invalid value for option " + option.getKey() + ".";
+      }
+    }
+    if (change.unsetOptions() != null) {
+      if (change.unsetOptions().size() > MAX_OPTIONS) return "At most " + MAX_OPTIONS + " options.";
+      for (String key : change.unsetOptions()) {
+        if (!isValidOptionKey(key)) return "Invalid option name.";
+      }
+    }
+    return null;
+  }
+
+  static boolean isValidTag(String tag) {
+    if (tag == null || tag.isEmpty() || tag.codePointCount(0, tag.length()) > MAX_TAG_LENGTH) return false;
+    return tag.codePoints().noneMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c));
+  }
+
+  private static boolean isValidOptionKey(String key) {
+    return key != null && OPTION_KEY_PATTERN.matcher(key).matches();
   }
 
   /** The text the client's change derives from; null if it can't be found. */
@@ -262,8 +332,8 @@ public class NoteService implements Service {
       originalMeta = commit(store, head, new NoteWrite(original, false, null, deviceId, null, head.conflictOf()));
     }
     String copyId = UUID.randomUUID().toString();
-    NoteMeta copyMeta = commit(store, null, new NoteWrite(copy, false, change.changeId(), deviceId, submitted, new ConflictOf(head.id())),
-        copyId);
+    NoteMeta copyMeta = commit(store, null,
+        new NoteWrite(copy, false, change.changeId(), deviceId, submitted, new ConflictOf(head.id()), head.tags(), head.options()), copyId);
     return new PushResult(change.changeId(), PushStatus.CONFLICT, null, null, info(originalMeta), splice(submitted, original),
         info(copyMeta), splice(submitted, copy));
   }
@@ -305,9 +375,17 @@ public class NoteService implements Service {
     return new PushResult(change.changeId(), PushStatus.APPLIED, null, null, info(meta), content, null, null);
   }
 
+  private static PushResult applied(String changeId, NoteMeta meta) {
+    return new PushResult(changeId, PushStatus.APPLIED, null, null, info(meta), null, null, null);
+  }
+
   private static PushResult rejected(NoteChange change, RejectReason reason, String message) {
-    LOGGER.warning("Change " + change.changeId() + " to note " + change.noteId() + " rejected (" + reason + "): " + message);
-    return new PushResult(change.changeId(), PushStatus.REJECTED, reason, message, null, null, null, null);
+    return rejected(change.changeId(), change.noteId(), reason, message);
+  }
+
+  private static PushResult rejected(String changeId, String noteId, RejectReason reason, String message) {
+    LOGGER.warning("Change " + changeId + " to note " + noteId + " rejected (" + reason + "): " + message);
+    return new PushResult(changeId, PushStatus.REJECTED, reason, message, null, null, null, null);
   }
 
   /** CRLF and lone CR become LF: a client on another platform mustn't turn every line into a change. */
@@ -332,13 +410,13 @@ public class NoteService implements Service {
 
   static NoteInfo info(NoteMeta meta) {
     return new NoteInfo(meta.id(), meta.revision(), meta.seq(), meta.createdAt(), meta.modifiedAt(), meta.deleted(), meta.title(),
-        meta.size(), meta.contentHash(), meta.conflictOf());
+        meta.size(), meta.contentHash(), meta.conflictOf(), meta.tags(), meta.options());
   }
 
   /** The note as it was at {@code revision}. */
   private static NoteInfo info(NoteMeta meta, Revision revision) {
     byte[] content = revision.content().getBytes(StandardCharsets.UTF_8);
     return new NoteInfo(meta.id(), revision.revision(), revision.seq(), meta.createdAt(), revision.at(), revision.deleted(),
-        UserNoteStore.title(revision.content()), content.length, Hashes.sha256(content), meta.conflictOf());
+        UserNoteStore.title(revision.content()), content.length, Hashes.sha256(content), meta.conflictOf(), meta.tags(), meta.options());
   }
 }

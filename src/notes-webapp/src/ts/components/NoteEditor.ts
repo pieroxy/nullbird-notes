@@ -1,6 +1,7 @@
 import m from "mithril";
 import { LocalNote } from "../sync/LocalNote";
 import { computeSplice } from "../sync/Splice";
+import { TagEditor } from "./TagEditor";
 
 export interface NoteEditorAttrs {
   note: LocalNote;
@@ -8,8 +9,13 @@ export interface NoteEditorAttrs {
   originalTitle?: string;
   /** For a note with unresolved conflict copies: their ids. */
   conflictCopies: string[];
+  tags: string[];
+  monospace: boolean;
+  nowrap: boolean;
   onEdit: (text: string) => void;
   onOpen: (id: string) => void;
+  onAddTag: (tag: string) => boolean;
+  onRemoveTag: (tag: string) => void;
 }
 
 /**
@@ -55,11 +61,14 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
         ".",
       ]) : null,
       note.error ? m(".banner.error", "Not saved on the server: " + note.error.message + " Your text is kept on this device.") : null,
-      m("textarea", {
+      note.metaError ? m(".banner.error", "A change to the tags or options was refused by the server: " + note.metaError.message) : null,
+      m("textarea" + (attrs.monospace ? ".monospace" : "") + (attrs.nowrap ? ".nowrap" : ""), {
         spellcheck: true,
+        wrap: attrs.nowrap ? "off" : "soft",
         placeholder: "Start typing…",
         oninput: (e: Event) => attrs.onEdit((e.target as HTMLTextAreaElement).value),
       }),
+      m(TagEditor, { tags: attrs.tags, onAdd: attrs.onAddTag, onRemove: attrs.onRemoveTag }),
     ]);
   }
 }

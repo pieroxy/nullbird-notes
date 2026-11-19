@@ -13,7 +13,7 @@ const BASE = "Title\n\nFirst paragraph.\n\nSecond paragraph.\n";
 function info(revision: number, extra: Partial<NoteInfo> = {}): NoteInfo {
   return {
     id: ID, revision, seq: revision, createdAt: 1000, modifiedAt: 1000 + revision, deleted: false, title: "Title", size: 0,
-    contentHash: "hash", ...extra,
+    contentHash: "hash", tags: [], options: {}, ...extra,
   };
 }
 

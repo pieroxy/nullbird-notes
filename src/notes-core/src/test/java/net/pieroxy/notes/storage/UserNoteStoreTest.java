@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
@@ -393,5 +394,99 @@ public class UserNoteStoreTest {
     } catch (StaleRevisionException e) {
       fail("The failed commit must not have moved the head");
     }
+  }
+
+  private static MetaWrite meta(String changeId, List<String> addTags, List<String> removeTags, Map<String, String> setOptions,
+                                List<String> unsetOptions) {
+    return new MetaWrite(changeId, "device-1", addTags, removeTags, setOptions, unsetOptions);
+  }
+
+  @Test
+  public void aMetadataChangeBumpsTheSeqButNotTheRevisionNorModifiedAt() throws Exception {
+    NoteMeta before = store.commit(A, 0, write("text", "c1"));
+    NoteMeta after = store.commitMeta(A, meta("m1", List.of("work"), null, Map.of("monospace", "true"), null));
+
+    assertEquals(List.of("work"), after.tags());
+    assertEquals(Map.of("monospace", "true"), after.options());
+    assertEquals(1, after.revision());
+    assertEquals(before.modifiedAt(), after.modifiedAt());
+    assertEquals(before.seq() + 1, after.seq());
+    assertEquals(after.seq(), store.getLastSeq());
+    assertEquals(1, after.metaRevision());
+    assertEquals(List.of(after), store.changesSince(before.seq()));
+  }
+
+  @Test
+  public void tagsKeepTheOrderTheyWereAddedInWithoutDuplicates() throws Exception {
+    store.commit(A, 0, write("text", "c1"));
+    store.commitMeta(A, meta("m1", List.of("b", "a"), null, null, null));
+    NoteMeta after = store.commitMeta(A, meta("m2", List.of("a", "c", "A"), List.of("b"), null, null));
+
+    assertEquals(List.of("a", "c", "A"), after.tags());
+  }
+
+  @Test
+  public void removalsApplyBeforeAdditions() throws Exception {
+    store.commit(A, 0, write("text", "c1"));
+    NoteMeta after = store.commitMeta(A, meta("m1", List.of("x"), List.of("x"), Map.of("k", "v"), List.of("k")));
+
+    assertEquals(List.of("x"), after.tags());
+    assertEquals(Map.of("k", "v"), after.options());
+  }
+
+  @Test
+  public void aTextCommitKeepsTheTagsAndOptions() throws Exception {
+    store.commit(A, 0, write("text", "c1"));
+    store.commitMeta(A, meta("m1", List.of("work"), null, Map.of("nowrap", "true"), null));
+    NoteMeta after = store.commit(A, 1, write("more text", "c2"));
+
+    assertEquals(List.of("work"), after.tags());
+    assertEquals(Map.of("nowrap", "true"), after.options());
+    assertEquals(1, after.metaRevision());
+  }
+
+  @Test
+  public void aNewNoteGetsTheTagsAndOptionsItIsWrittenWith() throws Exception {
+    NoteMeta created = store.commit(A, 0, new NoteWrite("copy", false, "c1", "device-1", null, null, List.of("t"), Map.of("k", "v")));
+
+    assertEquals(List.of("t"), created.tags());
+    assertEquals(Map.of("k", "v"), created.options());
+  }
+
+  @Test
+  public void metadataSurvivesAReloadWithItsHistoryAndLastChangeId() throws Exception {
+    store.commit(A, 0, write("text", "c1"));
+    store.commitMeta(A, meta("m1", List.of("work"), null, null, null));
+    store.commitMeta(A, meta("m2", null, List.of("work"), Map.of("monospace", "true"), null));
+    reopen();
+
+    NoteMeta meta = store.get(A);
+    assertEquals(List.of(), meta.tags());
+    assertEquals(Map.of("monospace", "true"), meta.options());
+    assertEquals(A, store.findMetaChange("m2"));
+    assertNull(store.findMetaChange("m1"));
+    MetaRevision first = store.readMetaRevision(A, 1);
+    assertEquals("m1", first.changeId());
+    assertEquals(List.of("work"), first.addTags());
+    assertNull(store.readMetaRevision(A, 3));
+  }
+
+  @Test
+  public void aNoteJsonWithoutTagsNorOptionsLoadsWithNone() throws Exception {
+    store.commit(A, 0, write("text", "c1"));
+    Path noteJson = root.resolve("notes").resolve(A).resolve("note.json");
+    String json = Files.readString(noteJson).replaceAll("(?s),\\s*\"tags\".*?\\]", "").replaceAll("(?s),\\s*\"options\".*?\\}", "");
+    assertTrue(json, !json.contains("tags") && !json.contains("options"));
+    Files.writeString(noteJson, json);
+    reopen();
+
+    assertEquals(List.of(), store.get(A).tags());
+    assertEquals(Map.of(), store.get(A).options());
+  }
+
+  @Test
+  public void aMetadataChangeToAnUnknownNoteWritesNothing() throws Exception {
+    assertNull(store.commitMeta(A, meta("m1", List.of("x"), null, null, null)));
+    assertEquals(0, store.getLastSeq());
   }
 }

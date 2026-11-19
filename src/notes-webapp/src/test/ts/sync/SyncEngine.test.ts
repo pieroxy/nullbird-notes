@@ -8,6 +8,7 @@ import { SyncEngine, TIMINGS } from "../../../ts/sync/SyncEngine";
 import { FakeServer } from "./FakeServer";
 
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const COPY = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const hash = (text: string) => sha256Bytes(new TextEncoder().encode(text));
 
@@ -119,8 +120,8 @@ describe("SyncEngine", () => {
     // The answer gets lost: the server applied it, but the engine sees a network error.
     const push = server.push.bind(server);
     let lose = true;
-    server.push = async (deviceId, changes) => {
-      const results = await push(deviceId, changes);
+    server.push = async (deviceId, changes, metaChanges) => {
+      const results = await push(deviceId, changes, metaChanges);
       if (lose) {
         lose = false;
         throw new (await import("../../../ts/utils/api/Api")).ApiError(0, "Cannot reach the server.");
@@ -290,5 +291,89 @@ describe("SyncEngine", () => {
     await until(() => engine.status().state === "error");
     expect(engine.status().message).toContain("doesn't match its hash");
     expect(engine.get(A)).toBeUndefined();
+  });
+
+  test("tags and options reach the server without pushing the text", async () => {
+    server.write(A, "Note");
+    await startEngine();
+    expect(engine.addTag(A, "work")).toBe(true);
+    engine.setOption(A, "monospace", true);
+
+    await until(() => engine.status().state === "synced" && server.notes.get(A)!.info.tags.length === 1);
+    expect(server.notes.get(A)!.info).toEqual(expect.objectContaining({ tags: ["work"], options: { monospace: "true" }, revision: 1 }));
+    expect(server.pushes).toHaveLength(0);
+    expect(engine.get(A)).toEqual(expect.objectContaining({ metaOps: undefined, pendingMeta: undefined }));
+  });
+
+  test("an invalid tag is refused locally", async () => {
+    server.write(A, "Note");
+    await startEngine();
+
+    expect(engine.addTag(A, "two words")).toBe(false);
+    expect(engine.get(A)?.metaOps).toBeUndefined();
+  });
+
+  test("tagging a note never edited creates it, then tags it", async () => {
+    await startEngine();
+    const id = engine.create();
+    engine.addTag(id, "idea");
+
+    await until(() => engine.status().state === "synced" && server.notes.get(id)?.info.tags.length === 1);
+    expect(server.text(id)).toBe("");
+    expect(server.notes.get(id)!.info.tags).toEqual(["idea"]);
+  });
+
+  test("a tag change made elsewhere arrives without fetching the text again", async () => {
+    server.write(A, "Note");
+    await startEngine();
+    const fetches = server.fetches.length;
+
+    server.writeMeta(A, ["shared"], { nowrap: "true" });
+    await until(() => engine.get(A)?.info?.tags[0] === "shared");
+    expect(engine.get(A)?.info?.options).toEqual({ nowrap: "true" });
+    expect(server.fetches.length).toBe(fetches);
+  });
+
+  test("a tag added offline is resent as the same change, and applied once", async () => {
+    server.write(A, "Note");
+    await startEngine();
+    server.failNext = 2;
+    engine.addTag(A, "later");
+
+    await until(() => engine.status().state === "offline");
+    expect(engine.status().pending).toBe(1);
+    await until(() => engine.status().state === "synced");
+    expect(server.notes.get(A)!.info.tags).toEqual(["later"]);
+    expect(new Set(server.metaPushes.flat().map((c) => c.changeId)).size).toBe(1);
+  });
+
+  test("a refused tag change is reported, and the tags go back to the server's", async () => {
+    server.write(A, "Note");
+    await startEngine();
+    server.notes.delete(A);
+    engine.addTag(A, "orphan");
+
+    await until(() => engine.get(A)?.metaError !== undefined);
+    expect(engine.get(A)?.metaError?.reason).toBe("UNKNOWN_NOTE");
+    expect(engine.status().noteErrors).toBe(1);
+    expect(engine.get(A)?.metaOps).toBeUndefined();
+  });
+
+  test("an edit made while other notes are being fetched isn't lost", async () => {
+    server.write(A, "Mine");
+    await startEngine();
+    let open!: () => void;
+    server.fetchGate = new Promise((resolve) => (open = resolve));
+    // Another device's note to fetch, and a change to A that needs no fetch.
+    server.write(B, "Theirs");
+    server.writeMeta(A, ["remote"], {});
+    await until(() => server.fetches.length > 0 && server.fetches[server.fetches.length - 1].some((r) => r.id === B));
+    engine.edit(A, "Mine, edited during the fetch");
+    open();
+    server.fetchGate = undefined;
+
+    await until(() => engine.get(B)?.text === "Theirs");
+    expect(engine.get(A)?.text).toBe("Mine, edited during the fetch");
+    await until(() => server.text(A) === "Mine, edited during the fetch");
   });
 });

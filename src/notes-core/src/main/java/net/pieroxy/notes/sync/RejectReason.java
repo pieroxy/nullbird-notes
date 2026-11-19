@@ -8,4 +8,6 @@ public enum RejectReason {
   TOO_LARGE,
   /** The splice doesn't fit the base, or the hash doesn't match: resend the full content. */
   BASE_MISMATCH,
+  /** A metadata change to a note the server doesn't have. */
+  UNKNOWN_NOTE,
 }

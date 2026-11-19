@@ -1,5 +1,6 @@
 import { NoteChange, NoteContent, NoteInfo, PushResult, PushStatus, RejectReason } from "../auto/api-types";
 import { LocalNote } from "./LocalNote";
+import { mergeOps, metaStateOf, noOps } from "./Metadata";
 import { applySplice, computeSplice } from "./Splice";
 
 /**
@@ -133,7 +134,7 @@ export function applyRemote(note: LocalNote | undefined, content: NoteContent, t
   const kept = text ?? note?.text ?? "";
   return {
     id: info.id, info, baseRevision: info.revision, baseText: kept, text: kept, deleted: info.deleted, dirty: false,
-    editedAt: note?.editedAt ?? now,
+    editedAt: note?.editedAt ?? now, ...metaStateOf(note),
   };
 }
 
@@ -146,13 +147,16 @@ export function remoteText(note: LocalNote | undefined, content: NoteContent): s
 /**
  * {@code note} after the server's data was replaced (another storeId): its base means nothing
  * there anymore. Unsynced text is pushed as a new note, which can only end in a conflict copy if
- * the server has the note: never lost. Synced notes are fetched again.
+ * the server has the note: never lost. Synced notes are fetched again. Tag and option changes not
+ * acknowledged are sent again, in one change.
  */
 export function forResync(note: LocalNote): LocalNote {
+  const metaOps = note.pendingMeta ? mergeOps(note.pendingMeta.ops, note.metaOps ?? noOps()) : note.metaOps;
+  const meta = { metaOps, pendingMeta: undefined };
   if (note.dirty || note.pending) {
-    return { ...note, baseRevision: 0, baseText: "", basedOnChangeId: undefined, pending: undefined, forceFull: false };
+    return { ...note, ...meta, baseRevision: 0, baseText: "", basedOnChangeId: undefined, pending: undefined, forceFull: false };
   }
-  return { ...note, baseRevision: 0, basedOnChangeId: undefined };
+  return { ...note, ...meta, baseRevision: 0, basedOnChangeId: undefined };
 }
 
 /** The user edited the note: it needs pushing, and any earlier refusal is moot. */

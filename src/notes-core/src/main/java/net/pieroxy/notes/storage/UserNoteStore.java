@@ -19,8 +19,11 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -34,14 +37,16 @@ import java.util.stream.Collectors;
  * notes/&lt;id&gt;/note.json           {@link NoteMeta}
  * notes/&lt;id&gt;/content.txt         the head revision's content, plain UTF-8
  * notes/&lt;id&gt;/revisions/NNNNNN.json.lz4   every {@link Revision}
+ * notes/&lt;id&gt;/meta/NNNNNN.json  every {@link MetaRevision}
  * </pre>
  * Every note's note.json is loaded into memory when the store opens: listing and change queries
  * never touch the disk. Methods are synchronized: commits for a user are serialized.
  * <p>
  * A commit writes, each atomically, the revision, content.txt, note.json (the commit point) and
- * user.json. What an interruption leaves behind never needs a repair pass on startup:
+ * user.json; a metadata commit, the metadata revision, note.json and user.json. What an
+ * interruption leaves behind never needs a repair pass on startup:
  * <ul>
- *   <li>a revision past note.json's is never read, and the next commit overwrites it;</li>
+ *   <li>a revision (or metadata revision) past note.json's is never read, and the next commit overwrites it;</li>
  *   <li>a content.txt not matching note.json's hash is rewritten from the head revision when read;</li>
  *   <li>a stale user.json is superseded by the notes' own seq on load;</li>
  *   <li>a note folder without note.json (an interrupted creation) is ignored.</li>
@@ -71,6 +76,8 @@ public class UserNoteStore {
   private final Map<String, NoteMeta> index = new HashMap<>();
   // Only each note's last change survives a restart (see NoteMeta#lastChangeId).
   private final Map<String, ChangeRecord> changes = new HashMap<>();
+  // Metadata change ID -> note ID; likewise, only each note's last one survives a restart.
+  private final Map<String, String> metaChanges = new HashMap<>();
   private long lastSeq;
   private String storeId;
   private final List<Runnable> seqWaiters = new ArrayList<>();
@@ -144,6 +151,11 @@ public class UserNoteStore {
     return changeId == null ? null : changes.get(changeId);
   }
 
+  /** @return the note the metadata change with this ID was applied to, null if unknown. */
+  public synchronized String findMetaChange(String changeId) {
+    return changeId == null ? null : metaChanges.get(changeId);
+  }
+
   /** @return the head revision's content, null if there's no such note. */
   public synchronized String readContent(String noteId) throws IOException {
     NoteMeta meta = index.get(noteId);
@@ -199,23 +211,85 @@ public class UserNoteStore {
     commitHook.after(CommitStep.REVISION);
     AtomicFiles.write(noteDir.resolve("content.txt"), content);
     commitHook.after(CommitStep.CONTENT);
-    NoteMeta meta = new NoteMeta(noteId, revision, seq, current == null ? now : current.createdAt(), now, write.deleted(),
-        title(write.content()), content.length, Hashes.sha256(content), write.changeId(), write.conflictOf());
-    AtomicFiles.write(noteDir.resolve("note.json"), PRETTY_GSON.toJson(meta).getBytes(StandardCharsets.UTF_8));
-
-    index.put(noteId, meta);
-    lastSeq = seq;
+    NoteMeta meta = current == null
+        ? new NoteMeta(noteId, revision, seq, now, now, write.deleted(), title(write.content()), content.length, Hashes.sha256(content),
+            write.changeId(), write.conflictOf(), write.tags(), write.options(), 0, null)
+        : new NoteMeta(noteId, revision, seq, current.createdAt(), now, write.deleted(), title(write.content()), content.length,
+            Hashes.sha256(content), write.changeId(), write.conflictOf(), current.tags(), current.options(), current.metaRevision(),
+            current.lastMetaChangeId());
+    writeMeta(meta);
     if (write.changeId() != null) changes.put(write.changeId(), new ChangeRecord(noteId, revision));
+    afterMetaWritten();
+    return meta;
+  }
+
+  /**
+   * Applies {@code write}'s operations to the note's tags and options, as a new metadata revision.
+   * The note's revision and modifiedAt are left alone: only its seq changes.
+   *
+   * @return null if there's no such note.
+   * @throws IOException if the change couldn't be committed.
+   */
+  public synchronized NoteMeta commitMeta(String noteId, MetaWrite write) throws IOException {
+    NoteMeta current = index.get(noteId);
+    if (current == null) return null;
+    List<String> tags = tagsAfter(current, write);
+    Map<String, String> options = optionsAfter(current, write);
+    long now = clock.millis();
+    long seq = lastSeq + 1;
+    int metaRevision = current.metaRevision() + 1;
+    MetaRevision rev = new MetaRevision(metaRevision, seq, now, write.changeId(), write.deviceId(), write.addTags(), write.removeTags(),
+        write.setOptions(), write.unsetOptions());
+    AtomicFiles.write(metaRevisionFile(noteId, metaRevision), GSON.toJson(rev).getBytes(StandardCharsets.UTF_8));
+    commitHook.after(CommitStep.REVISION);
+    NoteMeta meta = new NoteMeta(noteId, current.revision(), seq, current.createdAt(), current.modifiedAt(), current.deleted(),
+        current.title(), current.size(), current.contentHash(), current.lastChangeId(), current.conflictOf(), tags, options,
+        metaRevision, write.changeId());
+    writeMeta(meta);
+    if (write.changeId() != null) metaChanges.put(write.changeId(), noteId);
+    afterMetaWritten();
+    return meta;
+  }
+
+  /** The note's tags once {@code write} is applied: removals first, additions at the end. */
+  public static List<String> tagsAfter(NoteMeta note, MetaWrite write) {
+    Set<String> tags = new LinkedHashSet<>(note.tags());
+    if (write.removeTags() != null) write.removeTags().forEach(tags::remove);
+    if (write.addTags() != null) tags.addAll(write.addTags());
+    return List.copyOf(tags);
+  }
+
+  /** The note's options once {@code write} is applied: unset first. */
+  public static Map<String, String> optionsAfter(NoteMeta note, MetaWrite write) {
+    Map<String, String> options = new TreeMap<>(note.options());
+    if (write.unsetOptions() != null) write.unsetOptions().forEach(options::remove);
+    if (write.setOptions() != null) options.putAll(write.setOptions());
+    return options;
+  }
+
+  /** @return null if there's no such note or metadata revision. */
+  public synchronized MetaRevision readMetaRevision(String noteId, int metaRevision) throws IOException {
+    NoteMeta meta = index.get(noteId);
+    if (meta == null || metaRevision < 1 || metaRevision > meta.metaRevision()) return null;
+    return GSON.fromJson(Files.readString(metaRevisionFile(noteId, metaRevision), StandardCharsets.UTF_8), MetaRevision.class);
+  }
+
+  /** The commit point: note.json, then the index and seq. */
+  private void writeMeta(NoteMeta meta) throws IOException {
+    AtomicFiles.write(noteDir(meta.id()).resolve("note.json"), PRETTY_GSON.toJson(meta).getBytes(StandardCharsets.UTF_8));
+    index.put(meta.id(), meta);
+    lastSeq = meta.seq();
+  }
+
+  private void afterMetaWritten() throws IOException {
     wakeSeqWaiters();
     commitHook.after(CommitStep.META);
-
     try {
       writeUserState();
     } catch (IOException e) {
       LOGGER.log(Level.SEVERE, "Could not write user.json of " + root.getFileName() + " (recovered from the notes on next load)", e);
     }
     commitHook.after(CommitStep.USER_STATE);
-    return meta;
   }
 
   private void wakeSeqWaiters() {
@@ -281,6 +355,7 @@ public class UserNoteStore {
         index.put(noteId, meta);
         lastSeq = Math.max(lastSeq, meta.seq());
         if (meta.lastChangeId() != null) changes.put(meta.lastChangeId(), new ChangeRecord(noteId, meta.revision()));
+        if (meta.lastMetaChangeId() != null) metaChanges.put(meta.lastMetaChangeId(), noteId);
       }
     }
   }
@@ -291,6 +366,10 @@ public class UserNoteStore {
 
   private Path revisionFile(String noteId, int revision) {
     return noteDir(noteId).resolve("revisions").resolve(String.format("%06d.json.lz4", revision));
+  }
+
+  private Path metaRevisionFile(String noteId, int metaRevision) {
+    return noteDir(noteId).resolve("meta").resolve(String.format("%06d.json", metaRevision));
   }
 
   private Revision readRevisionFile(String noteId, int revision) throws IOException {

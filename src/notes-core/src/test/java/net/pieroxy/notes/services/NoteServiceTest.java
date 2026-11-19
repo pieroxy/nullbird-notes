@@ -4,6 +4,7 @@ import net.pieroxy.notes.api.metadata.InvalidInputException;
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.storage.ConflictOf;
 import net.pieroxy.notes.sync.ChangesPage;
+import net.pieroxy.notes.sync.MetaChange;
 import net.pieroxy.notes.sync.NoteChange;
 import net.pieroxy.notes.sync.NoteContent;
 import net.pieroxy.notes.sync.NoteInfo;
@@ -25,6 +26,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -498,5 +500,120 @@ public class NoteServiceTest {
     assertEquals("bob's", service.getNotes("bob", List.of(new NoteRequest(A, null))).notes().get(0).content().apply(""));
     assertNotEquals(service.changes("alice", 0).storeId(), service.changes("bob", 0).storeId());
     assertNotNull(stores.getStore("bob"));
+  }
+
+  private PushResult pushMeta(String noteId, List<String> addTags, List<String> removeTags, Map<String, String> setOptions,
+                              List<String> unsetOptions) throws IOException {
+    return service.pushMeta("alice", "device-1", new MetaChange(nextChangeId(), noteId, addTags, removeTags, setOptions, unsetOptions));
+  }
+
+  @Test
+  public void tagsAndOptionsChangeWithoutTouchingTheText() throws IOException {
+    PushResult created = push(A, 0, BASE);
+    PushResult result = pushMeta(A, List.of("work", "todo"), null, Map.of("monospace", "true"), null);
+
+    assertEquals(PushStatus.APPLIED, result.status());
+    assertEquals(List.of("work", "todo"), result.note().tags());
+    assertEquals(Map.of("monospace", "true"), result.note().options());
+    assertEquals(1, result.note().revision());
+    assertEquals(created.note().modifiedAt(), result.note().modifiedAt());
+    assertEquals(List.of(result.note()), service.changes("alice", created.note().seq()).notes());
+  }
+
+  @Test
+  public void aTextPushBasedOnTheRevisionBeforeAMetadataChangeFastForwards() throws IOException {
+    push(A, 0, BASE);
+    pushMeta(A, List.of("work"), null, null, null);
+    PushResult result = push(A, 1, BASE + "More.\n");
+
+    assertEquals(PushStatus.APPLIED, result.status());
+    assertEquals(List.of("work"), result.note().tags());
+  }
+
+  @Test
+  public void concurrentMetadataChangesAllApply() throws IOException {
+    push(A, 0, BASE);
+    pushMeta(A, List.of("work"), null, Map.of("monospace", "true"), null);
+    PushResult result = service.pushMeta("alice", "phone", new MetaChange(nextChangeId(), A, List.of("home"), null, Map.of("nowrap", "true"), null));
+
+    assertEquals(List.of("work", "home"), result.note().tags());
+    assertEquals(Map.of("monospace", "true", "nowrap", "true"), result.note().options());
+  }
+
+  @Test
+  public void aMetadataChangeThatChangesNothingCommitsNothing() throws IOException {
+    PushResult created = push(A, 0, BASE);
+    PushResult result = pushMeta(A, null, List.of("absent"), null, List.of("absent"));
+
+    assertEquals(PushStatus.APPLIED, result.status());
+    assertEquals(created.note().seq(), result.note().seq());
+  }
+
+  @Test
+  public void aRetriedMetadataChangeIsNotAppliedAgain() throws IOException {
+    push(A, 0, BASE);
+    MetaChange change = new MetaChange("meta-1", A, List.of("work"), null, null, null);
+    service.pushMeta("alice", "device-1", change);
+    pushMeta(A, null, List.of("work"), null, null);
+    PushResult replayed = service.pushMeta("alice", "device-1", change);
+
+    assertEquals(PushStatus.APPLIED, replayed.status());
+    assertEquals(List.of(), replayed.note().tags());
+  }
+
+  @Test
+  public void aMetadataChangeToADeletedNoteIsIgnored() throws IOException {
+    push(A, 0, BASE);
+    PushResult deleted = delete(A, 1);
+    PushResult result = pushMeta(A, List.of("work"), null, null, null);
+
+    assertEquals(PushStatus.APPLIED, result.status());
+    assertEquals(List.of(), result.note().tags());
+    assertEquals(deleted.note().seq(), result.note().seq());
+  }
+
+  @Test
+  public void aMetadataChangeToAnUnknownNoteIsRejected() throws IOException {
+    PushResult result = pushMeta(A, List.of("work"), null, null, null);
+
+    assertEquals(PushStatus.REJECTED, result.status());
+    assertEquals(RejectReason.UNKNOWN_NOTE, result.reason());
+  }
+
+  @Test
+  public void rejectsInvalidTagsAndOptions() throws IOException {
+    push(A, 0, BASE);
+
+    for (List<String> tags : List.of(List.of(""), List.of("two words"), List.of("tab\there"), List.of("nbsp\u00a0here"),
+        List.of("x".repeat(NoteService.MAX_TAG_LENGTH + 1)))) {
+      assertEquals(tags.toString(), RejectReason.INVALID, pushMeta(A, tags, null, null, null).reason());
+    }
+    assertEquals(RejectReason.INVALID, pushMeta(A, null, null, Map.of("bad key", "true"), null).reason());
+    assertEquals(RejectReason.INVALID, pushMeta(A, null, null, Map.of("k", "v".repeat(NoteService.MAX_OPTION_VALUE_LENGTH + 1)), null).reason());
+    assertEquals(RejectReason.INVALID, pushMeta(A, null, null, null, List.of("bad key")).reason());
+    assertEquals(PushStatus.APPLIED, pushMeta(A, List.of("x".repeat(NoteService.MAX_TAG_LENGTH), "Émoji🙂"), null, null, null).status());
+  }
+
+  @Test
+  public void limitsTheNumberOfTagsAndOptionsOnANote() throws IOException {
+    push(A, 0, BASE);
+    List<String> tags = new ArrayList<>();
+    for (int i = 0; i < NoteService.MAX_TAGS; i++) tags.add("tag" + i);
+    assertEquals(PushStatus.APPLIED, pushMeta(A, tags, null, null, null).status());
+
+    assertEquals(RejectReason.INVALID, pushMeta(A, List.of("one-more"), null, null, null).reason());
+    assertEquals(PushStatus.APPLIED, pushMeta(A, List.of("one-more"), List.of("tag0"), null, null).status());
+  }
+
+  @Test
+  public void aConflictCopyGetsTheOriginalsTagsAndOptions() throws IOException {
+    push(A, 0, BASE);
+    pushMeta(A, List.of("work"), null, Map.of("monospace", "true"), null);
+    pushFrom("laptop", A, 1, BASE.replace("First", "Laptop"));
+    PushResult result = pushFrom("phone", A, 1, BASE.replace("First", "Phone"));
+
+    assertEquals(PushStatus.CONFLICT, result.status());
+    assertEquals(List.of("work"), result.copy().tags());
+    assertEquals(Map.of("monospace", "true"), result.copy().options());
   }
 }

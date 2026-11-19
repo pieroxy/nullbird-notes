@@ -3,6 +3,8 @@ package net.pieroxy.notes.api;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import net.pieroxy.notes.sync.MetaChange;
 import net.pieroxy.notes.sync.NoteChange;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.utils.Hashes;
@@ -131,6 +133,21 @@ public class SyncApiTest {
     assertEquals("BASE_MISMATCH", results.get(0).getAsJsonObject().get("reason").getAsString());
     assertEquals("c2", results.get(1).getAsJsonObject().get("changeId").getAsString());
     assertEquals("APPLIED", results.get(1).getAsJsonObject().get("status").getAsString());
+  }
+
+  @Test
+  public void metadataChangesApplyAfterTheTextChangesOfTheSamePush() throws Exception {
+    JsonObject input = JsonParser.parseString(pushInput("laptop", edit("c1", 0, "new note"))).getAsJsonObject();
+    input.add("metaChanges", GSON.toJsonTree(List.of(new MetaChange("m1", NOTE, List.of("work"), null, Map.of("nowrap", "true"), null))));
+    JsonObject result = laptop.post("Push", input.toString()).result();
+
+    assertEquals("APPLIED", result.getAsJsonArray("results").get(0).getAsJsonObject().get("status").getAsString());
+    JsonObject metaResult = result.getAsJsonArray("metaResults").get(0).getAsJsonObject();
+    assertEquals("APPLIED", metaResult.get("status").getAsString());
+    JsonObject note = phone.get("Changes", "{\"since\":0}").result().getAsJsonArray("notes").get(0).getAsJsonObject();
+    assertEquals("work", note.getAsJsonArray("tags").get(0).getAsString());
+    assertEquals("true", note.getAsJsonObject("options").get("nowrap").getAsString());
+    assertEquals(1, note.get("revision").getAsInt());
   }
 
   @Test

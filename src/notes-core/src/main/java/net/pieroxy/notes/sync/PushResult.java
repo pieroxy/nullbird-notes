@@ -4,8 +4,9 @@ import net.pieroxy.notes.api.metadata.Required;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
 
 /**
- * The outcome of one {@link NoteChange}. Contents are splices of the text the client sent (its base
- * text for a delete), present only when the server stored something else.
+ * The outcome of one {@link NoteChange}, or of one {@link MetaChange} (APPLIED or REJECTED, and
+ * only note). Contents are splices of the text the client sent (its base text for a delete),
+ * present only when the server stored something else.
  *
  * @param reason       present when REJECTED.
  * @param message      present when REJECTED: for humans.

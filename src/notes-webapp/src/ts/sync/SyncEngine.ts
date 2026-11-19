@@ -1,7 +1,10 @@
-import { ChangesPage, NoteChange, NoteContent, NoteRequest, PushResult } from "../auto/api-types";
+import { ChangesPage, MetaChange, NoteChange, NoteContent, NoteRequest, PushResult } from "../auto/api-types";
 import { ApiError, ApiErrorKind } from "../utils/api/Api";
 import { LocalNote } from "./LocalNote";
 import { LocalStore, SyncMeta } from "./LocalStore";
+import {
+  addTag, applyMetaResult, hasMetaToPush, isValidTag, metaChangeOf, noOps, prepareMeta, removeTag, setOption, tagsOf,
+} from "./Metadata";
 import {
   applyPushResult, applyRemote, changeOf, created, deletedLocally, edited, forResync, haveRevision, isPushable, needsFetch,
   prepareChange, remoteText, sortKey,
@@ -25,7 +28,7 @@ export interface SyncStatus {
   nextRetryAt?: number;
   /** The server's answer, when it answered with an error. */
   message?: string;
-  /** Notes the server refused (too large…): see LocalNote.error. */
+  /** Notes the server refused (too large…): see LocalNote.error and LocalNote.metaError. */
   noteErrors: number;
   /** Unresolved conflict copies. */
   conflicts: number;
@@ -128,15 +131,15 @@ export class SyncEngine {
 
   status(): SyncStatus {
     const all = [...this.notes.values()];
-    const pending = all.filter((note) => note.dirty || note.pending).length;
-    const noteErrors = all.filter((note) => note.error).length;
+    const pending = all.filter((note) => note.dirty || note.pending || note.metaOps || note.pendingMeta).length;
+    const noteErrors = all.filter((note) => note.error || note.metaError).length;
     const conflicts = all.filter((note) => !note.deleted && note.info?.conflictOf).length;
     const base = { pending, noteErrors, conflicts, lastSyncAt: this.lastSyncAt };
     if (this.signedOut) return { ...base, state: "signedOut" };
     if (this.errorMessage) return { ...base, state: "error", message: this.errorMessage, nextRetryAt: this.nextRetryAt };
     if (this.offlineSince !== undefined) return { ...base, state: "offline", offlineSince: this.offlineSince, nextRetryAt: this.nextRetryAt };
     if (!this.connected) return { ...base, state: "starting" };
-    if (this.pushing || all.some((note) => isPushable(note) || note.pending)) return { ...base, state: "saving" };
+    if (this.pushing || all.some((note) => hasWork(note))) return { ...base, state: "saving" };
     return { ...base, state: "synced" };
   }
 
@@ -171,6 +174,36 @@ export class SyncEngine {
       this.notes.delete(id);
       void this.store.removeNote(id);
     }
+    this.notify();
+  }
+
+  /** @return false if {@code tag} isn't a valid tag (see isValidTag). */
+  addTag(id: string, tag: string): boolean {
+    if (!isValidTag(tag)) return false;
+    const note = this.notes.get(id);
+    if (note && !tagsOf(note).includes(tag)) this.changeMeta(note, addTag(note.metaOps ?? noOps(), tag));
+    return true;
+  }
+
+  removeTag(id: string, tag: string) {
+    const note = this.notes.get(id);
+    if (note && tagsOf(note).includes(tag)) this.changeMeta(note, removeTag(note.metaOps ?? noOps(), tag));
+  }
+
+  /** A boolean option: off is its default, so it's unset rather than set to "false". */
+  setOption(id: string, key: string, on: boolean) {
+    const note = this.notes.get(id);
+    if (note) this.changeMeta(note, setOption(note.metaOps ?? noOps(), key, on ? "true" : undefined));
+  }
+
+  /** A note never edited becomes dirty: the server must have it before it can take its metadata. */
+  private changeMeta(note: LocalNote, metaOps: LocalNote["metaOps"]) {
+    if (note.deleted) return;
+    const neverSent = note.baseRevision === 0 && !note.info && !note.dirty && !note.pending;
+    this.notes.set(note.id, { ...note, metaOps, metaError: undefined, dirty: note.dirty || neverSent });
+    this.unsaved.add(note.id);
+    this.scheduleSave();
+    this.schedulePush(0);
     this.notify();
   }
 
@@ -221,15 +254,18 @@ export class SyncEngine {
 
   private async applyChanges(page: ChangesPage) {
     const toFetch = page.notes.filter((info) => needsFetch(this.notes.get(info.id), info));
-    const updated: LocalNote[] = [];
-    for (const info of page.notes) {
-      const note = this.notes.get(info.id);
-      if (note && !toFetch.includes(info)) updated.push(applyRemote(note, { note: info }, undefined, Date.now()));
-    }
+    const fetched: { content: NoteContent; text?: string }[] = [];
     for (let i = 0; i < toFetch.length; i += MAX_NOTES_PER_FETCH) {
-      updated.push(...await this.fetch(toFetch.slice(i, i + MAX_NOTES_PER_FETCH).map((info) => info.id)));
+      fetched.push(...await this.fetch(toFetch.slice(i, i + MAX_NOTES_PER_FETCH).map((info) => info.id)));
     }
     if (!this.running) return;
+    // Once nothing is awaited anymore: from the notes as they are now, edits made meanwhile included.
+    const now = Date.now();
+    const updated = fetched.map(({ content, text }) => applyRemote(this.notes.get(content.note.id), content, text, now));
+    for (const info of page.notes) {
+      const note = this.notes.get(info.id);
+      if (note && !toFetch.includes(info)) updated.push(applyRemote(note, { note: info }, undefined, now));
+    }
     for (const note of updated) this.notes.set(note.id, note);
     await this.store.putNotes(updated);
     this.meta = { ...this.meta, storeId: page.storeId, cursor: page.seq };
@@ -237,17 +273,14 @@ export class SyncEngine {
     this.notify();
   }
 
-  /** The notes' current server state, each checked against its hash. */
-  private async fetch(ids: string[]): Promise<LocalNote[]> {
+  /** The notes' current server state, each text rebuilt and checked against its hash. */
+  private async fetch(ids: string[]): Promise<{ content: NoteContent; text?: string }[]> {
     // The bases the splices are asked for, as they are now: edits may land while waiting.
     const asked = new Map(ids.map((id) => [id, this.notes.get(id)]));
     const requests: NoteRequest[] = ids.map((id) => ({ id, haveRevision: haveRevision(asked.get(id)) }));
     const result = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.getNotes(requests, signal));
-    const fetched: LocalNote[] = [];
-    for (const content of result.notes) {
-      const text = await this.verifiedText(asked.get(content.note.id), content);
-      fetched.push(applyRemote(this.notes.get(content.note.id), content, text, Date.now()));
-    }
+    const fetched = [];
+    for (const content of result.notes) fetched.push({ content, text: await this.verifiedText(asked.get(content.note.id), content) });
     return fetched;
   }
 
@@ -286,7 +319,7 @@ export class SyncEngine {
 
   private async push() {
     if (!this.running || this.pushing || this.signedOut || this.nextRetryAt !== undefined) return;
-    const candidates = [...this.notes.values()].filter((note) => note.pending || isPushable(note));
+    const candidates = [...this.notes.values()].filter(hasWork);
     if (candidates.length === 0) return;
     this.pushing = true;
     this.notify();
@@ -295,15 +328,16 @@ export class SyncEngine {
         this.maxNoteSize = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.maxNoteSize(signal));
       }
       const batch = await this.prepareBatch(candidates);
-      if (batch.changes.length > 0) {
-        const results = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.push(this.meta.deviceId, batch.changes, signal));
+      if (batch.changes.length > 0 || batch.metaChanges.length > 0) {
+        const output = await this.withTimeout(TIMINGS.requestTimeout,
+          (signal) => this.api.push(this.meta.deviceId, batch.changes, batch.metaChanges, signal));
         // Stopped meanwhile: another engine may own the store now. Pending changes get resent, then replayed.
         if (!this.running) return;
-        await this.applyPushResults(results);
+        await this.applyPushResults(output.results, output.metaResults);
       }
       this.succeeded();
       this.pushing = false;
-      if ([...this.notes.values()].some((note) => isPushable(note))) this.schedulePush(0);
+      if ([...this.notes.values()].some((note) => isPushable(note) || hasMetaToPush(note))) this.schedulePush(0);
     } catch (e) {
       this.pushing = false;
       await this.failed(e);
@@ -315,19 +349,19 @@ export class SyncEngine {
    * The changes for one push, within the server's limits: the request cap is twice the largest
    * note, enough for any text once JSON-escaped. Their pending state is saved before they're sent.
    */
-  private async prepareBatch(candidates: LocalNote[]): Promise<{ changes: NoteChange[] }> {
+  private async prepareBatch(candidates: LocalNote[]): Promise<{ changes: NoteChange[]; metaChanges: MetaChange[] }> {
     const encoder = new TextEncoder();
     const changes: NoteChange[] = [];
-    const saved: LocalNote[] = [];
+    const saved = new Map<string, LocalNote>();
     let budget = this.maxNoteSize!;
-    for (const candidate of candidates) {
+    for (const candidate of candidates.filter((note) => note.pending || isPushable(note))) {
       if (changes.length >= MAX_CHANGES_PER_PUSH) break;
       let note = candidate;
       if (!note.pending) {
         if (!note.deleted && encoder.encode(note.text).length > this.maxNoteSize!) {
           note = { ...note, error: { reason: "TOO_LARGE", message: "Larger than the server's limit of " + this.maxNoteSize + " bytes." } };
           this.notes.set(note.id, note);
-          saved.push(note);
+          saved.set(note.id, note);
           continue;
         }
         note = prepareChange(note, uuid()).note;
@@ -339,14 +373,24 @@ export class SyncEngine {
       const contentHash = note.pending!.deleted ? undefined : await sha256(note.pending!.submitted);
       changes.push({ ...change, contentHash });
       this.notes.set(note.id, note);
-      saved.push(note);
+      saved.set(note.id, note);
     }
-    await this.store.putNotes(saved);
-    return { changes };
+    // Small: no budget, only the count limit.
+    const metaChanges: MetaChange[] = [];
+    for (const candidate of candidates.filter((note) => note.pendingMeta || hasMetaToPush(note))) {
+      if (metaChanges.length >= MAX_CHANGES_PER_PUSH) break;
+      const current = this.notes.get(candidate.id)!;
+      const note = current.pendingMeta ? current : prepareMeta(current, uuid());
+      metaChanges.push(metaChangeOf(note));
+      this.notes.set(note.id, note);
+      saved.set(note.id, note);
+    }
+    await this.store.putNotes([...saved.values()]);
+    return { changes, metaChanges };
   }
 
-  private async applyPushResults(results: PushResult[]) {
-    const changed: LocalNote[] = [];
+  private async applyPushResults(results: PushResult[], metaResults: PushResult[]) {
+    const changed = new Map<string, LocalNote>();
     const removed: string[] = [];
     for (const result of results) {
       const note = [...this.notes.values()].find((n) => n.pending?.changeId === result.changeId);
@@ -358,11 +402,18 @@ export class SyncEngine {
       }
       for (const updated of outcome.notes) {
         this.notes.set(updated.id, updated);
-        changed.push(updated);
+        changed.set(updated.id, updated);
       }
       if (outcome.movedTo) for (const listener of this.moveListeners) listener(note.id, outcome.movedTo);
     }
-    await this.store.putNotes(changed);
+    for (const result of metaResults) {
+      const note = [...this.notes.values()].find((n) => n.pendingMeta?.changeId === result.changeId);
+      if (!note) continue;
+      const updated = applyMetaResult(note, result);
+      this.notes.set(updated.id, updated);
+      changed.set(updated.id, updated);
+    }
+    await this.store.putNotes([...changed.values()]);
     for (const id of removed) await this.store.removeNote(id);
   }
 
@@ -454,4 +505,9 @@ export class SyncEngine {
   private notify() {
     for (const listener of this.listeners) listener();
   }
+}
+
+/** Something to push, or a push to resend. */
+function hasWork(note: LocalNote): boolean {
+  return isPushable(note) || note.pending !== undefined || hasMetaToPush(note) || note.pendingMeta !== undefined;
 }

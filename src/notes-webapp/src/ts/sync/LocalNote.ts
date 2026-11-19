@@ -24,6 +24,25 @@ export interface LocalNote {
   error?: NoteError;
   /** The server couldn't rebuild a splice: send the full text next time. */
   forceFull?: boolean;
+  /** Tag and option changes not sent yet: see Metadata.ts. */
+  metaOps?: MetaOps;
+  /** A metadata push in flight, saved before sending like {@link pending}. */
+  pendingMeta?: PendingMeta;
+  /** Why the server refused the last metadata change, whose operations were then dropped. */
+  metaError?: NoteError;
+}
+
+/** Changes to a note's tags and options, as the operations sent to the server. */
+export interface MetaOps {
+  addTags: string[];
+  removeTags: string[];
+  setOptions: { [key: string]: string };
+  unsetOptions: string[];
+}
+
+export interface PendingMeta {
+  changeId: string;
+  ops: MetaOps;
 }
 
 export interface PendingChange {
