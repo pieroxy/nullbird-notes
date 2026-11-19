@@ -42,8 +42,8 @@ export function changeOf(note: LocalNote): Omit<NoteChange, "contentHash"> {
 
 /**
  * {@code note} after the server's answer to its pending push, plus the conflict copy when there
- * is one. {@code movedTo} is set when the user's edits continue on the copy: an editor showing the
- * note should switch to it. {@code removed}: the note is gone (a delete of a note the server never had).
+ * is one. {@code movedTo} is the copy, which holds this device's text: an editor showing the note
+ * should switch to it. {@code removed}: the note is gone (a delete of a note the server never had).
  */
 export function applyPushResult(note: LocalNote, result: PushResult):
     { notes: LocalNote[]; movedTo?: string; removed?: boolean } {
@@ -74,7 +74,9 @@ export function applyPushResult(note: LocalNote, result: PushResult):
         id: result.copy!.id, baseRevision: 0, baseText: "", text: "", deleted: false, dirty: false, editedAt: note.editedAt,
       };
       const copy = settle(copyBase, result.copy!, copyText, typedSince, sent, pending.changeId, note.text);
-      return { notes: [updated, copy], movedTo: typedSince ? copy.id : undefined };
+      // The copy holds what this device wrote: an editor showing the note follows it, so that the
+      // user keeps seeing their own text instead of it being replaced under their eyes.
+      return { notes: [updated, copy], movedTo: copy.id };
     }
     case PushStatus.KEPT: {
       const current = result.content ? applySplice(result.content, sent) : sent;

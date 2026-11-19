@@ -122,7 +122,7 @@ describe("applyPushResult", () => {
       copy: info(1, { id: COPY, conflictOf: { noteId: ID } }), copyContent: undefined,
     }));
 
-    expect(movedTo).toBeUndefined();
+    expect(movedTo).toBe(COPY);
     expect(notes[0]).toEqual(expect.objectContaining({ id: ID, baseRevision: 2, text: "I like dogs.", dirty: false }));
     expect(notes[1]).toEqual(expect.objectContaining({
       id: COPY, baseRevision: 1, baseText: sent, text: sent, dirty: false, info: expect.objectContaining({ conflictOf: { noteId: ID } }),

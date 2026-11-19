@@ -229,6 +229,7 @@ export class SyncEngine {
     for (let i = 0; i < toFetch.length; i += MAX_NOTES_PER_FETCH) {
       updated.push(...await this.fetch(toFetch.slice(i, i + MAX_NOTES_PER_FETCH).map((info) => info.id)));
     }
+    if (!this.running) return;
     for (const note of updated) this.notes.set(note.id, note);
     await this.store.putNotes(updated);
     this.meta = { ...this.meta, storeId: page.storeId, cursor: page.seq };
@@ -296,6 +297,8 @@ export class SyncEngine {
       const batch = await this.prepareBatch(candidates);
       if (batch.changes.length > 0) {
         const results = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.push(this.meta.deviceId, batch.changes, signal));
+        // Stopped meanwhile: another engine may own the store now. Pending changes get resent, then replayed.
+        if (!this.running) return;
         await this.applyPushResults(results);
       }
       this.succeeded();

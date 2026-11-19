@@ -25,6 +25,11 @@ describe("SyncEngine", () => {
     throw new Error("Condition not met within " + maxMillis + " ms");
   }
 
+  /** Advances fake time in small steps: IndexedDB work runs on real setImmediate, between them. */
+  async function advance(millis: number) {
+    for (let elapsed = 0; elapsed < millis; elapsed += 50) await jest.advanceTimersByTimeAsync(50);
+  }
+
   async function startEngine() {
     engine = new SyncEngine(store, server);
     await engine.start();
@@ -143,14 +148,15 @@ describe("SyncEngine", () => {
     await startEngine();
     server.silent = true;
 
-    // The poll already waiting answers within 25 s; the next one never does.
-    await jest.advanceTimersByTimeAsync(25_000 + TIMINGS.longPollTimeout + 100);
-    expect(engine.status().state).toBe("offline");
+    // The poll already waiting answers within 25 s; the next one never does, and times out.
+    await advance(25_000 + TIMINGS.longPollTimeout - 1_000);
+    expect(engine.status().state).toBe("synced");
+    await until(() => engine.status().state === "offline", 2_000);
   });
 
   test("an idle long poll that answers empty keeps the engine synced", async () => {
     await startEngine();
-    await jest.advanceTimersByTimeAsync(60_000);
+    await advance(60_000);
     expect(engine.status().state).toBe("synced");
   });
 
@@ -239,7 +245,8 @@ describe("SyncEngine", () => {
 
     expect(server.pushes.flat().filter((c) => c.noteId === id).map((c) => c.changeId)).toEqual([changeId, changeId]);
     expect(server.notes.get(id)?.info.revision).toBe(1);
-    expect(engine.get(id)).toEqual(expect.objectContaining({ dirty: false, pending: undefined }));
+    expect(engine.get(id)?.dirty).toBe(false);
+    expect(engine.get(id)?.pending).toBeUndefined();
   });
 
   test("deletes reach the server and leave the list", async () => {
