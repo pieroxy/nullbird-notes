@@ -70,7 +70,11 @@ public class WebServerService implements Service {
       String address = config.getAddress() == null || config.getAddress().isBlank() ? "*" : config.getAddress();
       LOGGER.info("Web server listening on " + address + ":" + config.getHttpPort());
     } catch (LifecycleException | IOException e) {
-      throw new IllegalStateException("Could not start the web server", e);
+      // Not started, so ServiceProvider won't destroy it: release what it holds now.
+      destroy();
+      Throwable cause = e;
+      while (cause.getCause() != null) cause = cause.getCause();
+      throw new IllegalStateException("Could not start the web server on port " + config.getHttpPort() + ": " + cause, e);
     }
   }
 
@@ -82,6 +86,8 @@ public class WebServerService implements Service {
       tomcat.destroy();
     } catch (LifecycleException e) {
       LOGGER.log(Level.WARNING, "Could not stop the web server cleanly", e);
+    } finally {
+      tomcat = null;
     }
   }
 
@@ -127,6 +133,8 @@ public class WebServerService implements Service {
   private static Connector newConnector(int port, String address) {
     Connector c = new Connector();
     c.setPort(port);
+    // Otherwise a port already in use is only logged, and the server runs without listening.
+    c.setThrowOnFailure(true);
     if (address != null && !address.isBlank()) {
       c.setProperty("address", address);
     }

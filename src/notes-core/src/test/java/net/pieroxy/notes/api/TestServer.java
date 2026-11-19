@@ -53,9 +53,11 @@ class TestServer implements AutoCloseable {
 
   /** @param users username to plaintext password. */
   TestServer(File dir, Map<String, String> users) throws IOException {
-    try (ServerSocket probe = new ServerSocket(0)) {
-      port = probe.getLocalPort();
-    }
+    this(dir, users, freePort());
+  }
+
+  TestServer(File dir, Map<String, String> users, int port) throws IOException {
+    this.port = port;
     List<UserCredential> credentials = new ArrayList<>();
     users.forEach((username, password) -> {
       UserCredential user = new UserCredential();
@@ -74,7 +76,18 @@ class TestServer implements AutoCloseable {
     config.setMaxNoteSizeMb(1);
     services = new ServiceProvider(new SettingsService(config, credentialsPath, new File(dir, "data")), new SessionService(),
         new ClientGuardService(), new NoteStoreService(), new NoteService(), new WebServerService());
-    services.init();
+    try {
+      services.init();
+    } catch (RuntimeException e) {
+      services.destroy();
+      throw e;
+    }
+  }
+
+  private static int freePort() throws IOException {
+    try (ServerSocket probe = new ServerSocket(0)) {
+      return probe.getLocalPort();
+    }
   }
 
   /** A device: its own cookies, so its own session. */
