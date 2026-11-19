@@ -29,6 +29,8 @@ export class FakeServer implements SyncApi {
   failNext = 0;
   /** Calls throw a 401. */
   unauthorized = false;
+  /** Calls are refused as coming from another build. */
+  outdated = false;
   /** Long polls never answer (a dead connection). */
   silent = false;
   /** Answers a change instead of the default fast-forward, when it returns something. */
@@ -159,6 +161,7 @@ export class FakeServer implements SyncApi {
 
   private check() {
     if (this.unauthorized) throw new ApiError(ApiErrorKind.API, "Session expired.", 401);
+    if (this.outdated) throw new ApiError(ApiErrorKind.OUTDATED, "This page is out of date: reload it.", 409);
     if (this.failNext > 0) {
       this.failNext--;
       throw new ApiError(ApiErrorKind.UNREACHABLE, "Cannot reach the server.");

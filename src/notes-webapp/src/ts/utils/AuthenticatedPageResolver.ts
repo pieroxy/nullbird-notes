@@ -1,4 +1,5 @@
 import m from "mithril";
+import { OutdatedBanner } from "../components/OutdatedBanner";
 import { Auth, AuthStatus } from "./Auth";
 import { Endpoints } from "./navigation/Endpoints";
 import { Routing } from "./navigation/Routing";
@@ -27,6 +28,8 @@ export class AuthenticatedPageResolver implements m.RouteResolver {
             return null;
           case AuthStatus.UNREACHABLE:
             return m(".pagemessage", "Cannot reach the server. Retrying…");
+          case AuthStatus.OUTDATED:
+            return m(OutdatedBanner);
           case AuthStatus.CHECKING:
             return null;
         }

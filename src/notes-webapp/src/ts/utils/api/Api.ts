@@ -1,4 +1,5 @@
 import m from "mithril";
+import { BUILD_ID } from "../../auto/BuildId";
 import { Auth } from "../Auth";
 
 export interface ApiResponse<T> {
@@ -26,6 +27,8 @@ export enum ApiErrorKind {
   BAD_RESPONSE,
   /** The API answered with an error. */
   API,
+  /** The server runs another build: this page must be reloaded (see Api.outdated). */
+  OUTDATED,
 }
 
 export class ApiError extends Error {
@@ -41,6 +44,9 @@ export class ApiError extends Error {
 }
 
 export class Api {
+  /** Set once the server refused a call from this build: every page then offers to reload. */
+  static outdated = false;
+
   /** @throws ApiError. A 401 also drops the client-side session (see Auth). */
   static async call<I, O>(options: ApiCallOptions<I>): Promise<O> {
     const url = "/api/" + options.endpoint;
@@ -48,10 +54,13 @@ export class Api {
     let response: Response;
     try {
       response = options.method === "GET"
-        ? await fetch(url + "?input=" + encodeURIComponent(JSON.stringify(options.body)), { signal: options.signal })
+        ? await fetch(url + "?input=" + encodeURIComponent(JSON.stringify(options.body)), {
+            headers: { "X-Notes-Build": BUILD_ID },
+            signal: options.signal,
+          })
         : await fetch(url, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Notes-Build": BUILD_ID },
             body: JSON.stringify(options.body),
             signal: options.signal,
           });
@@ -68,6 +77,11 @@ export class Api {
     }
 
     if (!payload.ok) {
+      if (response.status === 409) {
+        Api.outdated = true;
+        m.redraw();
+        throw new ApiError(ApiErrorKind.OUTDATED, payload.error ?? "This page is out of date: reload it.", response.status);
+      }
       if (response.status === 401) {
         Auth.clearSession();
         m.redraw();

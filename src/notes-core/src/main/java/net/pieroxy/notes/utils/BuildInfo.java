@@ -11,6 +11,8 @@ public final class BuildInfo {
   private final static Logger LOGGER = Logger.getLogger(BuildInfo.class.getName());
   public final static String VERSION = readResourceFileAsString("MVN_VER");
   public final static String REVISION = readResourceFileAsString("GIT_REV");
+  /** Identifies this build: the web app must come from the very same one (see ApiServlet). */
+  public final static String ID = VERSION + "+" + REVISION;
 
   private BuildInfo() {
   }

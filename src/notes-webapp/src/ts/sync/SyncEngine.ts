@@ -13,7 +13,7 @@ import { sha256 } from "./Sha256";
 import { SyncApi } from "./SyncApi";
 import { uuid } from "./Uuid";
 
-export type SyncState = "starting" | "synced" | "saving" | "offline" | "error" | "signedOut";
+export type SyncState = "starting" | "synced" | "saving" | "offline" | "error" | "signedOut" | "outdated";
 
 /** What the status indicator shows. Derived from what actually happened, never assumed. */
 export interface SyncStatus {
@@ -60,8 +60,8 @@ const MAX_NOTES_PER_FETCH = 200;
  *   <li>pushing: sends dirty notes shortly after the last keystroke, each change saved as pending
  *   before it's sent, so that a retry (after a network error, or a restart) resends the very same one.</li>
  * </ul>
- * Failures back off from {@link TIMINGS.retryMin} to {@link TIMINGS.retryMax}; a 401 stops both
- * loops (signed out), keeping everything local.
+ * Failures back off from {@link TIMINGS.retryMin} to {@link TIMINGS.retryMax}; a 401 (signed out)
+ * or a server running another build (outdated) stops both loops, keeping everything local.
  */
 export class SyncEngine {
   private readonly notes = new Map<string, LocalNote>();
@@ -74,6 +74,7 @@ export class SyncEngine {
 
   private connected = false;
   private signedOut = false;
+  private outdated = false;
   private lastSyncAt?: number;
   private offlineSince?: number;
   private errorMessage?: string;
@@ -135,6 +136,7 @@ export class SyncEngine {
     const noteErrors = all.filter((note) => note.error || note.metaError).length;
     const conflicts = all.filter((note) => !note.deleted && note.info?.conflictOf).length;
     const base = { pending, noteErrors, conflicts, lastSyncAt: this.lastSyncAt };
+    if (this.outdated) return { ...base, state: "outdated" };
     if (this.signedOut) return { ...base, state: "signedOut" };
     if (this.errorMessage) return { ...base, state: "error", message: this.errorMessage, nextRetryAt: this.nextRetryAt };
     if (this.offlineSince !== undefined) return { ...base, state: "offline", offlineSince: this.offlineSince, nextRetryAt: this.nextRetryAt };
@@ -318,7 +320,7 @@ export class SyncEngine {
   }
 
   private async push() {
-    if (!this.running || this.pushing || this.signedOut || this.nextRetryAt !== undefined) return;
+    if (!this.running || this.pushing || this.signedOut || this.outdated || this.nextRetryAt !== undefined) return;
     const candidates = [...this.notes.values()].filter(hasWork);
     if (candidates.length === 0) return;
     this.pushing = true;
@@ -446,12 +448,17 @@ export class SyncEngine {
    * Records a failure, then waits out the backoff (a retry can cut it short), then lets pushes
    * resume: edits made meanwhile found the engine backing off.
    *
-   * @return false when the loops must stop: signed out, or stopped meanwhile.
+   * @return false when the loops must stop: signed out, outdated, or stopped meanwhile.
    */
   private async failed(error: unknown): Promise<boolean> {
     if (!this.running) return false;
     if (error instanceof ApiError && error.status === 401) {
       this.signedOut = true;
+      this.notify();
+      return false;
+    }
+    if (error instanceof ApiError && error.kind === ApiErrorKind.OUTDATED) {
+      this.outdated = true;
       this.notify();
       return false;
     }

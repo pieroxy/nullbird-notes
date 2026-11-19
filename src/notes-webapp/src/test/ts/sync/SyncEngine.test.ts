@@ -172,6 +172,20 @@ describe("SyncEngine", () => {
     expect((await store.getAllNotes()).find((n) => n.id === id)?.text).toBe("Not lost");
   });
 
+  test("a server running another build stops syncing and keeps everything local", async () => {
+    await startEngine();
+    const id = engine.create();
+    server.outdated = true;
+    engine.edit(id, "Kept for the reloaded page");
+
+    await until(() => engine.status().state === "outdated");
+    const pushes = server.pushes.length;
+    await advance(TIMINGS.retryMax * 2);
+    expect(engine.status()).toEqual(expect.objectContaining({ state: "outdated", pending: 1 }));
+    expect(server.pushes.length).toBe(pushes);
+    expect((await store.getAllNotes()).find((n) => n.id === id)?.text).toBe("Kept for the reloaded page");
+  });
+
   test("when the server's data was replaced, starts over and pushes unsynced text as new notes", async () => {
     server.write(A, "Synced");
     await startEngine();

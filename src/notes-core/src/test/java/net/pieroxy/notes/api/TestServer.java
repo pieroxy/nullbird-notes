@@ -15,6 +15,7 @@ import net.pieroxy.notes.services.ServiceProvider;
 import net.pieroxy.notes.services.SessionService;
 import net.pieroxy.notes.services.SettingsService;
 import net.pieroxy.notes.services.WebServerService;
+import net.pieroxy.notes.utils.BuildInfo;
 
 import java.io.File;
 import java.io.IOException;
@@ -120,6 +121,8 @@ class TestServer implements AutoCloseable {
   class Client {
     private final CookieManager cookies;
     private final HttpClient http;
+    /** Null sends no build header. */
+    private String build = BuildInfo.ID;
 
     private Client(CookieManager cookies) {
       this.cookies = cookies;
@@ -131,6 +134,12 @@ class TestServer implements AutoCloseable {
       input.addProperty("login", username);
       input.addProperty("password", password);
       if (!post("Login", input.toString()).result().get("ok").getAsBoolean()) throw new AssertionError("Login refused");
+      return this;
+    }
+
+    /** Calls as a web app of another build would; null for none at all. */
+    Client asBuild(String build) {
+      this.build = build;
       return this;
     }
 
@@ -154,17 +163,21 @@ class TestServer implements AutoCloseable {
 
     CompletableFuture<Response> getAsync(String endpoint, String input) {
       URI uri = URI.create(base() + endpoint + "?input=" + URLEncoder.encode(input, StandardCharsets.UTF_8));
-      return http.sendAsync(HttpRequest.newBuilder(uri).build(), HttpResponse.BodyHandlers.ofString())
+      return http.sendAsync(withBuild(HttpRequest.newBuilder(uri)).build(), HttpResponse.BodyHandlers.ofString())
           .thenApply(r -> new Response(r.statusCode(), r.body()));
     }
 
     Response post(String endpoint, String input) throws Exception {
-      HttpRequest request = HttpRequest.newBuilder(URI.create(base() + endpoint))
+      HttpRequest request = withBuild(HttpRequest.newBuilder(URI.create(base() + endpoint)))
           .header("Content-Type", "application/json")
           .POST(HttpRequest.BodyPublishers.ofString(input))
           .build();
       HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
       return new Response(response.statusCode(), response.body());
+    }
+
+    private HttpRequest.Builder withBuild(HttpRequest.Builder builder) {
+      return build == null ? builder : builder.header(ApiServlet.BUILD_HEADER, build);
     }
 
     private String base() {

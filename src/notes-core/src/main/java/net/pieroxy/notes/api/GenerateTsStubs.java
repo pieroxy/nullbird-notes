@@ -5,6 +5,7 @@ import net.pieroxy.notes.api.metadata.ApiEndpoint;
 import net.pieroxy.notes.api.metadata.Endpoint;
 import net.pieroxy.notes.api.metadata.RequiredFields;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
+import net.pieroxy.notes.utils.BuildInfo;
 import net.pieroxy.notes.utils.reflection.GenericTypeArgumentResolver;
 import net.pieroxy.notes.utils.reflection.GetAccessibleClasses;
 
@@ -39,6 +40,12 @@ public class GenerateTsStubs {
     }
 
     File out = new File(args[0]);
+    try (BufferedWriter build = new BufferedWriter(new FileWriter(new File(out.getParentFile(), "BuildId.ts")))) {
+      build.write("// Generated: this build's identity, sent with every API call (see ApiServlet).");
+      build.newLine();
+      build.write("export const BUILD_ID = \"" + BuildInfo.ID + "\";");
+      build.newLine();
+    }
     writer = new BufferedWriter(new FileWriter(out));
 
     write("/* tslint:disable */");

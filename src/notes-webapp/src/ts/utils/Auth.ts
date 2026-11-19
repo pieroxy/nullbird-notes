@@ -1,5 +1,6 @@
 import m from "mithril";
 import { ApiEndpoints } from "../auto/ApiEndpoints";
+import { Api } from "./api/Api";
 
 export enum AuthStatus {
   LOGGED_IN,
@@ -7,13 +8,15 @@ export enum AuthStatus {
   CHECKING,
   /** SessionApi couldn't be reached; retried every RETRY_DELAY_MS. */
   UNREACHABLE,
+  /** The server runs another build (see Api.outdated): nothing more is asked of it. */
+  OUTDATED,
 }
 
 const RETRY_DELAY_MS = 5000;
 
 /**
  * Client-side session state. The session itself is an HttpOnly cookie this code can't see: on
- * page load, SessionApi tells whether it's (still) valid. A server restart clears every session.
+ * page load, SessionApi tells whether it's (still) valid.
  */
 export class Auth {
   /** Undefined until SessionApi has answered; null when not logged in. */
@@ -24,6 +27,7 @@ export class Auth {
   static getStatus(): AuthStatus {
     if (typeof Auth.username === "string") return AuthStatus.LOGGED_IN;
     if (Auth.username === null) return AuthStatus.NO_SESSION;
+    if (Api.outdated) return AuthStatus.OUTDATED;
     if (!Auth.checkInProgress && !Auth.unreachable) Auth.check();
     return Auth.unreachable ? AuthStatus.UNREACHABLE : AuthStatus.CHECKING;
   }
@@ -59,6 +63,7 @@ export class Auth {
         Auth.unreachable = false;
       })
       .catch(() => {
+        if (Api.outdated) return;
         Auth.unreachable = true;
         setTimeout(() => {
           Auth.unreachable = false;

@@ -1,10 +1,12 @@
 package net.pieroxy.notes.api;
 
+import net.pieroxy.notes.utils.BuildInfo;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.util.Arrays;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
@@ -54,5 +56,19 @@ public class AuthApiTest {
     sameLaptop.setSessionCookie(cookieBefore);
     assertFalse(sameLaptop.get("Session", "{}").result().get("authenticated").getAsBoolean());
     assertEquals(401, sameLaptop.get("ServerInfo", "{}").status());
+  }
+
+  @Test
+  public void aWebAppOfAnotherBuildIsToldToReload() throws Exception {
+    server = new TestServer(tmp.getRoot(), USERS);
+    TestServer.Client laptop = server.client().login("alice", "alice-password");
+
+    for (String build : Arrays.asList("0.0.1+0000000", null)) {
+      TestServer.Response response = laptop.asBuild(build).get("ServerInfo", "{}");
+      assertEquals(409, response.status());
+      assertTrue(response.body(), response.json().get("error").getAsString().contains("reload"));
+    }
+    assertEquals(409, server.client().asBuild(null).post("Login", "{\"login\":\"alice\",\"password\":\"alice-password\"}").status());
+    assertEquals(200, laptop.asBuild(BuildInfo.ID).get("ServerInfo", "{}").status());
   }
 }

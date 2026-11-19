@@ -51,6 +51,9 @@ export class SyncStatusIndicator implements m.ClassComponent<SyncStatusIndicator
       case "error":
         [state, label, detail] = ["error", "Sync error", status.message];
         break;
+      case "outdated":
+        [state, label, detail] = ["error", "Outdated", "reload the page to sync" + (notSynced ? " (" + notSynced + ")" : "")];
+        break;
       case "signedOut":
         [state, label, detail] = ["error", "Signed out", "log in again to sync" + (notSynced ? " (" + notSynced + ")" : "")];
         break;
