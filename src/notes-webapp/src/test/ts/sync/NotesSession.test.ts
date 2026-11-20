@@ -3,6 +3,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { LocalStore } from "../../../ts/sync/LocalStore";
 import { NotesSession } from "../../../ts/sync/NotesSession";
 import { FakeServer } from "./FakeServer";
+import { until, useInstantDigest } from "./FakeTime";
 
 describe("NotesSession", () => {
   let server: FakeServer;
@@ -15,19 +16,11 @@ describe("NotesSession", () => {
     return session;
   }
 
-  async function until(condition: () => boolean, maxMillis = 10_000) {
-    for (let elapsed = 0; elapsed <= maxMillis; elapsed += 50) {
-      if (condition()) return;
-      await jest.advanceTimersByTimeAsync(50);
-    }
-    throw new Error("Condition not met within " + maxMillis + " ms");
-  }
-
   /** Lets fake time run while {@code promise} settles: claiming waits for other tabs to answer. */
   async function settle(promise: Promise<void>) {
     let done = false;
     const watched = promise.finally(() => (done = true));
-    await until(() => done);
+    await until(() => done, 10_000);
     await watched;
   }
 
@@ -42,6 +35,7 @@ describe("NotesSession", () => {
 
   beforeEach(() => {
     jest.useFakeTimers({ doNotFake: ["setImmediate", "queueMicrotask", "nextTick"] });
+    useInstantDigest();
     globalThis.indexedDB = new IDBFactory();
     server = new FakeServer();
   });
@@ -49,6 +43,7 @@ describe("NotesSession", () => {
   afterEach(async () => {
     for (const session of sessions.splice(0)) await settle(session.destroy("cleanup"));
     jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
   test("opens the notes and syncs them", async () => {

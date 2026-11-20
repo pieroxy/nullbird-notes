@@ -7,6 +7,7 @@ import { sha256Bytes } from "../../../ts/sync/Sha256";
 import { computeSplice } from "../../../ts/sync/Splice";
 import { SyncEngine, TIMINGS } from "../../../ts/sync/SyncEngine";
 import { FakeServer } from "./FakeServer";
+import { advance, until, useInstantDigest } from "./FakeTime";
 
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -17,20 +18,6 @@ describe("SyncEngine", () => {
   let store: LocalStore;
   let engine: SyncEngine;
 
-  /** Advances fake time in small steps until {@code condition} holds. */
-  async function until(condition: () => boolean, maxMillis = 120_000) {
-    for (let elapsed = 0; elapsed <= maxMillis; elapsed += 50) {
-      if (condition()) return;
-      await jest.advanceTimersByTimeAsync(50);
-    }
-    throw new Error("Condition not met within " + maxMillis + " ms");
-  }
-
-  /** Advances fake time in small steps: IndexedDB work runs on real setImmediate, between them. */
-  async function advance(millis: number) {
-    for (let elapsed = 0; elapsed < millis; elapsed += 50) await jest.advanceTimersByTimeAsync(50);
-  }
-
   async function startEngine() {
     engine = new SyncEngine(store, server);
     await engine.start();
@@ -40,6 +27,7 @@ describe("SyncEngine", () => {
   beforeEach(async () => {
     // fake-indexeddb schedules its work with setImmediate: real ones keep it running.
     jest.useFakeTimers({ doNotFake: ["setImmediate", "queueMicrotask", "nextTick"] });
+    useInstantDigest();
     globalThis.indexedDB = new IDBFactory();
     server = new FakeServer();
     store = await LocalStore.open("alice");
@@ -49,6 +37,7 @@ describe("SyncEngine", () => {
     await engine?.stop();
     store.close();
     jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
   test("pulls the server's notes on start", async () => {
@@ -80,7 +69,7 @@ describe("SyncEngine", () => {
     const id = engine.create();
     for (let i = 1; i <= 14; i++) {
       engine.edit(id, "x".repeat(i));
-      await jest.advanceTimersByTimeAsync(500);
+      await advance(500);
     }
     expect(server.pushes.length).toBeGreaterThanOrEqual(1);
   });
@@ -114,10 +103,7 @@ describe("SyncEngine", () => {
 
   test("a push whose answer is lost is resent with the same changeId, and applied once", async () => {
     await startEngine();
-    const id = engine.create();
-    engine.edit(id, "Once");
-    await until(() => engine.get(id)?.pending !== undefined);
-    // The answer gets lost: the server applied it, but the engine sees a network error.
+    // The first answer gets lost: the server applied it, but the engine sees a network error.
     const push = server.push.bind(server);
     let lose = true;
     server.push = async (deviceId, changes, metaChanges) => {
@@ -128,8 +114,11 @@ describe("SyncEngine", () => {
       }
       return results;
     };
+    const id = engine.create();
+    engine.edit(id, "Once");
 
     await until(() => engine.status().state === "synced" && !engine.get(id)?.dirty);
+    expect(lose).toBe(false);
     expect(server.notes.get(id)?.info.revision).toBe(1);
   });
 
@@ -141,7 +130,7 @@ describe("SyncEngine", () => {
     server.failNext = 0;
 
     engine.retryNow();
-    await until(() => engine.status().state === "synced", 5_000);
+    await until(() => engine.status().state === "synced", 1_000);
     expect(engine.get(A)?.text).toBe("wake the poll");
   });
 
