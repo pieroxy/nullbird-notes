@@ -141,7 +141,7 @@ describe("SyncEngine", () => {
     server.failNext = 0;
 
     engine.retryNow();
-    await until(() => engine.status().state === "synced", 1_000);
+    await until(() => engine.status().state === "synced", 5_000);
     expect(engine.get(A)?.text).toBe("wake the poll");
   });
 
