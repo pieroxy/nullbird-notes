@@ -93,8 +93,9 @@
                 <copy todir="${basedir}/../notes-webapp/src/ts/auto/">
                   <fileset dir="${project.build.directory}/typescript-generator/"/>
                 </copy>
+                <!-- ci, not install: exactly what package-lock.json says, which it never rewrites. -->
                 <exec executable="npm" dir="${basedir}/../notes-webapp" failonerror="true">
-                  <arg value="install"/>
+                  <arg value="ci"/>
                 </exec>
                 <!-- Skipped along with the Java tests by -DskipTests. -->
                 <exec executable="npm" dir="${basedir}/../notes-webapp" failonerror="true" unless:true="${skipTests}">
