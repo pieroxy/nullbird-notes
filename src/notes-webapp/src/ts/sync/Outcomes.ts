@@ -35,63 +35,47 @@ export function changeOf(note: LocalNote): Omit<NoteChange, "contentHash"> {
   };
   if (!pending.deleted) {
     const splice = computeSplice(note.baseText, pending.submitted);
-    if (!note.forceFull && splice.middle.length < pending.submitted.length) change.splice = splice;
+    if (!note.forceFull && !note.sendBase && splice.middle.length < pending.submitted.length) change.splice = splice;
     else change.content = pending.submitted;
+    if (note.sendBase) change.baseContent = note.baseText;
   }
   return change;
 }
 
 /**
- * {@code note} after the server's answer to its pending push, plus the conflict copy when there
- * is one. {@code movedTo} is the copy, which holds this device's text: an editor showing the note
- * should switch to it. {@code removed}: the note is gone (a delete of a note the server never had).
+ * {@code note} after the server's answer to its pending push. {@code removed}: the note is gone (a
+ * delete of a note the server never had).
  */
-export function applyPushResult(note: LocalNote, result: PushResult):
-    { notes: LocalNote[]; movedTo?: string; removed?: boolean } {
+export function applyPushResult(note: LocalNote, result: PushResult): { note?: LocalNote; removed?: boolean } {
   const pending = note.pending!;
   const sent = pending.submitted;
   const typedSince = !pending.deleted && (note.deleted || note.text !== sent);
-  const cleared: LocalNote = { ...note, pending: undefined, error: undefined, forceFull: false };
+  const cleared: LocalNote = { ...note, pending: undefined, error: undefined, forceFull: false, sendBase: false };
 
   switch (result.status) {
     case PushStatus.APPLIED:
     case PushStatus.MERGED: {
-      if (!result.note) return { notes: [], removed: true };
+      if (!result.note) return { removed: true };
       const stored = result.content ? applySplice(result.content, sent) : sent;
       if (pending.deleted) {
-        return { notes: [{ ...cleared, info: result.note, baseRevision: result.note.revision, baseText: stored, basedOnChangeId: undefined, dirty: false }] };
+        return { note: { ...cleared, info: result.note, baseRevision: result.note.revision, baseText: stored, basedOnChangeId: undefined, dirty: false } };
       }
-      return { notes: [settle(cleared, result.note, stored, typedSince, sent, pending.changeId)] };
-    }
-    case PushStatus.CONFLICT: {
-      const original = result.content ? applySplice(result.content, sent) : sent;
-      // Like content: absent when the copy holds exactly what was sent.
-      const copyText = result.copyContent ? applySplice(result.copyContent, sent) : sent;
-      const updated: LocalNote = {
-        ...cleared, info: result.note, baseRevision: result.note!.revision, baseText: original, basedOnChangeId: undefined,
-        text: original, deleted: false, dirty: false,
-      };
-      const copyBase: LocalNote = {
-        id: result.copy!.id, baseRevision: 0, baseText: "", text: "", deleted: false, dirty: false, editedAt: note.editedAt,
-      };
-      const copy = settle(copyBase, result.copy!, copyText, typedSince, sent, pending.changeId, note.text);
-      // The copy holds what this device wrote: an editor showing the note follows it, so that the
-      // user keeps seeing their own text instead of it being replaced under their eyes.
-      return { notes: [updated, copy], movedTo: copy.id };
+      return { note: settle(cleared, result.note, stored, typedSince, sent, pending.changeId) };
     }
     case PushStatus.KEPT: {
       const current = result.content ? applySplice(result.content, sent) : sent;
       return {
-        notes: [{
+        note: {
           ...cleared, info: result.note, baseRevision: result.note!.revision, baseText: current, basedOnChangeId: undefined,
           text: current, deleted: false, dirty: false,
-        }],
+        },
       };
     }
     case PushStatus.REJECTED:
     default: {
-      if (result.reason === RejectReason.BASE_MISMATCH && !note.forceFull) return { notes: [{ ...cleared, forceFull: true }] };
-      return { notes: [{ ...cleared, error: { reason: result.reason ?? "UNKNOWN", message: result.message ?? "Refused by the server." } }] };
+      if (result.reason === RejectReason.BASE_MISMATCH && !note.forceFull) return { note: { ...cleared, forceFull: true } };
+      if (result.reason === RejectReason.BASE_GONE && !note.sendBase) return { note: { ...cleared, sendBase: true } };
+      return { note: { ...cleared, error: { reason: result.reason ?? "UNKNOWN", message: result.message ?? "Refused by the server." } } };
     }
   }
 }
@@ -101,14 +85,13 @@ export function applyPushResult(note: LocalNote, result: PushResult):
  * push, the note simply becomes that. With some, they stay: derived from what was sent, which the
  * server can find back by {@code changeId} when it didn't store it as is.
  */
-function settle(note: LocalNote, info: NoteInfo, stored: string, typedSince: boolean, sent: string, changeId: string,
-                localText: string = note.text): LocalNote {
+function settle(note: LocalNote, info: NoteInfo, stored: string, typedSince: boolean, sent: string, changeId: string): LocalNote {
   if (!typedSince) {
     return { ...note, info, baseRevision: info.revision, baseText: stored, basedOnChangeId: undefined, text: stored, dirty: false };
   }
   return {
     ...note, info, baseRevision: info.revision, baseText: sent, basedOnChangeId: stored === sent ? undefined : changeId,
-    text: localText, dirty: true,
+    dirty: true,
   };
 }
 
@@ -146,15 +129,15 @@ export function remoteText(note: LocalNote | undefined, content: NoteContent): s
 
 /**
  * {@code note} after the server's data was replaced (another storeId): its base means nothing
- * there anymore. Unsynced text is pushed as a new note, which can only end in a conflict copy if
- * the server has the note: never lost. Synced notes are fetched again. Tag and option changes not
+ * there anymore. Unsynced text is pushed as a new note, merged with the server's if it has the
+ * note: never lost. Synced notes are fetched again. Tag and option changes not
  * acknowledged are sent again, in one change.
  */
 export function forResync(note: LocalNote): LocalNote {
   const metaOps = note.pendingMeta ? mergeOps(note.pendingMeta.ops, note.metaOps ?? noOps()) : note.metaOps;
   const meta = { metaOps, pendingMeta: undefined };
   if (note.dirty || note.pending) {
-    return { ...note, ...meta, baseRevision: 0, baseText: "", basedOnChangeId: undefined, pending: undefined, forceFull: false };
+    return { ...note, ...meta, baseRevision: 0, baseText: "", basedOnChangeId: undefined, pending: undefined, forceFull: false, sendBase: false };
   }
   return { ...note, ...meta, baseRevision: 0, basedOnChangeId: undefined };
 }

@@ -6,15 +6,10 @@ import { TagEditor } from "./TagEditor";
 
 export interface NoteEditorAttrs {
   note: LocalNote;
-  /** For a conflict copy: the title of the note it was split from. */
-  originalTitle?: string;
-  /** For a note with unresolved conflict copies: their ids. */
-  conflictCopies: string[];
   tags: string[];
   monospace: boolean;
   nowrap: boolean;
   onEdit: (text: string) => void;
-  onOpen: (id: string) => void;
   onAddTag: (tag: string) => boolean;
   onRemoveTag: (tag: string) => void;
 }
@@ -50,19 +45,6 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   view({ attrs }: m.Vnode<NoteEditorAttrs>): m.Children {
     const note = attrs.note;
     return m("section.editor", [
-      note.info?.conflictOf ? m(".banner.conflict", [
-        "Conflict copy: this device's version of ",
-        m("button.link", { onclick: () => attrs.onOpen(note.info!.conflictOf!.noteId) }, "“" + (attrs.originalTitle || "a note") + "”"),
-        ", which couldn't be merged with changes made elsewhere. Compare the two and keep what you want.",
-      ]) : null,
-      attrs.conflictCopies.length > 0 ? m(".banner.conflict", [
-        "Another device's changes to this note couldn't be merged: they are in ",
-        attrs.conflictCopies.map((id, i) => [
-          i > 0 ? ", " : "",
-          m("button.link", { onclick: () => attrs.onOpen(id) }, attrs.conflictCopies.length > 1 ? "conflict copy " + (i + 1) : "a conflict copy"),
-        ]),
-        ".",
-      ]) : null,
       note.error ? m(".banner.error", "Not saved on the server: " + note.error.message + " Your text is kept on this device.") : null,
       note.metaError ? m(".banner.error", "A change to the tags or options was refused by the server: " + note.metaError.message) : null,
       m("textarea" + (attrs.monospace ? ".monospace" : "") + (attrs.nowrap ? ".nowrap" : ""), {

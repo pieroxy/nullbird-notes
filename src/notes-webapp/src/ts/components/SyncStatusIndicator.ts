@@ -58,7 +58,6 @@ export class SyncStatusIndicator implements m.ClassComponent<SyncStatusIndicator
         [state, label, detail] = ["error", "Signed out", "log in again to sync" + (notSynced ? " (" + notSynced + ")" : "")];
         break;
     }
-    const conflicts = status.conflicts > 0 ? status.conflicts + (status.conflicts > 1 ? " conflicts" : " conflict") : undefined;
     const notSaved = status.noteErrors > 0 ? status.noteErrors + (status.noteErrors > 1 ? " notes" : " note") + " not saved" : undefined;
     const retry = (cls: string) => m("button.link." + cls, { type: "button", onclick: attrs.onRetry }, "Retry now");
     return m(".syncindicator", [
@@ -68,12 +67,10 @@ export class SyncStatusIndicator implements m.ClassComponent<SyncStatusIndicator
         align: "left",
         trigger: [
           m("span.syncstatus." + state, [m("span", label), detail ? m("span.detail", " · " + detail) : null]),
-          conflicts ? m("span.chip.conflict", conflicts) : null,
           notSaved ? m("span.chip.error", notSaved) : null,
         ],
       }, [
         m("p.syncstatus." + state, label + (detail ? ": " + detail : "")),
-        conflicts ? m("p", conflicts) : null,
         notSaved ? m("p", notSaved) : null,
         m("p.muted", last),
         nextTry && retryable ? m("p.muted", nextTry) : null,

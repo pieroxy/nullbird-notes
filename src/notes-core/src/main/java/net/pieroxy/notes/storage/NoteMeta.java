@@ -13,14 +13,13 @@ import java.util.Map;
  * @param size              content size in UTF-8 bytes.
  * @param contentHash       SHA-256 of the content, hex: detects a content.txt that doesn't match.
  * @param lastChangeId      the client-generated ID of the push that made the head revision.
- * @param conflictOf        null unless this note is an unresolved conflict copy.
  * @param tags              in the order they were added.
  * @param options           a key absent is the option's default.
  * @param metaRevision      the number of metadata changes: see {@link MetaRevision}.
  * @param lastMetaChangeId  the client-generated ID of the last metadata change.
  */
 public record NoteMeta(String id, int revision, long seq, long createdAt, long modifiedAt, boolean deleted, String title,
-                       long size, String contentHash, String lastChangeId, ConflictOf conflictOf, List<String> tags,
+                       long size, String contentHash, String lastChangeId, List<String> tags,
                        Map<String, String> options, int metaRevision, String lastMetaChangeId) {
   /** Empty, never null, collections: note.json files written before tags and options lack them. */
   public NoteMeta {

@@ -2,7 +2,6 @@ package net.pieroxy.notes.services;
 
 import net.pieroxy.notes.api.metadata.InvalidInputException;
 import net.pieroxy.notes.storage.ChangeRecord;
-import net.pieroxy.notes.storage.ConflictOf;
 import net.pieroxy.notes.storage.MetaWrite;
 import net.pieroxy.notes.storage.NoteMeta;
 import net.pieroxy.notes.storage.NoteWrite;
@@ -30,7 +29,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -43,9 +41,8 @@ import java.util.regex.Pattern;
  * The sync rules, on top of each user's {@link UserNoteStore}. A push is decided and committed
  * while holding the user's store lock, so that no other change of that user lands in between.
  * <p>
- * A push's text is merged with what happened since the text it derives from (its ancestor): a
- * clean merge is stored, a conflict leaves the other side in the note and puts the client's side
- * in a new copy (see {@link ConflictOf}). Edits beat deletes, both ways. Nothing is ever dropped.
+ * A push's text is merged with what happened since the text it derives from (its ancestor), always
+ * (see {@link Merge3}). Edits beat deletes, both ways. Nothing is ever dropped.
  * <p>
  * Tags and options change on their own (see {@link MetaChange}), never conflicting with the text.
  */
@@ -239,7 +236,7 @@ public class NoteService implements Service {
     return key != null && OPTION_KEY_PATTERN.matcher(key).matches();
   }
 
-  /** The text the client's change derives from; null if it can't be found. */
+  /** The text the client's change derives from; null if it can't be found (see {@link RejectReason#BASE_GONE}). */
   private static String ancestor(UserNoteStore store, NoteChange change, NoteMeta head) throws IOException {
     if (change.basedOnChangeId() != null) {
       ChangeRecord based = store.findChange(change.basedOnChangeId());
@@ -249,20 +246,21 @@ public class NoteService implements Service {
       }
     }
     if (change.baseRevision() == 0) return "";
-    if (head == null) return null;
-    Revision base = store.readRevision(change.noteId(), change.baseRevision());
-    return base == null ? null : base.content();
+    Revision base = head == null ? null : store.readRevision(change.noteId(), change.baseRevision());
+    // Unchecked, there's nothing left to check it against: a wrong one can only double some text of the user's own note.
+    if (base == null) return change.baseContent() == null ? null : normalize(change.baseContent());
+    return base.content();
   }
 
   private PushResult delete(UserNoteStore store, String deviceId, NoteChange change, NoteMeta head, String ancestor) throws IOException {
-    if (head == null) return new PushResult(change.changeId(), PushStatus.APPLIED, null, null, null, null, null, null);
+    if (head == null) return new PushResult(change.changeId(), PushStatus.APPLIED, null, null, null, null);
     if (head.deleted()) return applied(change, head, null);
     String content = store.readContent(head.id());
     if (change.baseRevision() != head.revision()) {
       LOGGER.info("Delete of note " + head.id() + " from device " + deviceId + " refused: edited since revision " + change.baseRevision());
-      return new PushResult(change.changeId(), PushStatus.KEPT, null, null, info(head), splice(ancestor, content), null, null);
+      return new PushResult(change.changeId(), PushStatus.KEPT, null, null, info(head), splice(ancestor, content));
     }
-    NoteMeta deleted = commit(store, head, new NoteWrite(content, true, change.changeId(), deviceId, null, head.conflictOf()));
+    NoteMeta deleted = commit(store, head, new NoteWrite(content, true, change.changeId(), deviceId, null));
     return applied(change, deleted, null);
   }
 
@@ -270,7 +268,7 @@ public class NoteService implements Service {
       throws IOException {
     String submitted;
     if (change.splice() != null) {
-      if (ancestor == null) return rejected(change, RejectReason.BASE_MISMATCH, "The splice's base text is unknown.");
+      if (ancestor == null) return baseGone(change);
       try {
         submitted = change.splice().apply(ancestor);
       } catch (IllegalArgumentException e) {
@@ -293,7 +291,7 @@ public class NoteService implements Service {
         LOGGER.warning("Note " + change.noteId() + " of " + username + " unknown at revision " + change.baseRevision()
             + ", recreated from device " + deviceId);
       }
-      NoteMeta created = commit(store, null, new NoteWrite(text, false, change.changeId(), deviceId, submitted, null), change.noteId());
+      NoteMeta created = commit(store, null, new NoteWrite(text, false, change.changeId(), deviceId, submitted), change.noteId());
       return applied(change, created, splice(submitted, text));
     }
 
@@ -301,67 +299,46 @@ public class NoteService implements Service {
     if (ancestor == null) {
       if (text.equals(current)) {
         if (!head.deleted()) return applied(change, head, splice(submitted, text));
-        NoteMeta undeleted = commit(store, head, new NoteWrite(text, false, change.changeId(), deviceId, submitted, head.conflictOf()));
+        NoteMeta undeleted = commit(store, head, new NoteWrite(text, false, change.changeId(), deviceId, submitted));
         return applied(change, undeleted, splice(submitted, text));
       }
-      LOGGER.info("Note " + head.id() + " of " + username + ": base of device " + deviceId + " unknown, its text goes to a conflict copy");
-      return conflict(store, deviceId, change, head, current, current, text, submitted);
+      return baseGone(change);
     }
     Merge3.Result merge = Merge3.merge(ancestor, current, text);
-    if (!merge.isClean()) {
-      LOGGER.info("Note " + head.id() + " of " + username + ": " + merge.conflicts() + " conflict(s) with device " + deviceId);
-      return conflict(store, deviceId, change, head, current, merge.preferringOurs(), merge.preferringTheirs(), submitted);
-    }
-    String merged = merge.preferringOurs();
+    String merged = merge.text();
     boolean wasMerged = !ancestor.equals(current);
-    if (wasMerged) LOGGER.info("Note " + head.id() + " of " + username + ": merged a change from device " + deviceId);
+    if (wasMerged) {
+      LOGGER.info("Note " + head.id() + " of " + username + ": merged a change from device " + deviceId
+          + (merge.clashes() > 0 ? ", " + merge.clashes() + " passage(s) edited on both sides kept twice" : ""));
+    }
     if (merged.equals(current) && !head.deleted()) {
       return new PushResult(change.changeId(), wasMerged ? PushStatus.MERGED : PushStatus.APPLIED, null, null, info(head),
-          splice(submitted, current), null, null);
+          splice(submitted, current));
     }
-    NoteMeta committed = commit(store, head, new NoteWrite(merged, false, change.changeId(), deviceId, submitted, head.conflictOf()));
+    NoteMeta committed = commit(store, head, new NoteWrite(merged, false, change.changeId(), deviceId, submitted));
     return new PushResult(change.changeId(), wasMerged ? PushStatus.MERGED : PushStatus.APPLIED, null, null, info(committed),
-        splice(submitted, merged), null, null);
+        splice(submitted, merged));
   }
 
-  /** The original gets {@code original}, undeleted; a new copy gets {@code copy} and the change's ID. */
-  private PushResult conflict(UserNoteStore store, String deviceId, NoteChange change, NoteMeta head, String current,
-                              String original, String copy, String submitted) throws IOException {
-    NoteMeta originalMeta = head;
-    if (!original.equals(current) || head.deleted()) {
-      originalMeta = commit(store, head, new NoteWrite(original, false, null, deviceId, null, head.conflictOf()));
-    }
-    String copyId = UUID.randomUUID().toString();
-    NoteMeta copyMeta = commit(store, null,
-        new NoteWrite(copy, false, change.changeId(), deviceId, submitted, new ConflictOf(head.id()), head.tags(), head.options()), copyId);
-    return new PushResult(change.changeId(), PushStatus.CONFLICT, null, null, info(originalMeta), splice(submitted, original),
-        info(copyMeta), splice(submitted, copy));
+  private static PushResult baseGone(NoteChange change) {
+    return rejected(change, RejectReason.BASE_GONE, "Revision " + change.baseRevision() + " is gone: send its text with the change.");
   }
 
   /**
-   * What the change led to, as recorded: the revision it made (or, for a conflict, the copy it
-   * made and the original's current state).
+   * What the change led to, as recorded: the revision it made. When that revision was thinned out,
+   * or the change made a conflict copy (which older versions did), the note as it is now.
    */
   private static PushResult replay(UserNoteStore store, NoteChange change, ChangeRecord done) throws IOException {
-    NoteMeta meta = store.get(done.noteId());
-    Revision revision = store.readRevision(done.noteId(), done.revision());
+    Revision revision = done.noteId().equals(change.noteId()) ? store.readRevision(done.noteId(), done.revision()) : null;
     if (revision == null) {
-      // Thinned out: long applied, its details are gone. The client gets the note as it is now
-      // (a conflict copy it made reaches it as any other change).
       NoteMeta now = store.get(change.noteId());
       return new PushResult(change.changeId(), PushStatus.APPLIED, null, null, info(now), now.deleted() ? null
-          : full(store.readContent(now.id())), null, null);
+          : full(store.readContent(now.id())));
     }
     String submitted = revision.submittedContent() != null ? revision.submittedContent() : revision.content();
-    NoteInfo info = info(meta, revision);
-    if (done.noteId().equals(change.noteId())) {
-      PushStatus status = revision.submittedContent() == null ? PushStatus.APPLIED : PushStatus.MERGED;
-      return new PushResult(change.changeId(), status, null, null, info, splice(submitted, revision.content()), null, null);
-    }
-    NoteMeta original = store.get(change.noteId());
-    String originalContent = store.readContent(original.id());
-    return new PushResult(change.changeId(), PushStatus.CONFLICT, null, null, info(original), splice(submitted, originalContent),
-        info, splice(submitted, revision.content()));
+    PushStatus status = revision.submittedContent() == null ? PushStatus.APPLIED : PushStatus.MERGED;
+    return new PushResult(change.changeId(), status, null, null, info(store.get(done.noteId()), revision),
+        splice(submitted, revision.content()));
   }
 
   /** Commits the next revision of an existing note. */
@@ -379,11 +356,11 @@ public class NoteService implements Service {
   }
 
   private static PushResult applied(NoteChange change, NoteMeta meta, Splice content) {
-    return new PushResult(change.changeId(), PushStatus.APPLIED, null, null, info(meta), content, null, null);
+    return new PushResult(change.changeId(), PushStatus.APPLIED, null, null, info(meta), content);
   }
 
   private static PushResult applied(String changeId, NoteMeta meta) {
-    return new PushResult(changeId, PushStatus.APPLIED, null, null, info(meta), null, null, null);
+    return new PushResult(changeId, PushStatus.APPLIED, null, null, info(meta), null);
   }
 
   private static PushResult rejected(NoteChange change, RejectReason reason, String message) {
@@ -392,7 +369,7 @@ public class NoteService implements Service {
 
   private static PushResult rejected(String changeId, String noteId, RejectReason reason, String message) {
     LOGGER.warning("Change " + changeId + " to note " + noteId + " rejected (" + reason + "): " + message);
-    return new PushResult(changeId, PushStatus.REJECTED, reason, message, null, null, null, null);
+    return new PushResult(changeId, PushStatus.REJECTED, reason, message, null, null);
   }
 
   /** CRLF and lone CR become LF: a client on another platform mustn't turn every line into a change. */
@@ -417,13 +394,13 @@ public class NoteService implements Service {
 
   static NoteInfo info(NoteMeta meta) {
     return new NoteInfo(meta.id(), meta.revision(), meta.seq(), meta.createdAt(), meta.modifiedAt(), meta.deleted(), meta.title(),
-        meta.size(), meta.contentHash(), meta.conflictOf(), meta.tags(), meta.options());
+        meta.size(), meta.contentHash(), meta.tags(), meta.options());
   }
 
   /** The note as it was at {@code revision}. */
   private static NoteInfo info(NoteMeta meta, Revision revision) {
     byte[] content = revision.content().getBytes(StandardCharsets.UTF_8);
     return new NoteInfo(meta.id(), revision.revision(), revision.seq(), meta.createdAt(), revision.at(), revision.deleted(),
-        UserNoteStore.title(revision.content()), content.length, Hashes.sha256(content), meta.conflictOf(), meta.tags(), meta.options());
+        UserNoteStore.title(revision.content()), content.length, Hashes.sha256(content), meta.tags(), meta.options());
   }
 }

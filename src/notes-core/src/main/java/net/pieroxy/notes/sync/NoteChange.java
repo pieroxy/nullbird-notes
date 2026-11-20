@@ -13,9 +13,10 @@ import net.pieroxy.notes.api.metadata.TypeScriptType;
  * @param content          the full text; exclusive with {@code splice}.
  * @param splice           the text as a splice of the base text (see {@code basedOnChangeId}).
  * @param contentHash      SHA-256 of the text, hex; required unless {@code deleted}.
+ * @param baseContent      the base text, in full: sent again with it after {@link RejectReason#BASE_GONE}.
  * @param deleted          a delete: content, splice and contentHash are ignored.
  */
 @TypeScriptType
 public record NoteChange(@Required String changeId, @Required String noteId, @Required int baseRevision, String basedOnChangeId,
-                         String content, Splice splice, String contentHash, @Required boolean deleted) {
+                         String content, Splice splice, String contentHash, @Required boolean deleted, String baseContent) {
 }

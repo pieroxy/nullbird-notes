@@ -90,7 +90,7 @@ public class UserNoteStoreTest {
   }
 
   private static NoteWrite write(String content, String changeId) {
-    return new NoteWrite(content, false, changeId, "device-1", null, null);
+    return new NoteWrite(content, false, changeId, "device-1", null);
   }
 
   private NoteMeta commitCrashingAfter(UserNoteStore.CommitStep crashStep, String noteId, int expectedRevision, String content)
@@ -194,7 +194,7 @@ public class UserNoteStoreTest {
   @Test
   public void aDeletedNoteKeepsItsContent() throws Exception {
     store.commit(A, 0, write("keep me", "c1"));
-    NoteMeta deleted = store.commit(A, 1, new NoteWrite("keep me", true, "c2", "device-1", null, null));
+    NoteMeta deleted = store.commit(A, 1, new NoteWrite("keep me", true, "c2", "device-1", null));
 
     assertTrue(deleted.deleted());
     assertEquals("keep me", store.readContent(A));
@@ -246,8 +246,7 @@ public class UserNoteStoreTest {
 
   @Test
   public void reloadsEverythingFromDisk() throws Exception {
-    ConflictOf conflictOf = new ConflictOf(B);
-    NoteMeta a = store.commit(A, 0, new NoteWrite("copy", false, "c1", "device-1", null, conflictOf));
+    NoteMeta a = store.commit(A, 0, write("a1", "c1"));
     store.commit(B, 0, write("b1", "c2"));
     NoteMeta b = store.commit(B, 1, write("b2", "c3"));
 
@@ -255,7 +254,6 @@ public class UserNoteStoreTest {
 
     assertEquals(a, store.get(A));
     assertEquals(b, store.get(B));
-    assertEquals(conflictOf, store.get(A).conflictOf());
     assertEquals(3, store.getLastSeq());
     assertEquals("b2", store.readContent(B));
     // Only each note's last change is remembered across a restart.
@@ -348,8 +346,8 @@ public class UserNoteStoreTest {
 
   @Test
   public void keepsTheSubmittedContentOnlyWhenItDiffers() throws Exception {
-    store.commit(A, 0, new NoteWrite("merged", false, "c1", "device-1", "what the client sent", null));
-    store.commit(A, 1, new NoteWrite("same", false, "c2", "device-1", "same", null));
+    store.commit(A, 0, new NoteWrite("merged", false, "c1", "device-1", "what the client sent"));
+    store.commit(A, 1, new NoteWrite("same", false, "c2", "device-1", "same"));
 
     assertEquals("what the client sent", store.readRevision(A, 1).submittedContent());
     assertNull(store.readRevision(A, 2).submittedContent());
@@ -461,7 +459,7 @@ public class UserNoteStoreTest {
 
   @Test
   public void aNewNoteGetsTheTagsAndOptionsItIsWrittenWith() throws Exception {
-    NoteMeta created = store.commit(A, 0, new NoteWrite("copy", false, "c1", "device-1", null, null, List.of("t"), Map.of("k", "v")));
+    NoteMeta created = store.commit(A, 0, new NoteWrite("copy", false, "c1", "device-1", null, List.of("t"), Map.of("k", "v")));
 
     assertEquals(List.of("t"), created.tags());
     assertEquals(Map.of("k", "v"), created.options());
@@ -543,7 +541,7 @@ public class UserNoteStoreTest {
 
   @Test
   public void theSubmittedContentSurvivesBeingStoredAsADelta() throws Exception {
-    store.commit(A, 0, new NoteWrite("merged text", false, "c1", "device-1", "what the client sent", null));
+    store.commit(A, 0, new NoteWrite("merged text", false, "c1", "device-1", "what the client sent"));
     store.commit(A, 1, write("merged text, then edited", "c2"));
 
     assertTrue(storedRevision(A, 1).has("delta"));
@@ -666,11 +664,11 @@ public class UserNoteStoreTest {
 
   @Test
   public void thinningDropsSubmittedTextsOlderThanADayButNotTheHeads() throws Exception {
-    store.commit(A, 0, new NoteWrite("merged, a long enough text", false, "c1", "device-1", "sent, a long enough text", null));
-    store.commit(A, 1, new NoteWrite("merged again, a long enough text", false, "c2", "device-1", "sent again, a long enough text", null));
+    store.commit(A, 0, new NoteWrite("merged, a long enough text", false, "c1", "device-1", "sent, a long enough text"));
+    store.commit(A, 1, new NoteWrite("merged again, a long enough text", false, "c2", "device-1", "sent again, a long enough text"));
     clock.advance(Duration.ofHours(12));
-    store.commit(A, 2, new NoteWrite("recent, a long enough text", false, "c3", "device-1", "sent recently, a long enough text", null));
-    store.commit(A, 3, new NoteWrite("head, a long enough text", false, "c4", "device-1", "sent head, a long enough text", null));
+    store.commit(A, 2, new NoteWrite("recent, a long enough text", false, "c3", "device-1", "sent recently, a long enough text"));
+    store.commit(A, 3, new NoteWrite("head, a long enough text", false, "c4", "device-1", "sent head, a long enough text"));
     clock.advance(Duration.ofHours(13));
     store.thin(clock.millis());
 

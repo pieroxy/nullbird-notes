@@ -3,6 +3,10 @@
 A simple, self-hosted note-taking application. Its sync handles concurrent edits and always shows
 its state. License: GPLv2.
 
+Edits made on several devices are always merged, never dropped. Where two devices changed the same
+words, both versions are kept, one after the other, below the line
+`[Auto-merged below: watch out for duplicated text]`.
+
 ## Layout
 
 | Path | What |

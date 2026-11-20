@@ -8,91 +8,94 @@ import com.github.difflib.patch.Patch;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.TreeSet;
 
 /**
  * Three-way merge of texts: the changes from {@code base} to {@code ours} and from {@code base} to
- * {@code theirs} are combined where they don't touch the same text.
+ * {@code theirs}, combined. Never fails and never drops text: these are notes, a wrong guess costs
+ * a glance where lost text can't be undone.
  * <p>
  * Done line by line first, then word by word inside the lines both sides changed, so that two
- * edits to different words of a paragraph (which is one line) merge cleanly. Two changes conflict
- * when they overlap, or when one inserts exactly where the other changes or inserts (the order
- * would be a guess), unless both made the very same change.
- * <p>
- * A conflict is never resolved by guessing: the result carries both outcomes, every clean change
- * applied to each, one with our side of each conflict, the other with theirs.
+ * edits to different words of a paragraph (which is one line) merge cleanly. Two changes clash
+ * when they overlap, or when one inserts exactly where the other changes or inserts, unless both
+ * made the very same change. A clash keeps both sides' versions, ours first; a side that deleted
+ * the passage gives way to the other's edit. Each clash gets {@link #MARKER} on a line of its own
+ * above the line it starts in.
  * <p>
  * A diff costs about its size times its number of edits: one going past {@link #MAX_DIFF_WORK} is
- * abandoned, and what was left to merge once the common start and end were set aside is then a
- * conflict as a whole. A few edits anywhere in a huge note stay cheap; two unrelated huge texts
- * can't stall the server.
+ * abandoned, and what was left to merge once the common lines at the start and end were set aside
+ * is then a clash as a whole. A few edits anywhere in a huge note stay cheap; two unrelated huge
+ * texts can't stall the server.
  */
 public final class Merge3 {
   static final long MAX_DIFF_WORK = 100_000_000L;
+  public static final String MARKER = "[Auto-merged below: watch out for duplicated text]";
 
   private Merge3() {}
 
-  /**
-   * @param preferringOurs   every clean change applied, our side of each conflict.
-   * @param preferringTheirs every clean change applied, their side of each conflict.
-   *                         Equal to {@code preferringOurs} when clean.
-   */
-  public record Result(String preferringOurs, String preferringTheirs, int conflicts) {
-    public boolean isClean() {
-      return conflicts == 0;
-    }
-  }
+  /** @param clashes the number of markers added. */
+  public record Result(String text, int clashes) {}
 
   public static Result merge(String base, String ours, String theirs) {
-    if (ours.equals(theirs) || base.equals(theirs)) return new Result(ours, ours, 0);
-    if (base.equals(ours)) return new Result(theirs, theirs, 0);
+    if (ours.equals(theirs) || base.equals(theirs)) return new Result(ours, 0);
+    if (base.equals(ours)) return new Result(theirs, 0);
 
-    StringBuilder preferringOurs = new StringBuilder();
-    StringBuilder preferringTheirs = new StringBuilder();
-    int conflicts = 0;
-    for (Chunk chunk : diff3(lines(base), lines(ours), lines(theirs))) {
-      if (chunk.isConflict()) {
-        Result refined = mergeTokens(String.join("", chunk.base()), String.join("", chunk.ours()), String.join("", chunk.theirs()));
-        preferringOurs.append(refined.preferringOurs());
-        preferringTheirs.append(refined.preferringTheirs());
-        conflicts += refined.conflicts();
+    StringBuilder merged = new StringBuilder();
+    List<Integer> clashes = new ArrayList<>();
+    for (Chunk chunk : diff3(lines(base), lines(ours), lines(theirs), false)) {
+      if (chunk.isClash()) {
+        mergeTokens(String.join("", chunk.base()), String.join("", chunk.ours()), String.join("", chunk.theirs()), merged, clashes);
       } else {
-        String text = String.join("", chunk.merged());
-        preferringOurs.append(text);
-        preferringTheirs.append(text);
+        merged.append(String.join("", chunk.merged()));
       }
     }
-    return new Result(preferringOurs.toString(), preferringTheirs.toString(), conflicts);
+    // From the end, so that earlier positions stay valid. Two clashes in one line share a marker.
+    TreeSet<Integer> lineStarts = new TreeSet<>();
+    for (int position : clashes) lineStarts.add(merged.lastIndexOf("\n", position - 1) + 1);
+    for (int lineStart : lineStarts.descendingSet()) merged.insert(lineStart, MARKER + "\n");
+    return new Result(merged.toString(), lineStarts.size());
   }
 
-  private static Result mergeTokens(String base, String ours, String theirs) {
-    StringBuilder preferringOurs = new StringBuilder();
-    StringBuilder preferringTheirs = new StringBuilder();
-    int conflicts = 0;
-    for (Chunk chunk : diff3(tokens(base), tokens(ours), tokens(theirs))) {
-      if (chunk.isConflict()) {
-        preferringOurs.append(String.join("", chunk.ours()));
-        preferringTheirs.append(String.join("", chunk.theirs()));
-        conflicts++;
+  /**
+   * Appends the merge of lines to {@code merged}, and where each clash starts in it to {@code clashes}.
+   * Too costly word by word, the lines clash as a whole: never cut in two by a common last word.
+   */
+  private static void mergeTokens(String base, String ours, String theirs, StringBuilder merged, List<Integer> clashes) {
+    List<Chunk> chunks;
+    try {
+      chunks = diff3(tokens(base), tokens(ours), tokens(theirs), true);
+    } catch (TooExpensiveException e) {
+      chunks = List.of(Chunk.clash(List.of(base), List.of(ours), List.of(theirs)));
+    }
+    for (Chunk chunk : chunks) {
+      if (chunk.isClash()) {
+        clashes.add(merged.length());
+        merged.append(both(String.join("", chunk.ours()), String.join("", chunk.theirs())));
       } else {
-        String text = String.join("", chunk.merged());
-        preferringOurs.append(text);
-        preferringTheirs.append(text);
+        merged.append(String.join("", chunk.merged()));
       }
     }
-    return new Result(preferringOurs.toString(), preferringTheirs.toString(), conflicts);
   }
 
-  /** Either merged (null base/ours/theirs) or a conflict (null merged). */
+  /** Kept apart by a space, or a line break between passages of several lines, unless one side's edge already does. */
+  static String both(String ours, String theirs) {
+    if (ours.isEmpty()) return theirs;
+    if (theirs.isEmpty()) return ours;
+    if (Character.isWhitespace(ours.charAt(ours.length() - 1)) || Character.isWhitespace(theirs.charAt(0))) return ours + theirs;
+    return ours + (ours.contains("\n") || theirs.contains("\n") ? "\n" : " ") + theirs;
+  }
+
+  /** Either merged (null base/ours/theirs) or a clash (null merged). */
   record Chunk(List<String> merged, List<String> base, List<String> ours, List<String> theirs) {
     static Chunk merged(List<String> tokens) {
       return new Chunk(tokens, null, null, null);
     }
 
-    static Chunk conflict(List<String> base, List<String> ours, List<String> theirs) {
+    static Chunk clash(List<String> base, List<String> ours, List<String> theirs) {
       return new Chunk(null, base, ours, theirs);
     }
 
-    boolean isConflict() {
+    boolean isClash() {
       return merged == null;
     }
   }
@@ -109,7 +112,8 @@ public final class Merge3 {
     }
   }
 
-  static List<Chunk> diff3(List<String> base, List<String> ours, List<String> theirs) {
+  /** @param abandonAll past {@link #MAX_DIFF_WORK}, throws instead of making the middle a clash. */
+  static List<Chunk> diff3(List<String> base, List<String> ours, List<String> theirs, boolean abandonAll) {
     int shortest = Math.min(base.size(), Math.min(ours.size(), theirs.size()));
     int prefix = 0;
     while (prefix < shortest && base.get(prefix).equals(ours.get(prefix)) && base.get(prefix).equals(theirs.get(prefix))) prefix++;
@@ -126,7 +130,8 @@ public final class Merge3 {
     try {
       chunks.addAll(merge(b, o, t));
     } catch (TooExpensiveException e) {
-      chunks.add(Chunk.conflict(b, o, t));
+      if (abandonAll) throw e;
+      chunks.add(Chunk.clash(b, o, t));
     }
     if (suffix > 0) chunks.add(Chunk.merged(base.subList(base.size() - suffix, base.size())));
     return chunks;
@@ -161,7 +166,7 @@ public final class Merge3 {
       } else if (!oursChanged) {
         chunks.add(Chunk.merged(theirsVersion));
       } else {
-        chunks.add(Chunk.conflict(base.subList(start, end), oursVersion, theirsVersion));
+        chunks.add(Chunk.clash(base.subList(start, end), oursVersion, theirsVersion));
       }
       position = end;
     }

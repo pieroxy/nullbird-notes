@@ -12,10 +12,8 @@ import net.pieroxy.notes.api.metadata.TypeScriptType;
  * @param message      present when REJECTED: for humans.
  * @param note         the note after the change; absent when REJECTED, or for a delete of an unknown note.
  * @param content      the note's stored text, when it isn't what the client sent.
- * @param copy         present when CONFLICT: the new note holding the client's side.
- * @param copyContent  present when CONFLICT.
  */
 @TypeScriptType
 public record PushResult(@Required String changeId, @Required PushStatus status, RejectReason reason, String message,
-                         NoteInfo note, Splice content, NoteInfo copy, Splice copyContent) {
+                         NoteInfo note, Splice content) {
 }

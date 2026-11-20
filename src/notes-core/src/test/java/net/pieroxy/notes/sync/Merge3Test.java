@@ -3,23 +3,23 @@ package net.pieroxy.notes.sync;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class Merge3Test {
+  private static final String M = Merge3.MARKER + "\n";
+
   private static void assertClean(String base, String ours, String theirs, String expected) {
-    Merge3.Result result = Merge3.merge(base, ours, theirs);
-    assertTrue("Expected a clean merge, got " + result, result.isClean());
-    assertEquals(expected, result.preferringOurs());
-    assertEquals(expected, result.preferringTheirs());
+    assertEquals(new Merge3.Result(expected, 0), Merge3.merge(base, ours, theirs));
   }
 
-  private static void assertConflict(String base, String ours, String theirs, int conflicts, String preferringOurs, String preferringTheirs) {
-    Merge3.Result result = Merge3.merge(base, ours, theirs);
-    assertEquals(new Merge3.Result(preferringOurs, preferringTheirs, conflicts), result);
+  private static void assertClash(String base, String ours, String theirs, int markers, String expected) {
+    assertEquals(new Merge3.Result(expected, markers), Merge3.merge(base, ours, theirs));
   }
 
   @Test
@@ -53,39 +53,35 @@ public class Merge3Test {
   }
 
   @Test
-  public void theSameChangeOnBothSidesIsNotAConflict() {
+  public void theSameChangeOnBothSidesIsMadeOnce() {
     assertClean("a\nb\nc\n", "a\nB\nc\nd\n", "a\nB\nc\n", "a\nB\nc\nd\n");
     assertClean("one two", "one 2", "one 2", "one 2");
   }
 
   @Test
-  public void differentChangesToTheSameWordConflict() {
-    assertConflict("I like cats.", "I like dogs.", "I like birds.", 1,
-        "I like dogs.", "I like birds.");
+  public void differentChangesToTheSameWordKeepBothOursFirst() {
+    assertClash("I like cats.", "I like dogs.", "I like birds.", 1, M + "I like dogs birds.");
   }
 
   @Test
-  public void cleanChangesAreAppliedToBothSidesOfAConflict() {
-    assertConflict("Title\n\nI like cats.\n\nThe end.\n",
+  public void theMarkerGoesAboveTheLineAndCleanChangesApplyAround() {
+    assertClash("Title\n\nI like cats.\n\nThe end.\n",
         "Title!\n\nI like dogs.\n\nThe end.\n",
         "Title\n\nI like birds.\n\nThe end, really.\n", 1,
-        "Title!\n\nI like dogs.\n\nThe end, really.\n",
-        "Title!\n\nI like birds.\n\nThe end, really.\n");
+        "Title!\n\n" + M + "I like dogs birds.\n\nThe end, really.\n");
   }
 
   @Test
-  public void countsEveryConflict() {
-    Merge3.Result result = Merge3.merge("a b c d e", "A b C d e", "1 b 3 d e");
-    assertEquals(2, result.conflicts());
-    assertEquals("A b C d e", result.preferringOurs());
-    assertEquals("1 b 3 d e", result.preferringTheirs());
+  public void clashesInOneLineShareAMarker() {
+    assertClash("a b c d e\nf g\n", "A b C d e\nF g\n", "1 b 3 d e\n6 g\n", 2, M + "A 1 b C 3 d e\n" + M + "F 6 g\n");
   }
 
   @Test
-  public void insertionsAtTheSamePlaceConflictUnlessIdentical() {
-    assertConflict("start end", "start mine end", "start yours end", 1, "start mine end", "start yours end");
+  public void insertionsAtTheSamePlaceAreBothKept() {
+    assertClash("start end", "start mine end", "start yours end", 1, M + "start mine yours end");
     assertClean("start end", "start same end", "start same end", "start same end");
-    assertConflict("", "mine", "yours", 1, "mine", "yours");
+    assertClash("", "mine", "yours", 1, M + "mine yours");
+    assertClash("ABC DEF", "ABC 1 DEF", "ABC 2 DEF", 1, M + "ABC 1 2 DEF");
   }
 
   @Test
@@ -95,8 +91,8 @@ public class Merge3Test {
   }
 
   @Test
-  public void anInsertionRightWhereTheOtherSideChangesConflicts() {
-    assertConflict("keep this here", "keep NEW this here", "keep that here", 1, "keep NEW this here", "keep that here");
+  public void anInsertionRightWhereTheOtherSideChangesKeepsBoth() {
+    assertClash("keep this here", "keep NEW this here", "keep that here", 1, M + "keep NEW this that here");
   }
 
   @Test
@@ -106,8 +102,17 @@ public class Merge3Test {
   }
 
   @Test
-  public void deletingWhatTheOtherSideEditedConflicts() {
-    assertConflict("a\nb\nc\n", "a\nc\n", "a\nB\nc\n", 1, "a\nc\n", "a\nB\nc\n");
+  public void anEditBeatsTheDeletionOfWhatItEdited() {
+    assertClash("a\nb\nc\n", "a\nc\n", "a\nB\nc\n", 1, "a\n" + M + "B\nc\n");
+    assertClash("a\nb\nc\n", "a\nB\nc\n", "a\nc\n", 1, "a\n" + M + "B\nc\n");
+  }
+
+  @Test
+  public void passagesOfSeveralLinesAreKeptApartByALineBreak() {
+    assertEquals("a\nb\nc", Merge3.both("a\nb", "c"));
+    assertEquals("a b", Merge3.both("a", "b"));
+    assertEquals("a  b", Merge3.both("a ", " b"));
+    assertEquals("b", Merge3.both("", "b"));
   }
 
   @Test
@@ -119,7 +124,7 @@ public class Merge3Test {
   @Test
   public void keepsSurrogatePairsAndAccentsWhole() {
     assertClean("café 😀 noir", "café 😁 noir", "café 😀 crème", "café 😁 crème");
-    assertConflict("x 😀 y", "x 😁 y", "x 🙂 y", 1, "x 😁 y", "x 🙂 y");
+    assertClash("x 😀 y", "x 😁 y", "x 🙂 y", 1, M + "x 😁 🙂 y");
   }
 
   @Test
@@ -138,7 +143,7 @@ public class Merge3Test {
   }
 
   @Test
-  public void unrelatedHugeTextsAreAConflictAsAWholeWithoutStalling() {
+  public void unrelatedHugeTextsAreKeptWholeWithoutStalling() {
     StringBuilder base = new StringBuilder("same start\n");
     StringBuilder ours = new StringBuilder("same start\n");
     StringBuilder theirs = new StringBuilder("same start\n");
@@ -150,9 +155,8 @@ public class Merge3Test {
     long start = System.nanoTime();
     Merge3.Result result = Merge3.merge(base.toString(), ours.toString(), theirs.toString());
     assertTrue("Took " + (System.nanoTime() - start) / 1_000_000 + " ms", System.nanoTime() - start < 10_000_000_000L);
-    assertEquals(1, result.conflicts());
-    assertEquals(ours.toString(), result.preferringOurs());
-    assertEquals(theirs.toString(), result.preferringTheirs());
+    String start2 = "same start\n";
+    assertEquals(new Merge3.Result(start2 + M + ours.substring(start2.length()) + theirs.substring(start2.length()), 1), result);
   }
 
   @Test
@@ -182,7 +186,10 @@ public class Merge3Test {
     }
   }
 
-  /** Whatever the texts: swapping sides swaps the results, and a side equal to the base yields the other. */
+  /**
+   * Whatever the texts: a side equal to the base yields the other, a merge without clashes doesn't
+   * depend on the side, and no word either side added is lost.
+   */
   @Test
   public void randomTextsKeepTheMergeInvariants() {
     Random random = new Random(11);
@@ -192,14 +199,23 @@ public class Merge3Test {
       String theirs = random.nextBoolean() ? edit(random, base) : randomParagraph(random);
 
       Merge3.Result result = Merge3.merge(base, ours, theirs);
-      Merge3.Result swapped = Merge3.merge(base, theirs, ours);
-      assertEquals(result.preferringOurs(), swapped.preferringTheirs());
-      assertEquals(result.preferringTheirs(), swapped.preferringOurs());
-      assertEquals(result.conflicts(), swapped.conflicts());
-      assertEquals(result.isClean(), result.preferringOurs().equals(result.preferringTheirs()));
+      if (result.clashes() == 0) assertEquals(result, Merge3.merge(base, theirs, ours));
+      for (String side : List.of(ours, theirs)) {
+        Map<String, Integer> added = words(side);
+        words(base).forEach((word, count) -> added.merge(word, -count, Integer::sum));
+        // Merged next to other text, an added word may no longer stand alone: it must still be there.
+        added.forEach((word, count) -> assertTrue(word + " lost merging " + base + " / " + ours + " / " + theirs,
+            count <= 0 || result.text().contains(word)));
+      }
       assertClean(base, base, theirs, theirs);
       assertClean(base, ours, base, ours);
     }
+  }
+
+  private static Map<String, Integer> words(String text) {
+    Map<String, Integer> words = new HashMap<>();
+    for (String token : Merge3.tokens(text)) if (!token.isBlank()) words.merge(token, 1, Integer::sum);
+    return words;
   }
 
   private static final String[] WORDS = {"the", "cat", "sat", "on", "a", "mat", "and", "😀", "café", "dog", "ran", ",", "."};

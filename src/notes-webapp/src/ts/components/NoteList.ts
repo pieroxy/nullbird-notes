@@ -55,7 +55,6 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
       m(".itemfoot", [
         m("span.excerpt", excerpt),
         note.error ? m("span.chip.error", { title: note.error.message }, "not saved") : null,
-        note.info?.conflictOf ? m("span.chip.conflict", "conflict") : null,
         unsynced && !note.error ? m("span.dot", { title: "Not synced yet" }) : null,
       ]),
     ]);

@@ -24,6 +24,8 @@ export interface LocalNote {
   error?: NoteError;
   /** The server couldn't rebuild a splice: send the full text next time. */
   forceFull?: boolean;
+  /** The server no longer has the base revision: send the base text along next time, to merge with. */
+  sendBase?: boolean;
   /** Tag and option changes not sent yet: see Metadata.ts. */
   metaOps?: MetaOps;
   /** A metadata push in flight, saved before sending like {@link pending}. */

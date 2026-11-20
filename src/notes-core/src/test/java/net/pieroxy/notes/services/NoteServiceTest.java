@@ -2,8 +2,8 @@ package net.pieroxy.notes.services;
 
 import net.pieroxy.notes.api.metadata.InvalidInputException;
 import net.pieroxy.notes.config.Configuration;
-import net.pieroxy.notes.storage.ConflictOf;
 import net.pieroxy.notes.sync.ChangesPage;
+import net.pieroxy.notes.sync.Merge3;
 import net.pieroxy.notes.sync.MetaChange;
 import net.pieroxy.notes.sync.NoteChange;
 import net.pieroxy.notes.sync.NoteContent;
@@ -78,7 +78,7 @@ public class NoteServiceTest {
   }
 
   private static NoteChange edit(String changeId, String noteId, int baseRevision, String content) {
-    return new NoteChange(changeId, noteId, baseRevision, null, content, null, Hashes.sha256(content), false);
+    return new NoteChange(changeId, noteId, baseRevision, null, content, null, Hashes.sha256(content), false, null);
   }
 
   private PushResult push(String noteId, int baseRevision, String content) throws IOException {
@@ -90,7 +90,7 @@ public class NoteServiceTest {
   }
 
   private PushResult delete(String noteId, int baseRevision) throws IOException {
-    return service.push("alice", "device-1", new NoteChange(nextChangeId(), noteId, baseRevision, null, null, null, null, true));
+    return service.push("alice", "device-1", new NoteChange(nextChangeId(), noteId, baseRevision, null, null, null, null, true, null));
   }
 
   private String content(String noteId) throws IOException {
@@ -149,35 +149,18 @@ public class NoteServiceTest {
   }
 
   @Test
-  public void aConflictKeepsTheOtherSideAndCopiesTheClientsWithCleanChangesInBoth() throws IOException {
+  public void changesToTheSameWordsKeepBothVersionsUnderAMarkerWithCleanChangesApplied() throws IOException {
     push(A, 0, BASE);
     pushFrom("laptop", A, 1, BASE.replace("First paragraph", "Laptop paragraph"));
     String submitted = BASE.replace("First paragraph", "Phone paragraph").replace("Second", "SECOND");
     PushResult result = pushFrom("phone", A, 1, submitted);
 
-    assertEquals(PushStatus.CONFLICT, result.status());
-    String original = BASE.replace("First paragraph", "Laptop paragraph").replace("Second", "SECOND");
-    String copy = BASE.replace("First paragraph", "Phone paragraph").replace("Second", "SECOND");
-    assertEquals(original, clientText(submitted, result.content()));
-    assertEquals(copy, clientText(submitted, result.copyContent()));
-    assertEquals(original, content(A));
-    assertEquals(copy, content(result.copy().id()));
+    String merged = "Title\n\n" + Merge3.MARKER + "\n" + "Laptop Phone paragraph.\n\nSECOND paragraph.\n";
+    assertEquals(PushStatus.MERGED, result.status());
+    assertEquals(merged, clientText(submitted, result.content()));
+    assertEquals(merged, content(A));
     assertEquals(3, result.note().revision());
-    assertEquals(1, result.copy().revision());
-    assertEquals(new ConflictOf(A), result.copy().conflictOf());
-    assertNull(result.note().conflictOf());
-  }
-
-  @Test
-  public void aConflictWithNothingCleanLeavesTheOriginalAlone() throws IOException {
-    push(A, 0, "I like cats.");
-    pushFrom("laptop", A, 1, "I like dogs.");
-    PushResult result = pushFrom("phone", A, 1, "I like birds.");
-
-    assertEquals(PushStatus.CONFLICT, result.status());
-    assertEquals(2, result.note().revision());
-    assertEquals("I like dogs.", content(A));
-    assertEquals("I like birds.", content(result.copy().id()));
+    assertEquals(1, service.changes("alice", 0).notes().size());
   }
 
   @Test
@@ -204,15 +187,15 @@ public class NoteServiceTest {
   }
 
   @Test
-  public void aRetriedConflictCreatesNoSecondCopy() throws IOException {
+  public void aRetriedClashingMergeIsNotAppliedTwice() throws IOException {
     push(A, 0, "I like cats.");
     pushFrom("laptop", A, 1, "I like dogs.");
-    NoteChange change = edit("c-conflict", A, 1, "I like birds.");
+    NoteChange change = edit("c-clash", A, 1, "I like birds.");
     PushResult first = service.push("alice", "phone", change);
     PushResult again = service.push("alice", "phone", change);
 
     assertEquals(first, again);
-    assertEquals(2, service.changes("alice", 0).notes().size());
+    assertEquals(Merge3.MARKER + "\n" + "I like dogs birds.", content(A));
   }
 
   @Test
@@ -226,7 +209,7 @@ public class NoteServiceTest {
     // The phone kept typing on top of what it sent, right next to its own change.
     String typed = sent.replace("SECOND paragraph.", "SECOND paragraph, and more.");
     PushResult result = service.push("alice", "phone",
-        new NoteChange(nextChangeId(), A, merged.note().revision(), "c-sent", typed, null, Hashes.sha256(typed), false));
+        new NoteChange(nextChangeId(), A, merged.note().revision(), "c-sent", typed, null, Hashes.sha256(typed), false, null));
 
     String expected = BASE.replace("First", "FIRST").replace("Second paragraph.", "SECOND paragraph, and more.");
     assertEquals(PushStatus.MERGED, result.status());
@@ -235,27 +218,11 @@ public class NoteServiceTest {
   }
 
   @Test
-  public void editsMadeWhileAConflictingPushWasInFlightContinueOnTheCopy() throws IOException {
-    push(A, 0, "I like cats.");
-    pushFrom("laptop", A, 1, "I like dogs.");
-    PushResult conflict = service.push("alice", "phone", edit("c-sent", A, 1, "I like birds."));
-    String copyId = conflict.copy().id();
-
-    String typed = "I like birds a lot.";
-    PushResult result = service.push("alice", "phone",
-        new NoteChange(nextChangeId(), copyId, conflict.copy().revision(), "c-sent", typed, null, Hashes.sha256(typed), false));
-
-    assertEquals(PushStatus.APPLIED, result.status());
-    assertEquals(typed, content(copyId));
-    assertEquals(new ConflictOf(A), result.note().conflictOf());
-  }
-
-  @Test
   public void acceptsASpliceOfTheBase() throws IOException {
     push(A, 0, BASE);
     String text = BASE.replace("First", "Better first");
     Splice splice = Splice.compute(BASE, text);
-    PushResult result = service.push("alice", "device-1", new NoteChange(nextChangeId(), A, 1, null, null, splice, Hashes.sha256(text), false));
+    PushResult result = service.push("alice", "device-1", new NoteChange(nextChangeId(), A, 1, null, null, splice, Hashes.sha256(text), false, null));
 
     assertEquals(PushStatus.APPLIED, result.status());
     assertEquals(text, content(A));
@@ -266,7 +233,7 @@ public class NoteServiceTest {
     push(A, 0, BASE);
     Splice splice = Splice.compute(BASE, BASE + "x");
     PushResult result = service.push("alice", "device-1",
-        new NoteChange(nextChangeId(), A, 1, null, null, splice, Hashes.sha256(BASE + "y"), false));
+        new NoteChange(nextChangeId(), A, 1, null, null, splice, Hashes.sha256(BASE + "y"), false, null));
 
     assertEquals(PushStatus.REJECTED, result.status());
     assertEquals(RejectReason.BASE_MISMATCH, result.reason());
@@ -277,7 +244,7 @@ public class NoteServiceTest {
   public void rejectsASpliceThatDoesNotFitTheBase() throws IOException {
     push(A, 0, "short");
     PushResult result = service.push("alice", "device-1",
-        new NoteChange(nextChangeId(), A, 1, null, null, new Splice(10, 10, "x"), Hashes.sha256("x"), false));
+        new NoteChange(nextChangeId(), A, 1, null, null, new Splice(10, 10, "x"), Hashes.sha256("x"), false, null));
 
     assertEquals(RejectReason.BASE_MISMATCH, result.reason());
   }
@@ -295,11 +262,11 @@ public class NoteServiceTest {
   public void rejectsInvalidChanges() throws IOException {
     assertEquals(RejectReason.INVALID, push("../a", 0, "x").reason());
     assertEquals(RejectReason.INVALID, service.push("alice", "d",
-        new NoteChange(nextChangeId(), A, 0, null, "x", new Splice(0, 0, "x"), Hashes.sha256("x"), false)).reason());
+        new NoteChange(nextChangeId(), A, 0, null, "x", new Splice(0, 0, "x"), Hashes.sha256("x"), false, null)).reason());
     assertEquals(RejectReason.INVALID, service.push("alice", "d",
-        new NoteChange(nextChangeId(), A, 0, null, "x", null, null, false)).reason());
+        new NoteChange(nextChangeId(), A, 0, null, "x", null, null, false, null)).reason());
     assertEquals(RejectReason.INVALID, service.push("alice", "d",
-        new NoteChange(null, A, 0, null, "x", null, Hashes.sha256("x"), false)).reason());
+        new NoteChange(null, A, 0, null, "x", null, Hashes.sha256("x"), false, null)).reason());
     assertEquals(RejectReason.INVALID, push(A, -1, "x").reason());
   }
 
@@ -365,9 +332,8 @@ public class NoteServiceTest {
     push(A, 0, "From the laptop.");
     PushResult result = pushFrom("phone", A, 0, "From the phone.");
 
-    assertEquals(PushStatus.CONFLICT, result.status());
-    assertEquals("From the laptop.", content(A));
-    assertEquals("From the phone.", content(result.copy().id()));
+    assertEquals(PushStatus.MERGED, result.status());
+    assertEquals(Merge3.MARKER + "\n" + "From the laptop. From the phone.", content(A));
   }
 
   @Test
@@ -380,14 +346,29 @@ public class NoteServiceTest {
   }
 
   @Test
-  public void aBaseAheadOfTheServerGoesToAConflictCopy() throws IOException {
-    push(A, 0, "Server text.");
-    PushResult result = push(A, 5, "Client text.");
+  public void aBaseTheServerDoesntHaveIsAskedForThenMergedWith() throws IOException {
+    push(A, 0, BASE);
+    push(A, 1, BASE.replace("First", "FIRST"));
+    String typed = BASE.replace("Second", "SECOND");
+    Splice splice = Splice.compute(BASE, typed);
+    PushResult gone = service.push("alice", "phone", new NoteChange(nextChangeId(), A, 9, null, null, splice, Hashes.sha256(typed), false, null));
+    assertEquals(PushStatus.REJECTED, gone.status());
+    assertEquals(RejectReason.BASE_GONE, gone.reason());
+    gone = pushFrom("phone", A, 9, typed);
+    assertEquals(RejectReason.BASE_GONE, gone.reason());
 
-    assertEquals(PushStatus.CONFLICT, result.status());
-    assertEquals("Server text.", content(A));
-    assertEquals("Client text.", content(result.copy().id()));
-    assertEquals(1, result.note().revision());
+    PushResult result = service.push("alice", "phone", new NoteChange(nextChangeId(), A, 9, null, typed, null, Hashes.sha256(typed), false, BASE));
+
+    String merged = BASE.replace("First", "FIRST").replace("Second", "SECOND");
+    assertEquals(PushStatus.MERGED, result.status());
+    assertEquals(merged, content(A));
+    assertEquals(merged, clientText(typed, result.content()));
+  }
+
+  @Test
+  public void aGoneBaseDoesntMatterWhenTheTextIsTheServersAlready() throws IOException {
+    push(A, 0, "Server text.");
+    assertEquals(PushStatus.APPLIED, push(A, 5, "Server text.").status());
   }
 
   @Test
@@ -607,15 +588,15 @@ public class NoteServiceTest {
   }
 
   @Test
-  public void aConflictCopyGetsTheOriginalsTagsAndOptions() throws IOException {
+  public void aMergeKeepsTheTagsAndOptions() throws IOException {
     push(A, 0, BASE);
     pushMeta(A, List.of("work"), null, Map.of("monospace", "true"), null);
     pushFrom("laptop", A, 1, BASE.replace("First", "Laptop"));
     PushResult result = pushFrom("phone", A, 1, BASE.replace("First", "Phone"));
 
-    assertEquals(PushStatus.CONFLICT, result.status());
-    assertEquals(List.of("work"), result.copy().tags());
-    assertEquals(Map.of("monospace", "true"), result.copy().options());
+    assertEquals(PushStatus.MERGED, result.status());
+    assertEquals(List.of("work"), result.note().tags());
+    assertEquals(Map.of("monospace", "true"), result.note().options());
   }
 
   @Test

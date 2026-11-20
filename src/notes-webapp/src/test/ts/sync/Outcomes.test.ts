@@ -7,7 +7,6 @@ import {
 import { computeSplice, fullSplice } from "../../../ts/sync/Splice";
 
 const ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const COPY = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const BASE = "Title\n\nFirst paragraph.\n\nSecond paragraph.\n";
 
 function info(revision: number, extra: Partial<NoteInfo> = {}): NoteInfo {
@@ -78,16 +77,16 @@ describe("prepareChange", () => {
 describe("applyPushResult", () => {
   test("APPLIED: the note is in sync", () => {
     const note = inFlight(edited(synced(BASE, 3), BASE + "More.\n", 600));
-    const { notes } = applyPushResult(note, result(PushStatus.APPLIED, { note: info(4) }));
+    const { note: after } = applyPushResult(note, result(PushStatus.APPLIED, { note: info(4) }));
 
-    expect(notes).toEqual([expect.objectContaining({
+    expect(after).toEqual(expect.objectContaining({
       baseRevision: 4, baseText: BASE + "More.\n", text: BASE + "More.\n", dirty: false, pending: undefined,
-    })]);
+    }));
   });
 
   test("APPLIED with text typed meanwhile: the typing stays, based on what was sent", () => {
     const note = inFlight(edited(synced(BASE, 3), BASE + "More.\n", 600), BASE + "More. And more.\n");
-    const [after] = applyPushResult(note, result(PushStatus.APPLIED, { note: info(4) })).notes;
+    const after = applyPushResult(note, result(PushStatus.APPLIED, { note: info(4) })).note!;
 
     expect(after).toEqual(expect.objectContaining({
       baseRevision: 4, baseText: BASE + "More.\n", text: BASE + "More. And more.\n", dirty: true, basedOnChangeId: undefined,
@@ -98,7 +97,7 @@ describe("applyPushResult", () => {
     const sent = BASE.replace("Second", "SECOND");
     const merged = sent.replace("First", "FIRST");
     const note = inFlight(edited(synced(BASE, 3), sent, 600));
-    const [after] = applyPushResult(note, result(PushStatus.MERGED, { note: info(5), content: computeSplice(sent, merged) })).notes;
+    const after = applyPushResult(note, result(PushStatus.MERGED, { note: info(5), content: computeSplice(sent, merged) })).note!;
 
     expect(after).toEqual(expect.objectContaining({ baseRevision: 5, baseText: merged, text: merged, dirty: false }));
   });
@@ -108,63 +107,37 @@ describe("applyPushResult", () => {
     const merged = sent.replace("First", "FIRST");
     const typed = sent + "Typed during the push.\n";
     const note = inFlight(edited(synced(BASE, 3), sent, 600), typed);
-    const [after] = applyPushResult(note, result(PushStatus.MERGED, { note: info(5), content: computeSplice(sent, merged) })).notes;
+    const after = applyPushResult(note, result(PushStatus.MERGED, { note: info(5), content: computeSplice(sent, merged) })).note!;
 
     expect(after).toEqual(expect.objectContaining({ baseRevision: 5, baseText: sent, basedOnChangeId: "c1", text: typed, dirty: true }));
     expect(prepareChange(after, "c2").change).toEqual(expect.objectContaining({ baseRevision: 5, basedOnChangeId: "c1" }));
   });
 
-  test("CONFLICT: the note takes the other side, the copy holds this device's", () => {
-    const sent = "I like birds.";
-    const note = inFlight(edited(synced("I like cats.", 1), sent, 600));
-    const { notes, movedTo } = applyPushResult(note, result(PushStatus.CONFLICT, {
-      note: info(2), content: computeSplice(sent, "I like dogs."),
-      copy: info(1, { id: COPY, conflictOf: { noteId: ID } }), copyContent: undefined,
-    }));
+  test("BASE_GONE: resent once with the base text, then reported", () => {
+    const note = inFlight(edited(synced(BASE, 3), BASE + "x", 600));
+    const { note: retry } = applyPushResult(note, result(PushStatus.REJECTED, { reason: RejectReason.BASE_GONE, message: "gone" }));
+    expect(retry!.sendBase).toBe(true);
+    expect(isPushable(retry!)).toBe(true);
+    const change = prepareChange(retry!, "c2").change;
+    expect(change).toEqual(expect.objectContaining({ content: BASE + "x", baseContent: BASE }));
+    expect(change.splice).toBeUndefined();
 
-    expect(movedTo).toBe(COPY);
-    expect(notes[0]).toEqual(expect.objectContaining({ id: ID, baseRevision: 2, text: "I like dogs.", dirty: false }));
-    expect(notes[1]).toEqual(expect.objectContaining({
-      id: COPY, baseRevision: 1, baseText: sent, text: sent, dirty: false, info: expect.objectContaining({ conflictOf: { noteId: ID } }),
-    }));
-  });
-
-  test("CONFLICT with text typed meanwhile: the typing continues on the copy", () => {
-    const sent = "I like birds.";
-    const typed = "I like birds a lot.";
-    const note = inFlight(edited(synced("I like cats.", 1), sent, 600), typed);
-    const { notes, movedTo } = applyPushResult(note, result(PushStatus.CONFLICT, {
-      note: info(2), content: computeSplice(sent, "I like dogs."), copy: info(1, { id: COPY }),
-    }));
-
-    expect(movedTo).toBe(COPY);
-    expect(notes[0]).toEqual(expect.objectContaining({ id: ID, text: "I like dogs.", dirty: false }));
-    expect(notes[1]).toEqual(expect.objectContaining({ id: COPY, baseText: sent, basedOnChangeId: undefined, text: typed, dirty: true }));
-  });
-
-  test("CONFLICT where the copy got clean changes merged in: the typing is based on the change", () => {
-    const sent = "Title!\n\nI like birds.\n";
-    const copyText = "Title!\n\nI like birds.\n\nThe end.\n";
-    const typed = "Title!\n\nI like birds a lot.\n";
-    const note = inFlight(edited(synced("Title\n\nI like cats.\n", 1), sent, 600), typed);
-    const { notes } = applyPushResult(note, result(PushStatus.CONFLICT, {
-      note: info(2), content: computeSplice(sent, "Title!\n\nI like dogs.\n\nThe end.\n"),
-      copy: info(1, { id: COPY }), copyContent: computeSplice(sent, copyText),
-    }));
-
-    expect(notes[1]).toEqual(expect.objectContaining({ id: COPY, baseText: sent, basedOnChangeId: "c1", text: typed, dirty: true }));
+    const { note: failed } = applyPushResult(prepareChange(retry!, "c2").note,
+      { ...result(PushStatus.REJECTED, { reason: RejectReason.BASE_GONE, message: "still gone" }), changeId: "c2" });
+    expect(failed!.error).toEqual({ reason: RejectReason.BASE_GONE, message: "still gone" });
+    expect(failed!.sendBase).toBe(false);
   });
 
   test("KEPT: a refused delete brings the note back with the server's text", () => {
     const note = inFlight(deletedLocally(synced(BASE, 3), 600)!);
-    const [after] = applyPushResult(note, result(PushStatus.KEPT, { note: info(4), content: computeSplice(BASE, BASE + "Edited.\n") })).notes;
+    const after = applyPushResult(note, result(PushStatus.KEPT, { note: info(4), content: computeSplice(BASE, BASE + "Edited.\n") })).note!;
 
     expect(after).toEqual(expect.objectContaining({ deleted: false, dirty: false, baseRevision: 4, text: BASE + "Edited.\n" }));
   });
 
   test("a delete APPLIED leaves a clean tombstone; one of a note the server never had removes it", () => {
     const note = inFlight(deletedLocally(synced(BASE, 3), 600)!);
-    const [after] = applyPushResult(note, result(PushStatus.APPLIED, { note: info(4, { deleted: true }) })).notes;
+    const after = applyPushResult(note, result(PushStatus.APPLIED, { note: info(4, { deleted: true }) })).note!;
     expect(after).toEqual(expect.objectContaining({ deleted: true, dirty: false, baseRevision: 4 }));
 
     expect(applyPushResult(note, result(PushStatus.APPLIED)).removed).toBe(true);
@@ -172,20 +145,20 @@ describe("applyPushResult", () => {
 
   test("BASE_MISMATCH: resent once in full, then reported", () => {
     const note = inFlight(edited(synced(BASE, 3), BASE + "x", 600));
-    const [retry] = applyPushResult(note, result(PushStatus.REJECTED, { reason: RejectReason.BASE_MISMATCH, message: "no" })).notes;
+    const retry = applyPushResult(note, result(PushStatus.REJECTED, { reason: RejectReason.BASE_MISMATCH, message: "no" })).note!;
     expect(retry.forceFull).toBe(true);
     expect(retry.error).toBeUndefined();
     expect(isPushable(retry)).toBe(true);
     expect(prepareChange(retry, "c2").change.content).toBe(BASE + "x");
 
-    const [failed] = applyPushResult(prepareChange(retry, "c2").note,
-      { ...result(PushStatus.REJECTED, { reason: RejectReason.BASE_MISMATCH, message: "still no" }), changeId: "c2" }).notes;
+    const failed = applyPushResult(prepareChange(retry, "c2").note,
+      { ...result(PushStatus.REJECTED, { reason: RejectReason.BASE_MISMATCH, message: "still no" }), changeId: "c2" }).note!;
     expect(failed.error).toEqual({ reason: RejectReason.BASE_MISMATCH, message: "still no" });
   });
 
   test("TOO_LARGE: reported and not retried until edited", () => {
     const note = inFlight(edited(synced(BASE, 3), "x".repeat(100), 600));
-    const [after] = applyPushResult(note, result(PushStatus.REJECTED, { reason: RejectReason.TOO_LARGE, message: "too big" })).notes;
+    const after = applyPushResult(note, result(PushStatus.REJECTED, { reason: RejectReason.TOO_LARGE, message: "too big" })).note!;
 
     expect(after.error).toEqual({ reason: RejectReason.TOO_LARGE, message: "too big" });
     expect(after.dirty).toBe(true);

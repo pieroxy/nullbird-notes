@@ -56,7 +56,7 @@ public class SyncApiTest {
   }
 
   private static NoteChange edit(String changeId, int baseRevision, String content) {
-    return new NoteChange(changeId, NOTE, baseRevision, null, content, null, Hashes.sha256(content), false);
+    return new NoteChange(changeId, NOTE, baseRevision, null, content, null, Hashes.sha256(content), false, null);
   }
 
   private static JsonObject onlyResult(TestServer.Response response) {
@@ -108,7 +108,7 @@ public class SyncApiTest {
 
     String edited = "Hello\nfrom the phone\n";
     Splice splice = Splice.compute("Hello\n", edited);
-    NoteChange change = new NoteChange("c2", NOTE, 1, null, null, splice, Hashes.sha256(edited), false);
+    NoteChange change = new NoteChange("c2", NOTE, 1, null, null, splice, Hashes.sha256(edited), false, null);
     assertEquals("APPLIED", onlyResult(phone.post("Push", pushInput("phone", change))).get("status").getAsString());
 
     JsonObject changes = poll.get(5, TimeUnit.SECONDS).result();
@@ -124,7 +124,7 @@ public class SyncApiTest {
 
   @Test
   public void aBatchAppliesEachChangeOnItsOwnInOrder() throws Exception {
-    NoteChange bad = new NoteChange("c1", NOTE, 0, null, "x", null, Hashes.sha256("not x"), false);
+    NoteChange bad = new NoteChange("c1", NOTE, 0, null, "x", null, Hashes.sha256("not x"), false, null);
     NoteChange good = edit("c2", 0, "fine");
     JsonArray results = laptop.post("Push", pushInput("laptop", bad, good)).result().getAsJsonArray("results");
 

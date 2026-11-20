@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
-import { PushStatus } from "../../../ts/auto/api-types";
+import { PushStatus, RejectReason } from "../../../ts/auto/api-types";
 import { LocalStore } from "../../../ts/sync/LocalStore";
 import { tagsOf } from "../../../ts/sync/Metadata";
 import { sha256Bytes } from "../../../ts/sync/Sha256";
@@ -10,7 +10,6 @@ import { FakeServer } from "./FakeServer";
 
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-const COPY = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const hash = (text: string) => sha256Bytes(new TextEncoder().encode(text));
 
 describe("SyncEngine", () => {
@@ -202,44 +201,32 @@ describe("SyncEngine", () => {
     server.notes.clear();
     server.seq = 0;
     server.write(A, "Restored");
+    const merged = "Restored Synced, then edited offline";
     server.onPush = (change) => {
       if (change.baseRevision !== 0) throw new Error("Unsynced text must be pushed as new after a resync");
-      return {
-        changeId: change.changeId, status: PushStatus.CONFLICT, note: server.notes.get(A)!.info,
-        content: computeSplice(change.content!, "Restored"), copy: server.write(COPY, change.content!),
-      };
+      return { changeId: change.changeId, status: PushStatus.MERGED, note: server.write(A, merged), content: computeSplice(change.content!, merged) };
     };
 
-    await until(() => engine.get(COPY)?.text === "Synced, then edited offline" && engine.get(A)?.text === "Restored");
+    await until(() => engine.get(A)?.text === merged && engine.status().state === "synced");
     expect((await store.getMeta())?.storeId).toBe("store-2");
   });
 
-  test("text typed during a conflicting push follows the user onto the copy", async () => {
-    server.write(A, "I like cats.");
+  test("when the server no longer has the base revision, the change is sent again with its base text", async () => {
+    server.write(A, "Base");
     await startEngine();
-    let open!: () => void;
-    server.gate = new Promise((resolve) => (open = resolve));
     server.onPush = (change) => {
-      server.onPush = undefined;
-      return {
-        changeId: change.changeId, status: PushStatus.CONFLICT, note: server.write(A, "I like dogs."),
-        content: computeSplice("I like birds.", "I like dogs."), copy: server.write(COPY, "I like birds."),
-      };
+      if (change.baseContent === undefined) return { changeId: change.changeId, status: PushStatus.REJECTED, reason: RejectReason.BASE_GONE, message: "Gone." };
+      expect(change.baseContent).toBe("Base");
+      expect(change.content).toBe("Base, edited");
+      return { changeId: change.changeId, status: PushStatus.MERGED, note: server.write(A, "Merged"), content: computeSplice("Base, edited", "Merged") };
     };
-    const moves: [string, string][] = [];
-    engine.onMove((from, to) => moves.push([from, to]));
 
-    engine.edit(A, "I like birds.");
-    await until(() => server.pushes.length === 1);
-    engine.edit(A, "I like birds a lot.");
-    open();
-    server.gate = undefined;
+    engine.edit(A, "Base, edited");
 
-    await until(() => moves.length === 1);
-    expect(moves).toEqual([[A, COPY]]);
-    expect(engine.get(A)?.text).toBe("I like dogs.");
-    expect(engine.get(COPY)?.text).toBe("I like birds a lot.");
-    await until(() => server.text(COPY) === "I like birds a lot.");
+    await until(() => engine.get(A)?.text === "Merged" && engine.status().state === "synced");
+    expect(server.pushes).toHaveLength(2);
+    expect(engine.get(A)?.sendBase).toBeFalsy();
+    expect(engine.get(A)?.error).toBeUndefined();
   });
 
   test("a push in flight when the page closes is resent as the same change, and applied once", async () => {

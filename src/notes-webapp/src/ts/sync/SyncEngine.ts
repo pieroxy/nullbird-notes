@@ -30,8 +30,6 @@ export interface SyncStatus {
   message?: string;
   /** Notes the server refused (too large…): see LocalNote.error and LocalNote.metaError. */
   noteErrors: number;
-  /** Unresolved conflict copies. */
-  conflicts: number;
 }
 
 /** Timings, in milliseconds. */
@@ -70,7 +68,6 @@ export class SyncEngine {
   private running = false;
   private readonly aborts = new Set<AbortController>();
   private readonly listeners = new Set<() => void>();
-  private readonly moveListeners = new Set<(from: string, to: string) => void>();
 
   private connected = false;
   private signedOut = false;
@@ -115,11 +112,6 @@ export class SyncEngine {
     return () => this.listeners.delete(listener);
   }
 
-  /** The user's edits to {@code from} continue on {@code to} (a conflict copy): an editor showing it should follow. */
-  onMove(listener: (from: string, to: string) => void): () => void {
-    this.moveListeners.add(listener);
-    return () => this.moveListeners.delete(listener);
-  }
 
   /** Notes not deleted, newest first. */
   list(): LocalNote[] {
@@ -134,8 +126,7 @@ export class SyncEngine {
     const all = [...this.notes.values()];
     const pending = all.filter((note) => !isDraft(note) && (note.dirty || note.pending || note.metaOps || note.pendingMeta)).length;
     const noteErrors = all.filter((note) => note.error || note.metaError).length;
-    const conflicts = all.filter((note) => !note.deleted && note.info?.conflictOf).length;
-    const base = { pending, noteErrors, conflicts, lastSyncAt: this.lastSyncAt };
+    const base = { pending, noteErrors, lastSyncAt: this.lastSyncAt };
     if (this.outdated) return { ...base, state: "outdated" };
     if (this.signedOut) return { ...base, state: "signedOut" };
     if (this.errorMessage) return { ...base, state: "error", message: this.errorMessage, nextRetryAt: this.nextRetryAt };
@@ -406,11 +397,10 @@ export class SyncEngine {
         this.notes.delete(note.id);
         removed.push(note.id);
       }
-      for (const updated of outcome.notes) {
-        this.notes.set(updated.id, updated);
-        changed.set(updated.id, updated);
+      if (outcome.note) {
+        this.notes.set(note.id, outcome.note);
+        changed.set(note.id, outcome.note);
       }
-      if (outcome.movedTo) for (const listener of this.moveListeners) listener(note.id, outcome.movedTo);
     }
     for (const result of metaResults) {
       const note = [...this.notes.values()].find((n) => n.pendingMeta?.changeId === result.changeId);

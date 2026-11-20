@@ -12,7 +12,6 @@
   --status-ok: #2e9d57;
   --status-pending: #2f6fde;
   --status-offline: #d9822b;
-  --conflict-bg: #fff4d6;
   --error-bg: #fde7e7;
   --shadow: 0 4px 16px rgba(0, 0, 0, .12);
 }
@@ -32,7 +31,6 @@
     --status-ok: #3fb26b;
     --status-pending: #5b8ff0;
     --status-offline: #e59a4f;
-    --conflict-bg: #4a3d17;
     --error-bg: #4d2222;
     --shadow: 0 4px 16px rgba(0, 0, 0, .5);
   }
@@ -536,10 +534,6 @@ body.resizing {
   font-size: 14px;
   border-bottom: 1px solid var(--border);
 
-  &.conflict {
-    background: var(--conflict-bg);
-  }
-
   &.error {
     background: var(--error-bg);
   }
@@ -664,10 +658,6 @@ button.link {
   border-radius: 10px;
   font-size: 12px;
   white-space: nowrap;
-
-  &.conflict {
-    background: var(--conflict-bg);
-  }
 
   &.error {
     background: var(--error-bg);

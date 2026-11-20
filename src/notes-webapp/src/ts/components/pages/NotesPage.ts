@@ -165,9 +165,7 @@ export class NotesPage extends AbstractPage {
   private panes(engine: SyncEngine): m.Children {
     const selected = this.selectedId ? engine.get(this.selectedId) : undefined;
     if (this.selectedId && (!selected || selected.deleted)) this.selectedId = undefined;
-    const original = selected?.info?.conflictOf ? engine.get(selected.info.conflictOf.noteId) : undefined;
     const notes = engine.list();
-    const conflictCopies = selected ? notes.filter((note) => note.info?.conflictOf?.noteId === selected.id).map((note) => note.id) : [];
     const tags = new Map(notes.map((note) => [note.id, tagsOf(note)]));
     const onFilter = (filter: TagFilter) => this.setFilter(filter);
     // Keyed throughout: mithril refuses siblings some of which have keys and some not.
@@ -195,13 +193,10 @@ export class NotesPage extends AbstractPage {
         ? m(NoteEditor, {
           key: selected.id,
           note: selected,
-          originalTitle: original ? titleAndExcerpt(original.text).title : undefined,
-          conflictCopies,
           tags: tagsOf(selected),
           monospace: isOn(selected, MONOSPACE),
           nowrap: isOn(selected, NOWRAP),
           onEdit: (text: string) => engine.edit(selected.id, text),
-          onOpen: (id: string) => this.select(id),
           onAddTag: (tag: string) => engine.addTag(selected.id, tag),
           onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),
         })
@@ -290,9 +285,6 @@ export class NotesPage extends AbstractPage {
       const engine = new SyncEngine(this.store, new HttpSyncApi());
       this.unsubscribe = [
         engine.onChange(() => m.redraw()),
-        engine.onMove((from, to) => {
-          if (this.selectedId === from) this.selectedId = to;
-        }),
       ];
       this.engine = engine;
       await engine.start();

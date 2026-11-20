@@ -344,9 +344,9 @@ public class UserNoteStore {
     commitHook.after(CommitStep.CONTENT);
     NoteMeta meta = current == null
         ? new NoteMeta(noteId, revision, seq, now, now, write.deleted(), title(write.content()), content.length, Hashes.sha256(content),
-            write.changeId(), write.conflictOf(), write.tags(), write.options(), 0, null)
+            write.changeId(), write.tags(), write.options(), 0, null)
         : new NoteMeta(noteId, revision, seq, current.createdAt(), now, write.deleted(), title(write.content()), content.length,
-            Hashes.sha256(content), write.changeId(), write.conflictOf(), current.tags(), current.options(), current.metaRevision(),
+            Hashes.sha256(content), write.changeId(), current.tags(), current.options(), current.metaRevision(),
             current.lastMetaChangeId());
     writeMeta(meta);
     if (write.changeId() != null) changes.put(write.changeId(), new ChangeRecord(noteId, revision));
@@ -394,7 +394,7 @@ public class UserNoteStore {
     AtomicFiles.write(metaRevisionFile(noteId, metaRevision), GSON.toJson(rev).getBytes(StandardCharsets.UTF_8));
     commitHook.after(CommitStep.REVISION);
     NoteMeta meta = new NoteMeta(noteId, current.revision(), seq, current.createdAt(), current.modifiedAt(), current.deleted(),
-        current.title(), current.size(), current.contentHash(), current.lastChangeId(), current.conflictOf(), tags, options,
+        current.title(), current.size(), current.contentHash(), current.lastChangeId(), tags, options,
         metaRevision, write.changeId());
     writeMeta(meta);
     if (write.changeId() != null) metaChanges.put(write.changeId(), noteId);
