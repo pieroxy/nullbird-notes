@@ -132,7 +132,7 @@ export class SyncEngine {
 
   status(): SyncStatus {
     const all = [...this.notes.values()];
-    const pending = all.filter((note) => note.dirty || note.pending || note.metaOps || note.pendingMeta).length;
+    const pending = all.filter((note) => !isDraft(note) && (note.dirty || note.pending || note.metaOps || note.pendingMeta)).length;
     const noteErrors = all.filter((note) => note.error || note.metaError).length;
     const conflicts = all.filter((note) => !note.deleted && note.info?.conflictOf).length;
     const base = { pending, noteErrors, conflicts, lastSyncAt: this.lastSyncAt };
@@ -145,9 +145,13 @@ export class SyncEngine {
     return { ...base, state: "synced" };
   }
 
-  /** A new, empty note: kept only once edited (see {@link discardIfEmpty}). */
-  create(): string {
+  /**
+   * A new, empty note: kept only once edited (see {@link discardIfEmpty}). Its tags are sent once
+   * the server has the note.
+   */
+  create(tags: string[] = []): string {
     const note = created(uuid(), Date.now());
+    if (tags.length > 0) note.metaOps = tags.reduce(addTag, noOps());
     this.notes.set(note.id, note);
     this.notify();
     return note.id;
@@ -212,7 +216,7 @@ export class SyncEngine {
   /** Forgets a note created but never edited. */
   discardIfEmpty(id: string) {
     const note = this.notes.get(id);
-    if (note && !note.dirty && !note.info && !note.pending) {
+    if (note && isDraft(note)) {
       this.notes.delete(id);
       this.notify();
     }
@@ -515,6 +519,11 @@ export class SyncEngine {
 }
 
 /** Something to push, or a push to resend. */
+/** Created but never edited: the server doesn't know it, nothing to sync yet. */
+function isDraft(note: LocalNote): boolean {
+  return !note.dirty && !note.info && !note.pending;
+}
+
 function hasWork(note: LocalNote): boolean {
   return isPushable(note) || note.pending !== undefined || hasMetaToPush(note) || note.pendingMeta !== undefined;
 }

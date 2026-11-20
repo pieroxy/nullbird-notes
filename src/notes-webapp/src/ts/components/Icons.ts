@@ -17,6 +17,7 @@ const ICONS = {
   "chevron-left": [["path", { d: "m15 18-6-6 6-6" }]],
   check: [["path", { d: "M20 6 9 17l-5-5" }]],
   x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
+  "panel-left": [["rect", { width: 18, height: 18, x: 3, y: 3, rx: 2 }], ["path", { d: "M9 3v18" }]],
 } satisfies Record<string, Shape[]>;
 
 export type IconName = keyof typeof ICONS;

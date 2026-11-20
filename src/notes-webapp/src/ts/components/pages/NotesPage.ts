@@ -9,17 +9,20 @@ import { Auth } from "../../utils/Auth";
 import { titleAndExcerpt } from "../../utils/format";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
+import { findTags, isActive, loadFilter, matches, NO_FILTER, saveFilter, TagCount, TagFilter, tagCounts, toggle } from "../../utils/TagFilter";
 import { Dropdown } from "../Dropdown";
 import { icon, iconButton } from "../Icons";
 import { NoteEditor } from "../NoteEditor";
 import { NoteList } from "../NoteList";
 import { SyncStatusIndicator } from "../SyncStatusIndicator";
+import { TagPanel, tagSearch } from "../TagPanel";
 import { AbstractPage } from "./AbstractPage";
 
 type Phase = "opening" | "active" | "elsewhere" | "failed";
 
 /**
- * The note list on the left, the selected note on the right (one at a time on narrow screens).
+ * The tags, the note list filtered on them, then the selected note. On narrow screens, one at a
+ * time: the list or the note, or the tags over the list.
  * Runs the user's sync engine while this tab holds their notes (see TabClaim).
  */
 export class NotesPage extends AbstractPage {
@@ -30,6 +33,10 @@ export class NotesPage extends AbstractPage {
   private engine?: SyncEngine;
   private unsubscribe: (() => void)[] = [];
   private selectedId?: string;
+  private filter: TagFilter = NO_FILTER;
+  private tagSearch = "";
+  /** Narrow screens: the tags shown instead of the list. */
+  private showTags = false;
   private version?: string;
   private readonly onPageHide = () => void this.engine?.flush();
   private readonly onVisibilityChange = () => {
@@ -63,13 +70,27 @@ export class NotesPage extends AbstractPage {
   render(): m.Children {
     const engine = this.phase === "active" ? this.engine : undefined;
     const selected = engine && this.selectedId ? engine.get(this.selectedId) : undefined;
-    return m("main.notespage" + (this.selectedId ? ".editing" : ""), [
-      // Its two sides line up with the panes. The status is on the wider one: it must never be cut.
+    const tagging = this.showTags && !this.selectedId;
+    return m("main.notespage" + (this.selectedId ? ".editing" : "") + (tagging ? ".tagging" : ""), [
+      // Its sides line up with the panes. The status is on the widest one: it must never be cut.
       m("header.topbar", [
+        m(".tagside", [
+          engine ? tagSearch({
+            search: this.tagSearch,
+            onSearch: (search) => (this.tagSearch = search),
+            onPick: () => {
+              const first = findTags(this.tagCounts(engine), this.tagSearch)[0];
+              if (first) this.setFilter(toggle(this.filter, first.tag));
+            },
+          }) : m("span.spacer"),
+          m("button.plain.done", { type: "button", onclick: () => (this.showTags = false) }, "Done"),
+        ]),
         m(".listside", [
           this.selectedId ? iconButton("chevron-left", "Back to the notes", () => this.select(undefined), "back") : null,
+          engine && !this.selectedId ? iconButton("panel-left", isActive(this.filter) ? "Tags (filtering)" : "Tags", () => (this.showTags = true),
+            "tagsbutton" + (isActive(this.filter) ? ".active" : "")) : null,
           m("span.spacer"),
-          engine ? iconButton("plus", "New note", () => this.select(engine.create()), "new") : null,
+          engine ? iconButton("plus", "New note", () => this.newNote(engine), "new") : null,
         ]),
         m(".noteside", [
           this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : m("span.spacer"),
@@ -117,11 +138,24 @@ export class NotesPage extends AbstractPage {
     const original = selected?.info?.conflictOf ? engine.get(selected.info.conflictOf.noteId) : undefined;
     const notes = engine.list();
     const conflictCopies = selected ? notes.filter((note) => note.info?.conflictOf?.noteId === selected.id).map((note) => note.id) : [];
+    const tags = new Map(notes.map((note) => [note.id, tagsOf(note)]));
+    const onFilter = (filter: TagFilter) => this.setFilter(filter);
     // Keyed throughout: mithril refuses siblings some of which have keys and some not.
     return m(".panes", [
+      m(TagPanel, {
+        key: "tags",
+        filter: this.filter,
+        counts: tagCounts(this.filter, [...tags.values()]),
+        search: this.tagSearch,
+        untaggedCount: [...tags.values()].filter((noteTags) => noteTags.length === 0).length,
+        onChange: onFilter,
+      }),
       m(NoteList, {
         key: "list",
-        notes,
+        notes: notes.filter((note) => matches(this.filter, tags.get(note.id)!)),
+        total: notes.length,
+        filter: this.filter,
+        onFilter,
         selectedId: this.selectedId,
         onSelect: (id: string) => this.select(id),
       }),
@@ -143,6 +177,22 @@ export class NotesPage extends AbstractPage {
     ]);
   }
 
+  private tagCounts(engine: SyncEngine): TagCount[] {
+    return tagCounts(this.filter, engine.list().map(tagsOf));
+  }
+
+  /** It gets the tags filtered on: otherwise it wouldn't be in the list it was created from. */
+  private newNote(engine: SyncEngine) {
+    this.showTags = false;
+    this.select(engine.create(this.filter.tags));
+  }
+
+  private setFilter(filter: TagFilter) {
+    this.filter = filter;
+    const username = Auth.getUsername();
+    if (username) saveFilter(username, filter);
+  }
+
   private select(id: string | undefined) {
     if (this.selectedId && this.selectedId !== id) this.engine?.discardIfEmpty(this.selectedId);
     this.selectedId = id;
@@ -152,6 +202,7 @@ export class NotesPage extends AbstractPage {
     const username = Auth.getUsername();
     if (!username) return;
     this.phase = "opening";
+    this.filter = loadFilter(username);
     m.redraw();
     this.claim ??= new TabClaim(username);
     const won = await this.claim.claim(() => this.lose());
@@ -205,7 +256,10 @@ export class NotesPage extends AbstractPage {
     await this.deactivate();
     this.claim?.close();
     this.claim = undefined;
-    if (username) await LocalStore.destroy(username);
+    if (username) {
+      await LocalStore.destroy(username);
+      saveFilter(username, NO_FILTER);
+    }
     await Auth.logout();
     Routing.goToScreen(Endpoints.LOGIN);
   }

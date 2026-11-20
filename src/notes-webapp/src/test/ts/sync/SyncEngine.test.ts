@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { PushStatus } from "../../../ts/auto/api-types";
 import { LocalStore } from "../../../ts/sync/LocalStore";
+import { tagsOf } from "../../../ts/sync/Metadata";
 import { sha256Bytes } from "../../../ts/sync/Sha256";
 import { computeSplice } from "../../../ts/sync/Splice";
 import { SyncEngine, TIMINGS } from "../../../ts/sync/SyncEngine";
@@ -335,6 +336,21 @@ describe("SyncEngine", () => {
     await until(() => engine.status().state === "synced" && server.notes.get(id)?.info.tags.length === 1);
     expect(server.text(id)).toBe("");
     expect(server.notes.get(id)!.info.tags).toEqual(["idea"]);
+  });
+
+  test("a note created with tags shows them, stays a draft until edited, then gets them on the server", async () => {
+    await startEngine();
+    const draft = engine.create(["work", "urgent"]);
+    expect(tagsOf(engine.get(draft)!)).toEqual(["work", "urgent"]);
+    expect(engine.status()).toEqual(expect.objectContaining({ state: "synced", pending: 0 }));
+    engine.discardIfEmpty(draft);
+    expect(engine.get(draft)).toBeUndefined();
+
+    const id = engine.create(["work", "urgent"]);
+    engine.edit(id, "Kept");
+    await until(() => engine.status().state === "synced" && server.notes.get(id)?.info.tags.length === 2);
+    expect(server.text(id)).toBe("Kept");
+    expect(server.notes.get(id)!.info.tags).toEqual(["work", "urgent"]);
   });
 
   test("a tag change made elsewhere arrives without fetching the text again", async () => {
