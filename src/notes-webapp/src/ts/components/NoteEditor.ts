@@ -1,4 +1,4 @@
-import { history, historyKeymap, insertNewline, standardKeymap } from "@codemirror/commands";
+import { history, historyKeymap, indentWithTab, insertNewline, standardKeymap } from "@codemirror/commands";
 import { Annotation, Compartment, EditorState, Extension, RangeSetBuilder, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, keymap, placeholder } from "@codemirror/view";
 import m from "mithril";
@@ -131,7 +131,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
         extensions: [
           history(),
           listKeymap,
-          keymap.of([...standardKeymap, ...historyKeymap]),
+          keymap.of([...standardKeymap, ...historyKeymap, indentWithTab]),
           EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "on", autocapitalize: "sentences" }),
           placeholder("Start typing…"),
           theme,
