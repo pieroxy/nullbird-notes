@@ -1,6 +1,7 @@
 import m from "mithril";
 import { LocalNote } from "../sync/LocalNote";
 import { computeSplice } from "../sync/Splice";
+import { continueList, TextEdit } from "../utils/ListContinuation";
 import { TagEditor } from "./TagEditor";
 
 export interface NoteEditorAttrs {
@@ -24,6 +25,8 @@ export interface NoteEditorAttrs {
  */
 export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   private textarea?: HTMLTextAreaElement;
+  /** Shift+Enter is a plain line break; its beforeinput doesn't tell it from Enter. */
+  private shiftEnter = false;
 
   oncreate({ attrs, dom }: m.VnodeDOM<NoteEditorAttrs>) {
     this.textarea = dom.querySelector("textarea")!;
@@ -66,11 +69,37 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
         spellcheck: true,
         wrap: attrs.nowrap ? "off" : "soft",
         placeholder: "Start typing…",
+        onkeydown: (e: KeyboardEvent) => {
+          if (e.key === "Enter") this.shiftEnter = e.shiftKey;
+        },
+        // beforeinput, not keydown: Android keyboards don't always send a usable Enter keydown.
+        onbeforeinput: (e: InputEvent) => {
+          const shiftEnter = this.shiftEnter;
+          this.shiftEnter = false;
+          if (e.inputType !== "insertLineBreak" && e.inputType !== "insertParagraph") return;
+          const textarea = e.target as HTMLTextAreaElement;
+          if (shiftEnter || e.isComposing || textarea.selectionStart !== textarea.selectionEnd) return;
+          const edit = continueList(textarea.value, textarea.selectionStart);
+          if (!edit) return;
+          e.preventDefault();
+          applyEdit(textarea, edit);
+        },
         oninput: (e: Event) => attrs.onEdit((e.target as HTMLTextAreaElement).value),
       }),
       m(TagEditor, { tags: attrs.tags, onAdd: attrs.onAddTag, onRemove: attrs.onRemoveTag }),
     ]);
   }
+}
+
+/**
+ * Through execCommand, deprecated but the only way to keep the textarea's undo history; it fires
+ * the input event like typing does.
+ */
+function applyEdit(textarea: HTMLTextAreaElement, edit: TextEdit) {
+  textarea.setSelectionRange(edit.from, edit.to);
+  if (document.execCommand(edit.insert === "" ? "delete" : "insertText", false, edit.insert)) return;
+  textarea.setRangeText(edit.insert, edit.from, edit.to, "end");
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 /** Where a caret at {@code position} lands once {@code splice} is applied. */
