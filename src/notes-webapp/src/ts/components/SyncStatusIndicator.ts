@@ -6,6 +6,8 @@ import { Dropdown } from "./Dropdown";
 export interface SyncStatusIndicatorAttrs {
   status: SyncStatus;
   onRetry: () => void;
+  /** Which side of the status its panel lines up with: left by default. */
+  align?: "left" | "right";
 }
 
 /**
@@ -64,7 +66,7 @@ export class SyncStatusIndicator implements m.ClassComponent<SyncStatusIndicator
       m(Dropdown, {
         label: "Sync status",
         triggerClass: "plain",
-        align: "left",
+        align: attrs.align ?? "left",
         trigger: [
           m("span.syncstatus." + state, [m("span", label), detail ? m("span.detail", " · " + detail) : null]),
           notSaved ? m("span.chip.error", notSaved) : null,

@@ -227,6 +227,62 @@ button {
   }
 }
 
+.accountpage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 48px;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--border);
+
+    h1 {
+      margin: 0 8px 0 0;
+      font-size: 16px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .syncindicator {
+      justify-content: flex-end;
+    }
+  }
+
+  .accountbody {
+    flex: 1;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 24px 16px;
+  }
+
+  .accountsection {
+    padding: 4px 0 16px;
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    .muted {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+  }
+
+  .accountversion {
+    margin: 16px 0 0;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+}
+
 body.resizing {
   cursor: col-resize;
   user-select: none;
@@ -614,17 +670,13 @@ svg.icon {
     right: 0;
   }
 
-  p, .menuuser, .menuversion {
+  p {
     margin: 0;
     padding: 6px 14px;
   }
 
-  .muted, .menuuser, .menuversion {
+  .muted {
     color: var(--text-muted);
-  }
-
-  .menuversion {
-    font-size: 12px;
   }
 
   .menusection {

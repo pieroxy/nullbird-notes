@@ -1,5 +1,4 @@
 import m from "mithril";
-import { ApiEndpoints } from "../../auto/ApiEndpoints";
 import { LocalNote } from "../../sync/LocalNote";
 import { isOn, MONOSPACE, NOWRAP, tagsOf } from "../../sync/Metadata";
 import { session } from "../../sync/Session";
@@ -47,7 +46,6 @@ export class NotesPage extends AbstractPage {
   /** Narrow screens: the tags shown instead of the list. */
   private showTags = false;
   private layout: PaneLayout = loadLayout();
-  private version?: string;
   /** By physical key: [ and ] move around on other keyboard layouts. Cmd too, for macOS webviews: browsers keep Cmd+Shift+[ for tabs. */
   private readonly onKeyDown = (e: KeyboardEvent) => {
     if (this.onSearchKey(e)) {
@@ -70,9 +68,6 @@ export class NotesPage extends AbstractPage {
       this.filter = loadFilter(username);
       void session.open(username);
     }
-    ApiEndpoints.Version.call({})
-      .then((output) => (this.version = output.version + " (" + output.revision + ")"))
-      .catch(() => undefined);
   }
 
   /** The notes stay open, for the other pages. */
@@ -141,9 +136,7 @@ export class NotesPage extends AbstractPage {
               checkItem("Wrap long lines", !isOn(selected, NOWRAP), (on) => engine.setOption(selected.id, NOWRAP, !on)),
               m(".menuseparator"),
             ] : null,
-            m(".menuuser", Auth.getUsername()),
-            m("button.menuitem", { type: "button", onclick: () => void this.logout() }, "Log out"),
-            this.version ? m(".menuversion", "Version " + this.version) : null,
+            m("button.menuitem", { type: "button", onclick: () => Routing.goToScreen(Endpoints.ACCOUNT) }, "My Account"),
           ]),
         ]),
       ]),
@@ -343,20 +336,6 @@ export class NotesPage extends AbstractPage {
       this.jump++;
     }
     this.selectedId = id;
-  }
-
-  /** Logging out wipes this device's copy of the notes: a shared computer mustn't keep them. */
-  private async logout() {
-    const pending = this.engine?.status().pending ?? 0;
-    if (pending > 0 && !confirm(pending + (pending > 1 ? " notes have" : " note has")
-      + " changes not synced yet, which will be lost. Log out anyway?")) return;
-    const username = Auth.getUsername();
-    if (username) {
-      await session.destroy(username);
-      saveFilter(username, NO_FILTER);
-    }
-    await Auth.logout();
-    Routing.goToScreen(Endpoints.LOGIN);
   }
 }
 
