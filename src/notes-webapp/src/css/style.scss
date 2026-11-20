@@ -14,6 +14,10 @@
   --status-offline: #d9822b;
   --error-bg: #fde7e7;
   --shadow: 0 4px 16px rgba(0, 0, 0, .12);
+  --match-bg: rgba(47, 111, 222, .18);
+  --match-current-bg: #2f6fde;
+  --editor-font-size: 15px;
+  --editor-mono-font-size: 14px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -33,6 +37,8 @@
     --status-offline: #e59a4f;
     --error-bg: #4d2222;
     --shadow: 0 4px 16px rgba(0, 0, 0, .5);
+    --match-bg: rgba(91, 143, 240, .3);
+    --match-current-bg: #5b8ff0;
   }
 }
 
@@ -473,29 +479,12 @@ body.resizing {
     justify-content: center;
   }
 
-  textarea {
+  // The editor itself, in its shadow root, is styled by NoteEditor.
+  .cmhost {
     flex: 1;
-    width: 100%;
-    padding: 16px 20px;
-    border: none;
-    outline: none;
-    resize: none;
-    background: var(--bg);
-    color: var(--text);
-    font: inherit;
-    font-size: 15px;
-    line-height: 1.5;
-
-    &.monospace {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 14px;
-    }
-
-    &.nowrap {
-      white-space: pre;
-      overflow-wrap: normal;
-      overflow-x: auto;
-    }
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .tags {
@@ -921,9 +910,12 @@ button.link {
 
 // iOS zooms into a focused field whose text is under 16px, and stays zoomed.
 @media (pointer: coarse) {
+  :root {
+    --editor-font-size: 16px;
+    --editor-mono-font-size: 16px;
+  }
+
   input,
-  .editor textarea,
-  .editor textarea.monospace,
   .editor .taginput {
     font-size: 16px;
   }
