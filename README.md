@@ -15,6 +15,7 @@ words, both versions are kept, one after the other, below the line
 | `src/notes-webapp` | Web UI: TypeScript + mithril. Bundled into the jar. |
 | `src/notes-apple` | iOS / macOS app (Swift). Not started. |
 | `src/notes-android` | Android app (Java). Not started. |
+| `deploy` | systemd unit. |
 
 The web UI's icons are copied from [Lucide](https://lucide.dev) (ISC and MIT licenses, see
 `src/notes-webapp/src/licenses/lucide.txt`).
@@ -31,6 +32,22 @@ mvn package
 ```
 
 Produces `src/notes-core/target/notes-core-<version>.jar`.
+
+## Quick start
+
+```
+mkdir notes
+java -jar notes-core-<version>.jar hash-password
+```
+
+Write `notes/credentials.json` from `credentials.example.json`, with the printed object as
+`password`. Then:
+
+```
+java -jar notes-core-<version>.jar notes
+```
+
+and open http://localhost:8080. The notes are stored in `notes/data`.
 
 ## Run
 
@@ -65,6 +82,76 @@ everyone out.
 `<dataFolder>/format.json` holds the version of the data's format. On startup, data in an older
 format is migrated; data in a newer one (written by a later version) stops the server: going back
 to an older version needs a backup made before the upgrade.
+
+The server stops cleanly on SIGTERM. Run one server per data folder.
+
+### With systemd
+
+```
+useradd --system --home-dir /var/lib/nullbird-notes notes
+mkdir -p /opt/nullbird-notes /var/lib/nullbird-notes
+cp notes-core-<version>.jar /opt/nullbird-notes/notes-core.jar
+cp deploy/nullbird-notes.service /etc/systemd/system/
+```
+
+Write `/var/lib/nullbird-notes/credentials.json` (and optionally `config.json`), then:
+
+```
+chown -R notes:notes /var/lib/nullbird-notes
+systemctl enable --now nullbird-notes
+```
+
+### With Docker
+
+The image packages the jar built by `mvn package`, from the repository's root:
+
+```
+docker build -t nullbird-notes .
+docker run --rm -it nullbird-notes hash-password
+```
+
+`/config` is the config directory. The container runs as uid 10001, which must own it:
+
+```
+mkdir notes          # then write notes/credentials.json
+chown -R 10001 notes
+docker run -d --name notes --restart unless-stopped -p 8080:8080 -v "$PWD/notes:/config" nullbird-notes
+```
+
+## Upgrade
+
+Back up, replace the jar (or rebuild the image), restart. The data is migrated on startup if
+needed.
+
+## Backups
+
+Copying the files while the server runs can capture a note half written: either stop the server
+while copying (a few seconds; devices retry on their own), or copy from a filesystem snapshot
+(ZFS, btrfs, LVM): the server reads it like data left by a power cut, which is always consistent.
+
+Copy `<configDir>` and `<dataFolder>`. `<dataFolder>/tomcat` and `<dataFolder>/webapp-ui` are
+recreated on startup, `<dataFolder>/logs` is only logs.
+
+```
+systemctl stop nullbird-notes
+tar -czf /backups/notes-$(date +%F).tar.gz -C /var/lib \
+  --exclude=nullbird-notes/data/tomcat --exclude=nullbird-notes/data/webapp-ui --exclude=nullbird-notes/data/logs \
+  nullbird-notes
+systemctl start nullbird-notes
+```
+
+To restore, with the server stopped:
+
+1. Put the backup in place.
+2. Delete every `<dataFolder>/users/*/user.json`: devices then sync again from scratch.
+3. Start the server.
+
+Edits a device hadn't synced yet are kept and merged. Edits synced after the backup was made are
+lost, on the devices too.
+
+## Browsers
+
+Chrome and Edge 111, Firefox 119, Safari 16.4 (macOS and iOS), or later.
 
 ## Behind a reverse proxy
 

@@ -1,0 +1,22 @@
+# Install as /etc/systemd/system/nullbird-notes.service: see README.md.
+[Unit]
+Description=nullbird notes
+After=network.target
+
+[Service]
+User=notes
+Group=notes
+ExecStart=/usr/bin/java -jar /opt/nullbird-notes/notes-core.jar /var/lib/nullbird-notes
+# The JVM's exit code on SIGTERM, once its shutdown hooks have run.
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nullbird-notes
+
+[Install]
+WantedBy=multi-user.target
