@@ -9,6 +9,7 @@ import { Auth } from "../../utils/Auth";
 import { titleAndExcerpt } from "../../utils/format";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
+import { loadLayout, PaneLayout, resetWidth, saveLayout, SidePane, tagsShown, toggleList, toggleTags, withWidth } from "../../utils/PaneLayout";
 import { findTags, isActive, loadFilter, matches, NO_FILTER, saveFilter, TagCount, TagFilter, tagCounts, toggle } from "../../utils/TagFilter";
 import { Dropdown } from "../Dropdown";
 import { icon, iconButton } from "../Icons";
@@ -20,9 +21,15 @@ import { AbstractPage } from "./AbstractPage";
 
 type Phase = "opening" | "active" | "elsewhere" | "failed";
 
+/** As in style.scss: one pane at a time. */
+const NARROW = "(max-width: 700px)";
+const TAGS_SHORTCUT = "Ctrl+Shift+[";
+const LIST_SHORTCUT = "Ctrl+Shift+]";
+
 /**
- * The tags, the note list filtered on them, then the selected note. On narrow screens, one at a
- * time: the list or the note, or the tags over the list.
+ * The tags, the note list filtered on them, then the selected note. On wide screens, the tags and
+ * the list can be closed and resized. On narrow ones, one at a time: the list or the note, or the
+ * tags over the list.
  * Runs the user's sync engine while this tab holds their notes (see TabClaim).
  */
 export class NotesPage extends AbstractPage {
@@ -37,15 +44,26 @@ export class NotesPage extends AbstractPage {
   private tagSearch = "";
   /** Narrow screens: the tags shown instead of the list. */
   private showTags = false;
+  private layout: PaneLayout = loadLayout();
   private version?: string;
   private readonly onPageHide = () => void this.engine?.flush();
   private readonly onVisibilityChange = () => {
     if (document.visibilityState === "hidden") void this.engine?.flush();
   };
+  /** By physical key: [ and ] move around on other keyboard layouts. Cmd too, for macOS webviews: browsers keep Cmd+Shift+[ for tabs. */
+  private readonly onKeyDown = (e: KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || matchMedia(NARROW).matches) return;
+    if (e.code === "BracketLeft") this.setLayout(toggleTags(this.layout));
+    else if (e.code === "BracketRight") this.setLayout(toggleList(this.layout));
+    else return;
+    e.preventDefault();
+    m.redraw();
+  };
 
   oninit() {
     window.addEventListener("pagehide", this.onPageHide);
     document.addEventListener("visibilitychange", this.onVisibilityChange);
+    document.addEventListener("keydown", this.onKeyDown);
     void this.activate();
     ApiEndpoints.Version.call({})
       .then((output) => (this.version = output.version + " (" + output.revision + ")"))
@@ -55,6 +73,7 @@ export class NotesPage extends AbstractPage {
   onremove() {
     window.removeEventListener("pagehide", this.onPageHide);
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    document.removeEventListener("keydown", this.onKeyDown);
     void this.deactivate().then(() => {
       this.claim?.close();
       this.claim = undefined;
@@ -71,7 +90,13 @@ export class NotesPage extends AbstractPage {
     const engine = this.phase === "active" ? this.engine : undefined;
     const selected = engine && this.selectedId ? engine.get(this.selectedId) : undefined;
     const tagging = this.showTags && !this.selectedId;
-    return m("main.notespage" + (this.selectedId ? ".editing" : "") + (tagging ? ".tagging" : ""), [
+    const filtering = isActive(this.filter);
+    const layout = this.layout;
+    const classes = (this.selectedId ? ".editing" : "") + (tagging ? ".tagging" : "") + (tagsShown(layout) ? "" : ".notags") + (layout.list ? "" : ".nolist");
+    // Set through the CSSOM, which the CSP allows, unlike style attributes.
+    const widths = { "--tags-width": layout.tagsWidth + "px", "--list-width": layout.listWidth + "px" };
+    // Every button is always rendered; which ones show depends on the screen width and the classes above (see style.scss).
+    return m("main.notespage" + classes, { style: widths }, [
       // Its sides line up with the panes. The status is on the widest one: it must never be cut.
       m("header.topbar", [
         m(".tagside", [
@@ -84,15 +109,20 @@ export class NotesPage extends AbstractPage {
             },
           }) : m("span.spacer"),
           m("button.plain.done", { type: "button", onclick: () => (this.showTags = false) }, "Done"),
+          iconButton("x", "Hide the tags (" + TAGS_SHORTCUT + ")", () => this.setLayout(toggleTags(layout)), "tagsclose"),
         ]),
         m(".listside", [
           this.selectedId ? iconButton("chevron-left", "Back to the notes", () => this.select(undefined), "back") : null,
-          engine && !this.selectedId ? iconButton("panel-left", isActive(this.filter) ? "Tags (filtering)" : "Tags", () => (this.showTags = true),
-            "tagsbutton" + (isActive(this.filter) ? ".active" : "")) : null,
-          m("span.spacer"),
+          engine && !this.selectedId ? iconButton("panel-left", (filtering ? "Tags, filtering" : "Tags") + " (" + TAGS_SHORTCUT + ")", () => {
+            if (matchMedia(NARROW).matches) this.showTags = true;
+            else this.setLayout(toggleTags(layout));
+          }, "tagsbutton" + (filtering ? ".active" : "")) : null,
           engine ? iconButton("plus", "New note", () => this.newNote(engine), "new") : null,
+          m("span.spacer"),
+          iconButton("x", "Hide the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listclose"),
         ]),
         m(".noteside", [
+          iconButton("list", "Show the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listopen"),
           this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : m("span.spacer"),
           engine && selected && !selected.deleted ? iconButton("trash-2", "Delete note", () => {
             if (!confirm("Delete this note?")) return;
@@ -150,6 +180,7 @@ export class NotesPage extends AbstractPage {
         untaggedCount: [...tags.values()].filter((noteTags) => noteTags.length === 0).length,
         onChange: onFilter,
       }),
+      this.resizer("tags"),
       m(NoteList, {
         key: "list",
         notes: notes.filter((note) => matches(this.filter, tags.get(note.id)!)),
@@ -159,6 +190,7 @@ export class NotesPage extends AbstractPage {
         selectedId: this.selectedId,
         onSelect: (id: string) => this.select(id),
       }),
+      this.resizer("list"),
       selected
         ? m(NoteEditor, {
           key: selected.id,
@@ -175,6 +207,48 @@ export class NotesPage extends AbstractPage {
         })
         : m("section.editor.none", { key: "none" }, m(".empty", "Select a note or create one.")),
     ]);
+  }
+
+  /** A zero-width flex item on the right border of its pane: the topbar, without it, stays aligned. */
+  private resizer(pane: SidePane): m.Children {
+    return m(".resizer." + pane + "resizer", {
+      key: pane + "resizer",
+      title: "Drag to resize, double-click to reset",
+      onpointerdown: (e: PointerEvent) => this.startResize(pane, e),
+      ondblclick: () => this.setLayout(resetWidth(this.layout, pane)),
+    });
+  }
+
+  /** From the pane's rendered width, which a narrow window may have shrunk below its setting. */
+  private startResize(pane: SidePane, e: PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const handle = e.currentTarget as HTMLElement;
+    const paneElement = document.querySelector(pane === "tags" ? ".tagpanel" : ".notelist");
+    if (!paneElement) return;
+    const startWidth = paneElement.getBoundingClientRect().width;
+    const startX = e.clientX;
+    handle.setPointerCapture(e.pointerId);
+    document.body.classList.add("resizing");
+    const move = (event: PointerEvent) => {
+      this.layout = withWidth(this.layout, pane, startWidth + event.clientX - startX, window.innerWidth);
+      m.redraw();
+    };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+      document.body.classList.remove("resizing");
+      saveLayout(this.layout);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  }
+
+  private setLayout(layout: PaneLayout) {
+    this.layout = layout;
+    saveLayout(layout);
   }
 
   private tagCounts(engine: SyncEngine): TagCount[] {

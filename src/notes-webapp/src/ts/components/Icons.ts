@@ -18,6 +18,14 @@ const ICONS = {
   check: [["path", { d: "M20 6 9 17l-5-5" }]],
   x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
   "panel-left": [["rect", { width: 18, height: 18, x: 3, y: 3, rx: 2 }], ["path", { d: "M9 3v18" }]],
+  list: [
+    ["path", { d: "M3 12h.01" }],
+    ["path", { d: "M3 18h.01" }],
+    ["path", { d: "M3 6h.01" }],
+    ["path", { d: "M8 12h13" }],
+    ["path", { d: "M8 18h13" }],
+    ["path", { d: "M8 6h13" }],
+  ],
 } satisfies Record<string, Shape[]>;
 
 export type IconName = keyof typeof ICONS;

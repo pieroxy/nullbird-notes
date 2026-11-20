@@ -136,10 +136,7 @@ button {
       padding: 0 8px;
     }
 
-    // As wide as the panes below them.
     .tagside {
-      width: 200px;
-      flex-shrink: 0;
       border-right: 1px solid var(--border);
       background: var(--bg-pane);
     }
@@ -151,15 +148,12 @@ button {
     }
 
     .listside {
-      width: 300px;
-      flex-shrink: 0;
       padding-left: 12px;
       border-right: 1px solid var(--border);
       background: var(--bg-pane);
     }
 
     .noteside {
-      flex: 1;
       justify-content: flex-end;
       padding-left: 16px;
     }
@@ -168,7 +162,7 @@ button {
       flex: 1;
     }
 
-    .back, .tagsbutton, .done {
+    .back, .tagsbutton, .done, .listopen {
       display: none;
     }
 
@@ -183,6 +177,45 @@ button {
     min-height: 0;
   }
 
+  // Each topbar side and its pane get the same width. A window too narrow for the widths set
+  // shrinks the tags first (their shrink factor dwarfs the list's), then the list.
+  .topbar .tagside, .tagpanel {
+    flex: 0 1000 var(--tags-width, 200px);
+    min-width: 140px;
+  }
+
+  .topbar .listside, .notelist {
+    flex: 0 1 var(--list-width, 300px);
+    min-width: 220px;
+  }
+
+  .topbar .noteside, .editor {
+    flex: 1 1 0;
+    min-width: 320px;
+  }
+
+  .resizer {
+    position: relative;
+    z-index: 5;
+    flex: none;
+    width: 0;
+
+    // The grip, over the pane's border.
+    &::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -4px;
+      width: 8px;
+      cursor: col-resize;
+    }
+
+    &:hover::after {
+      background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
+    }
+  }
+
   .empty {
     padding: 24px 16px;
     color: var(--text-muted);
@@ -190,11 +223,49 @@ button {
   }
 }
 
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+
+  .resizer::after {
+    background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
+  }
+}
+
+// Wide screens: closed panes, and the buttons that reopen them.
+@media (min-width: 701px) {
+  .notespage {
+    &.notags {
+      .tagside, .tagpanel, .tagsresizer {
+        display: none;
+      }
+
+      .topbar .tagsbutton {
+        display: inline-flex;
+      }
+    }
+
+    &.nolist {
+      .listside, .notelist, .listresizer {
+        display: none;
+      }
+
+      .topbar .listopen {
+        display: inline-flex;
+      }
+
+      .noteside {
+        justify-content: flex-start;
+        padding-left: 8px;
+      }
+    }
+  }
+}
+
+
 .tagpanel {
   display: flex;
   flex-direction: column;
-  width: 200px;
-  flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-pane);
   font-size: 14px;
@@ -281,8 +352,6 @@ button {
 .notelist {
   display: flex;
   flex-direction: column;
-  width: 300px;
-  flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-pane);
 
@@ -384,8 +453,6 @@ button {
 .editor {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-width: 0;
 
   &.none {
     justify-content: center;
@@ -715,7 +782,7 @@ button.link {
         display: inline-flex;
       }
 
-      .tagside {
+      .tagside, .tagsclose, .listclose {
         display: none;
       }
 
@@ -747,14 +814,21 @@ button.link {
       }
     }
 
+    .tagpanel, .notelist, .editor, .topbar .noteside {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .resizer {
+      display: none;
+    }
+
     .tagpanel {
       display: none;
-      width: 100%;
       border-right: none;
     }
 
     .notelist {
-      width: 100%;
       border-right: none;
 
       .filterstrip {
