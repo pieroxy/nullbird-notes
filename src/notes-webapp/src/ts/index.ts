@@ -10,6 +10,7 @@ const routes: m.RouteDefs = {
   [Endpoints.LOGIN]: LoginPage,
   [Endpoints.HOME]: new AuthenticatedPageResolver(NotesPage),
   [Endpoints.ACCOUNT]: new AuthenticatedPageResolver(AccountPage),
+  [Endpoints.ACCOUNT_SECTION]: new AuthenticatedPageResolver(AccountPage),
 };
 
 m.route(document.getElementById("app")!, Endpoints.HOME, routes);

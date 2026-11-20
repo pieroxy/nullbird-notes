@@ -247,27 +247,91 @@ button {
       white-space: nowrap;
     }
 
+    .backlist, .sectiontitle {
+      display: none;
+    }
+
     .syncindicator {
       justify-content: flex-end;
     }
   }
 
+  .accountlayout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .accountnav {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 240px;
+    overflow-y: auto;
+    padding: 16px 0;
+    border-right: 1px solid var(--border);
+    background: var(--bg-pane);
+  }
+
+  .accountuser {
+    padding: 0 16px 16px;
+    border-bottom: 1px solid var(--border);
+
+    p {
+      margin: 0 0 8px;
+    }
+
+    .muted {
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+  }
+
+  .sectionlinks {
+    margin: 8px 0;
+    padding: 0;
+    list-style: none;
+
+    a {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      color: var(--text);
+      text-decoration: none;
+
+      &:hover, &.active {
+        background: var(--bg-selected);
+      }
+
+      &.active {
+        font-weight: 500;
+      }
+
+      svg.icon {
+        display: none;
+        width: 16px;
+        height: 16px;
+        color: var(--text-muted);
+      }
+    }
+  }
+
+  .accountversion {
+    margin: auto 0 0;
+    padding: 16px 16px 0;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
   .accountbody {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
-    width: 100%;
-    max-width: 560px;
-    margin: 0 auto;
-    padding: 24px 16px;
+    padding: 24px;
   }
 
   .accountsection {
-    padding: 4px 0 16px;
-
-    & + .accountsection {
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
-    }
+    max-width: 560px;
 
     h2 {
       margin: 0 0 12px;
@@ -281,6 +345,11 @@ button {
 
     .muted {
       color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .warning {
+      color: var(--status-offline);
       font-size: 14px;
     }
   }
@@ -325,13 +394,80 @@ button {
       color: var(--status-ok);
     }
   }
+}
 
-  .accountversion {
-    margin: 16px 0 0;
-    padding-top: 16px;
-    border-top: 1px solid var(--border);
-    color: var(--text-muted);
-    font-size: 12px;
+a.button {
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  text-decoration: none;
+}
+
+// Narrow screens: the list of sections, or one section.
+@media (max-width: 700px) {
+  .accountpage {
+    .accountnav {
+      flex: 1;
+      border-right: none;
+      background: var(--bg);
+    }
+
+    .sectionlinks a {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+
+      &.active {
+        background: none;
+        font-weight: normal;
+      }
+
+      &:hover {
+        background: var(--bg-selected);
+      }
+
+      svg.icon {
+        display: inline;
+      }
+    }
+
+    // Only the state; the rest is in its panel.
+    .syncindicator {
+      .detail, .chip, .inlineretry {
+        display: none;
+      }
+    }
+
+    .accountbody {
+      display: none;
+      padding: 16px;
+    }
+
+    &.insection {
+      .accountnav {
+        display: none;
+      }
+
+      .accountbody {
+        display: block;
+      }
+
+      .topbar {
+        .backhome, .pagetitle {
+          display: none;
+        }
+
+        .backlist {
+          display: inline-flex;
+        }
+
+        .sectiontitle {
+          display: block;
+        }
+      }
+    }
   }
 }
 

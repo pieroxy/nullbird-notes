@@ -182,6 +182,12 @@ class TestServer implements AutoCloseable {
           HttpResponse.BodyHandlers.ofString());
     }
 
+    /** {@link #raw}, for a binary response: a download. */
+    HttpResponse<byte[]> rawBytes(String path) throws Exception {
+      return http.send(withBuild(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))).build(),
+          HttpResponse.BodyHandlers.ofByteArray());
+    }
+
     private HttpRequest.Builder withBuild(HttpRequest.Builder builder) {
       return build == null ? builder : builder.header(ApiServlet.BUILD_HEADER, build);
     }

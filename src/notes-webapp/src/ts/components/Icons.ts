@@ -15,6 +15,7 @@ const ICONS = {
     ["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }],
   ],
   "chevron-left": [["path", { d: "m15 18-6-6 6-6" }]],
+  "chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
   "chevron-up": [["path", { d: "m18 15-6-6-6 6" }]],
   "chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
   check: [["path", { d: "M20 6 9 17l-5-5" }]],

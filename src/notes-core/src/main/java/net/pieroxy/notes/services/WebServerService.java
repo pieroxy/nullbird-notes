@@ -3,6 +3,7 @@ package net.pieroxy.notes.services;
 import net.pieroxy.notes.api.ApiServlet;
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.webserver.AccessValve;
+import net.pieroxy.notes.webserver.ExportServlet;
 import net.pieroxy.notes.webserver.SecurityHeadersFilter;
 import net.pieroxy.notes.webserver.WebappResourceExtractor;
 import org.apache.catalina.LifecycleException;
@@ -73,6 +74,8 @@ public class WebServerService implements Service {
       // Async: a long poll waits for changes without holding a thread (see BaseApiEndpoint).
       tomcat.addServlet("", "api", new ApiServlet(endpointServiceProvider())).setAsyncSupported(true);
       ctx.addServletMappingDecoded("/api/*", "api");
+      tomcat.addServlet("", "export", new ExportServlet(endpointServiceProvider()));
+      ctx.addServletMappingDecoded(ExportServlet.PATH, "export");
       addSecurityHeaders(ctx);
       addMimeTypes(ctx);
 
