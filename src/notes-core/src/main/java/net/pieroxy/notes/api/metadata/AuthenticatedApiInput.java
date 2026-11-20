@@ -8,6 +8,8 @@ package net.pieroxy.notes.api.metadata;
 public class AuthenticatedApiInput {
   private transient String sessionId;
   private transient String username;
+  /** The client's address, as {@link ApiContext#getRemoteAddr()}. */
+  private transient String clientAddress;
 
   public String getSessionId() {
     return sessionId;
@@ -23,5 +25,13 @@ public class AuthenticatedApiInput {
 
   public void setUsername(String username) {
     this.username = username;
+  }
+
+  public String getClientAddress() {
+    return clientAddress;
+  }
+
+  public void setClientAddress(String clientAddress) {
+    this.clientAddress = clientAddress;
   }
 }

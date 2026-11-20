@@ -140,6 +140,12 @@ public class SessionService implements Service {
     if (sessionId != null && sessions.remove(Hashes.sha256(sessionId)) != null) save();
   }
 
+  /** Ends every session of {@code username} but {@code keptSessionId}: logged out everywhere else. */
+  public void invalidateOthers(String username, String keptSessionId) {
+    String kept = keptSessionId == null ? null : Hashes.sha256(keptSessionId);
+    if (sessions.entrySet().removeIf(entry -> entry.getValue().getUsername().equals(username) && !entry.getKey().equals(kept))) save();
+  }
+
   /** Writes the sessions if anything changed since the last write. */
   void flush() {
     if (dirty) save();

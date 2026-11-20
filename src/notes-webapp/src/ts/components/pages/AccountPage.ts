@@ -5,12 +5,13 @@ import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { NO_FILTER, saveFilter } from "../../utils/TagFilter";
+import { ChangePasswordForm } from "../ChangePasswordForm";
 import { iconButton } from "../Icons";
 import { SyncStatusIndicator } from "../SyncStatusIndicator";
 import { AbstractPage } from "./AbstractPage";
 
 /**
- * The user's account: who's logged in, logging out, the version. Opens the user's notes (see
+ * The user's account: who's logged in, logging out, changing the password, the version. Opens the user's notes (see
  * NotesSession) if they aren't yet: the sync goes on, and logging out knows what isn't synced.
  */
 export class AccountPage extends AbstractPage {
@@ -42,6 +43,10 @@ export class AccountPage extends AbstractPage {
           m("p", ["Logged in as ", m("strong", Auth.getUsername())]),
           m("p.muted", "Logging out removes your notes from this device. They stay on the server."),
           m("button.secondary", { type: "button", disabled: this.loggingOut, onclick: () => void this.logout() }, "Log out"),
+        ]),
+        m("section.accountsection", [
+          m("h2", "Password"),
+          m(ChangePasswordForm, { username: Auth.getUsername() ?? "" }),
         ]),
         this.version ? m("p.accountversion", "Version " + this.version) : null,
       ]),

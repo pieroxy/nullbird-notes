@@ -264,6 +264,17 @@ button {
   .accountsection {
     padding: 4px 0 16px;
 
+    & + .accountsection {
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
     p {
       margin: 0 0 12px;
     }
@@ -271,6 +282,47 @@ button {
     .muted {
       color: var(--text-muted);
       font-size: 14px;
+    }
+  }
+
+  .changepassword {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    max-width: 360px;
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-self: stretch;
+    }
+
+    .fieldlabel {
+      font-size: 14px;
+    }
+
+    .fieldhint {
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .errormessage, .successmessage {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .errormessage {
+      color: var(--error);
+    }
+
+    .successmessage {
+      color: var(--status-ok);
     }
   }
 

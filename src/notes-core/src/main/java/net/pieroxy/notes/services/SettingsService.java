@@ -1,10 +1,17 @@
 package net.pieroxy.notes.services;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.config.CredentialsFile;
+import net.pieroxy.notes.config.PasswordHash;
 import net.pieroxy.notes.config.UserCredential;
+import net.pieroxy.notes.utils.AtomicFiles;
 import net.pieroxy.notes.webserver.TrustedProxies;
 
 import java.io.File;
@@ -21,10 +28,12 @@ import java.util.regex.Pattern;
 /**
  * config.json and credentials.json. credentials.json is re-read whenever it changes on disk, so
  * users can be added or removed without a restart. A change that fails to load is logged and
- * ignored: the users loaded last stay in effect.
+ * ignored: the users loaded last stay in effect. The server writes it too, for a user's own
+ * changes (their password).
  */
 public class SettingsService implements Service {
   private final static Logger LOGGER = Logger.getLogger(SettingsService.class.getName());
+  private static final Gson PRETTY_GSON = new GsonBuilder().disableHtmlEscaping().setPrettyPrinting().create();
   /** Usernames name the users' data folders: no path separators, no case-only differences. */
   public static final Pattern USERNAME_PATTERN = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
 
@@ -94,6 +103,34 @@ public class SettingsService implements Service {
   public synchronized UserCredential getUser(String username) {
     reloadCredentialsIfChanged();
     return username == null ? null : users.get(username);
+  }
+
+  /**
+   * Replaces the user's password hash in credentials.json, as read from disk now. Only that field
+   * changes: the other users, and the user's other fields (known to this version or not), stay.
+   *
+   * @throws IllegalArgumentException if there's no such user.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized void setPassword(String username, PasswordHash password) throws IOException {
+    JsonElement root;
+    try {
+      root = JsonParser.parseString(Files.readString(credentialsFile.toPath(), StandardCharsets.UTF_8));
+    } catch (JsonParseException e) {
+      throw new IOException("invalid JSON: " + e.getMessage(), e);
+    }
+    JsonObject user = null;
+    if (root.isJsonObject() && root.getAsJsonObject().get("users") instanceof JsonArray entries) {
+      for (JsonElement entry : entries) {
+        if (!entry.isJsonObject()) continue;
+        JsonElement name = entry.getAsJsonObject().get("username");
+        if (name != null && name.isJsonPrimitive() && username.equals(name.getAsString())) user = entry.getAsJsonObject();
+      }
+    }
+    if (user == null) throw new IllegalArgumentException("no user \"" + username + "\" in " + credentialsFile);
+    user.add("password", PRETTY_GSON.toJsonTree(password));
+    AtomicFiles.write(credentialsFile.toPath(), (PRETTY_GSON.toJson(root) + "\n").getBytes(StandardCharsets.UTF_8));
+    loadCredentials();
   }
 
   private void reloadCredentialsIfChanged() {

@@ -40,5 +40,6 @@ public abstract class AbstractAuthenticatedEndpoint<I extends AuthenticatedApiIn
     }
     input.setSessionId(sessionId);
     input.setUsername(session.getUsername());
+    input.setClientAddress(context.getRemoteAddr());
   }
 }
