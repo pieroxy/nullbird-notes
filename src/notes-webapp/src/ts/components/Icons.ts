@@ -1,4 +1,4 @@
-// Copied from Lucide v1.76.0 (https://lucide.dev), ISC license; plus, chevron-left, trash-2, check
+// Copied from Lucide v1.76.0 (https://lucide.dev), ISC license; plus, the chevrons, trash-2, check
 // and x come from Feather, MIT license. Notices: src/licenses/lucide.txt, shipped as /licenses/lucide.txt.
 import m from "mithril";
 
@@ -15,6 +15,8 @@ const ICONS = {
     ["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }],
   ],
   "chevron-left": [["path", { d: "m15 18-6-6 6-6" }]],
+  "chevron-up": [["path", { d: "m18 15-6-6-6 6" }]],
+  "chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
   check: [["path", { d: "M20 6 9 17l-5-5" }]],
   x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
   "panel-left": [["rect", { width: 18, height: 18, x: 3, y: 3, rx: 2 }], ["path", { d: "M9 3v18" }]],

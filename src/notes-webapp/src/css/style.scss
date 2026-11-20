@@ -139,7 +139,7 @@ button {
       background: var(--bg-pane);
     }
 
-    .tagsearch {
+    .tagsearch, .notesearch {
       flex: 1;
       min-width: 0;
       padding: 5px 8px;
@@ -413,6 +413,23 @@ body.resizing {
     white-space: nowrap;
   }
 
+  // The search field is in the top bar, except on narrow screens.
+  .searchrow {
+    display: none;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+
+    .notesearch {
+      width: 100%;
+      padding: 6px 10px;
+    }
+  }
+
+  .excerpt b {
+    font-weight: 600;
+    color: var(--text);
+  }
+
   // The tag panel shows the filter next to the list, except on narrow screens.
   .filterstrip {
     display: none;
@@ -526,6 +543,30 @@ body.resizing {
       width: 14px;
       height: 14px;
     }
+  }
+}
+
+.findbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-pane);
+  font-size: 13px;
+
+  .findcount {
+    margin-left: 6px;
+    color: var(--text-muted);
+  }
+
+  .spacer {
+    flex: 1;
+  }
+
+  svg.icon {
+    width: 18px;
+    height: 18px;
   }
 }
 
@@ -772,7 +813,7 @@ button.link {
         display: inline-flex;
       }
 
-      .tagside, .tagsclose, .listclose {
+      .tagside, .tagsclose, .listclose, .notesearch {
         display: none;
       }
 
@@ -821,7 +862,7 @@ button.link {
     .notelist {
       border-right: none;
 
-      .filterstrip {
+      .filterstrip, .searchrow {
         display: flex;
       }
     }

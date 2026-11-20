@@ -2,6 +2,7 @@ import m from "mithril";
 import { ApiEndpoints } from "../../auto/ApiEndpoints";
 import { LocalStore } from "../../sync/LocalStore";
 import { HttpSyncApi } from "../../sync/SyncApi";
+import { LocalNote } from "../../sync/LocalNote";
 import { isOn, MONOSPACE, NOWRAP, tagsOf } from "../../sync/Metadata";
 import { SyncEngine } from "../../sync/SyncEngine";
 import { TabClaim } from "../../sync/TabClaim";
@@ -10,11 +11,13 @@ import { titleAndExcerpt } from "../../utils/format";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { loadLayout, PaneLayout, resetWidth, saveLayout, SidePane, tagsShown, toggleList, toggleTags, withWidth } from "../../utils/PaneLayout";
+import { findMatches, fold, matches as searchMatches, MAX_MATCHES, parseQuery, Range, SearchIndex, snippet } from "../../utils/Search";
 import { findTags, isActive, loadFilter, matches, NO_FILTER, saveFilter, TagCount, TagFilter, tagCounts, toggle } from "../../utils/TagFilter";
 import { Dropdown } from "../Dropdown";
 import { icon, iconButton } from "../Icons";
-import { NoteEditor } from "../NoteEditor";
+import { FindAttrs, NoteEditor } from "../NoteEditor";
 import { NoteList } from "../NoteList";
+import { noteSearch } from "../NoteSearch";
 import { SyncStatusIndicator } from "../SyncStatusIndicator";
 import { TagPanel, tagSearch } from "../TagPanel";
 import { AbstractPage } from "./AbstractPage";
@@ -27,9 +30,9 @@ const TAGS_SHORTCUT = "Ctrl+Shift+[";
 const LIST_SHORTCUT = "Ctrl+Shift+]";
 
 /**
- * The tags, the note list filtered on them, then the selected note. On wide screens, the tags and
- * the list can be closed and resized. On narrow ones, one at a time: the list or the note, or the
- * tags over the list.
+ * The tags, the note list filtered on them and the search, then the selected note. On wide screens,
+ * the tags and the list can be closed and resized. On narrow ones, one at a time: the list or the
+ * note, or the tags over the list.
  * Runs the user's sync engine while this tab holds their notes (see TabClaim).
  */
 export class NotesPage extends AbstractPage {
@@ -42,6 +45,15 @@ export class NotesPage extends AbstractPage {
   private selectedId?: string;
   private filter: TagFilter = NO_FILTER;
   private tagSearch = "";
+  /** Not kept across reloads, unlike the tag filter: a search is a quick lookup. */
+  private search = "";
+  private readonly searchIndex = new SearchIndex();
+  /** The selected match in the open note, -1 before stepping to any. */
+  private matchIndex = -1;
+  /** Bumped to make the editor select the current match. */
+  private jump = 0;
+  /** Its match count, for stepping from outside its render. */
+  private matchCount = 0;
   /** Narrow screens: the tags shown instead of the list. */
   private showTags = false;
   private layout: PaneLayout = loadLayout();
@@ -52,6 +64,11 @@ export class NotesPage extends AbstractPage {
   };
   /** By physical key: [ and ] move around on other keyboard layouts. Cmd too, for macOS webviews: browsers keep Cmd+Shift+[ for tabs. */
   private readonly onKeyDown = (e: KeyboardEvent) => {
+    if (this.onSearchKey(e)) {
+      e.preventDefault();
+      m.redraw();
+      return;
+    }
     if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || matchMedia(NARROW).matches) return;
     if (e.code === "BracketLeft") this.setLayout(toggleTags(this.layout));
     else if (e.code === "BracketRight") this.setLayout(toggleList(this.layout));
@@ -118,7 +135,7 @@ export class NotesPage extends AbstractPage {
             else this.setLayout(toggleTags(layout));
           }, "tagsbutton" + (filtering ? ".active" : "")) : null,
           engine ? iconButton("plus", "New note", () => this.newNote(engine), "new") : null,
-          m("span.spacer"),
+          engine ? noteSearch(this.searchAttrs()) : m("span.spacer"),
           iconButton("x", "Hide the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listclose"),
         ]),
         m(".noteside", [
@@ -168,6 +185,11 @@ export class NotesPage extends AbstractPage {
     const notes = engine.list();
     const tags = new Map(notes.map((note) => [note.id, tagsOf(note)]));
     const onFilter = (filter: TagFilter) => this.setFilter(filter);
+    const terms = parseQuery(this.search);
+    const folded = (note: LocalNote) => this.searchIndex.get(note.id, note.text);
+    const found = (note: LocalNote) => searchMatches(terms, folded(note), tags.get(note.id)!.map(fold));
+    if (terms.length > 0) this.searchIndex.retain(new Set(notes.map((note) => note.id)));
+    const find = selected && terms.length > 0 ? this.findAttrs(findMatches(folded(selected), terms), found(selected)) : undefined;
     // Keyed throughout: mithril refuses siblings some of which have keys and some not.
     return m(".panes", [
       m(TagPanel, {
@@ -181,10 +203,12 @@ export class NotesPage extends AbstractPage {
       this.resizer("tags"),
       m(NoteList, {
         key: "list",
-        notes: notes.filter((note) => matches(this.filter, tags.get(note.id)!)),
+        notes: notes.filter((note) => matches(this.filter, tags.get(note.id)!) && (terms.length === 0 || found(note))),
         total: notes.length,
         filter: this.filter,
         onFilter,
+        ...this.searchAttrs(),
+        snippetOf: terms.length > 0 ? (note: LocalNote) => snippet(note.text, folded(note), terms) : undefined,
         selectedId: this.selectedId,
         onSelect: (id: string) => this.select(id),
       }),
@@ -199,6 +223,7 @@ export class NotesPage extends AbstractPage {
           onEdit: (text: string) => engine.edit(selected.id, text),
           onAddTag: (tag: string) => engine.addTag(selected.id, tag),
           onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),
+          find,
         })
         : m("section.editor.none", { key: "none" }, m(".empty", "Select a note or create one.")),
     ]);
@@ -250,9 +275,68 @@ export class NotesPage extends AbstractPage {
     return tagCounts(this.filter, engine.list().map(tagsOf));
   }
 
-  /** It gets the tags filtered on: otherwise it wouldn't be in the list it was created from. */
+  private searchAttrs() {
+    return {
+      search: this.search,
+      onSearch: (search: string) => {
+        this.search = search;
+        this.matchIndex = -1;
+      },
+      onStep: (direction: 1 | -1) => this.step(direction),
+    };
+  }
+
+  private findAttrs(matches: Range[], found: boolean): FindAttrs {
+    this.matchCount = Math.min(matches.length, MAX_MATCHES);
+    if (this.matchIndex >= this.matchCount) this.matchIndex = this.matchCount - 1;
+    return {
+      matches, current: this.matchIndex, jump: this.jump, byTag: found && matches.length === 0,
+      onStep: (direction) => this.step(direction),
+      onClear: () => this.clearSearch(),
+    };
+  }
+
+  /** To the next or previous match in the open note, round the end. */
+  private step(direction: 1 | -1) {
+    if (!this.selectedId || this.matchCount === 0) return;
+    const count = this.matchCount;
+    this.matchIndex = direction > 0 ? (this.matchIndex + 1) % count : this.matchIndex <= 0 ? count - 1 : this.matchIndex - 1;
+    this.jump++;
+  }
+
+  private clearSearch() {
+    this.search = "";
+    this.matchIndex = -1;
+  }
+
+  /**
+   * Ctrl/Cmd+K: to the search field. F3, Ctrl/Cmd+G: to the next match (with Shift, the previous).
+   * @return whether {@code e} was one of them.
+   */
+  private onSearchKey(e: KeyboardEvent): boolean {
+    const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
+    if (mod && !e.shiftKey && e.key.toLowerCase() === "k") {
+      if (matchMedia(NARROW).matches) this.select(undefined);
+      else if (!this.layout.list) this.setLayout(toggleList(this.layout));
+      // Once shown: the redraw comes first.
+      requestAnimationFrame(() => {
+        const field = [...document.querySelectorAll<HTMLInputElement>("input.notesearch")].find((input) => input.offsetParent !== null);
+        field?.focus();
+        field?.select();
+      });
+      return true;
+    }
+    if (this.search.trim() && (e.key === "F3" || (mod && e.key.toLowerCase() === "g"))) {
+      this.step(e.shiftKey ? -1 : 1);
+      return true;
+    }
+    return false;
+  }
+
+  /** It gets the tags filtered on: otherwise it wouldn't be in the list it was created from. A search would hide it too: cleared. */
   private newNote(engine: SyncEngine) {
     this.showTags = false;
+    this.clearSearch();
     this.select(engine.create(this.filter.tags));
   }
 
@@ -262,8 +346,13 @@ export class NotesPage extends AbstractPage {
     if (username) saveFilter(username, filter);
   }
 
+  /** Opened from a search, a note shows its first match. */
   private select(id: string | undefined) {
     if (this.selectedId && this.selectedId !== id) this.engine?.discardIfEmpty(this.selectedId);
+    if (id !== this.selectedId) {
+      this.matchIndex = id && this.search.trim() ? 0 : -1;
+      this.jump++;
+    }
     this.selectedId = id;
   }
 

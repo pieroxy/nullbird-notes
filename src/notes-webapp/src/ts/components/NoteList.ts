@@ -2,16 +2,20 @@ import m from "mithril";
 import { LocalNote } from "../sync/LocalNote";
 import { sortKey } from "../sync/Outcomes";
 import { shortDate, titleAndExcerpt } from "../utils/format";
+import { Snippet } from "../utils/Search";
 import { isActive, NO_FILTER, TagFilter, toggle } from "../utils/TagFilter";
 import { iconButton } from "./Icons";
+import { noteSearch, NoteSearchAttrs } from "./NoteSearch";
 
-export interface NoteListAttrs {
-  /** Those the filter lets through. */
+export interface NoteListAttrs extends NoteSearchAttrs {
+  /** Those the tag filter and the search let through. */
   notes: LocalNote[];
   /** All of them. */
   total: number;
   filter: TagFilter;
   onFilter: (filter: TagFilter) => void;
+  /** While searching: the excerpt around the first match, if there's one past the title. */
+  snippetOf?: (note: LocalNote) => Snippet | undefined;
   selectedId?: string;
   onSelect: (id: string) => void;
 }
@@ -19,15 +23,20 @@ export interface NoteListAttrs {
 export class NoteList implements m.ClassComponent<NoteListAttrs> {
   view({ attrs }: m.Vnode<NoteListAttrs>): m.Children {
     const filtered = isActive(attrs.filter);
+    const searching = attrs.snippetOf !== undefined;
     return m("aside.notelist", [
+      m(".searchrow", noteSearch(attrs)),
       filtered ? this.filterStrip(attrs) : null,
       attrs.notes.length > 0 ? m("ul", attrs.notes.map((note) => this.item(note, attrs))) : null,
       attrs.total === 0 ? m(".empty", "No notes yet.") : null,
-      attrs.total > 0 && attrs.notes.length === 0 ? m(".empty", [
+      attrs.total > 0 && attrs.notes.length === 0 ? m(".empty", searching ? [
+        m("p", "No note matches this search."),
+        m("button", { type: "button", onclick: () => attrs.onSearch("") }, "Clear search"),
+      ] : [
         m("p", attrs.filter.untagged ? "Every note has tags." : "No note has all of these tags."),
         m("button", { type: "button", onclick: () => attrs.onFilter(NO_FILTER) }, "Clear filter"),
       ]) : null,
-      filtered && attrs.notes.length > 0 ? m(".filtercount", attrs.notes.length + " of " + attrs.total + " notes") : null,
+      (filtered || searching) && attrs.notes.length > 0 ? m(".filtercount", attrs.notes.length + " of " + attrs.total + " notes") : null,
     ]);
   }
 
@@ -46,6 +55,7 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
 
   private item(note: LocalNote, attrs: NoteListAttrs): m.Children {
     const { title, excerpt } = titleAndExcerpt(note.text);
+    const snippet = attrs.snippetOf?.(note);
     const unsynced = note.dirty || note.pending !== undefined;
     return m("li" + (note.id === attrs.selectedId ? ".selected" : ""), { key: note.id, onclick: () => attrs.onSelect(note.id) }, [
       m(".itemhead", [
@@ -53,7 +63,7 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
         m("span.date", shortDate(sortKey(note))),
       ]),
       m(".itemfoot", [
-        m("span.excerpt", excerpt),
+        m("span.excerpt", snippet ? snippet.map((piece) => piece.match ? m("b", piece.text) : piece.text) : excerpt),
         note.error ? m("span.chip.error", { title: note.error.message }, "not saved") : null,
         unsynced && !note.error ? m("span.dot", { title: "Not synced yet" }) : null,
       ]),
