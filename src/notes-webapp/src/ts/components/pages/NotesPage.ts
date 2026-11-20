@@ -1,11 +1,9 @@
 import m from "mithril";
 import { ApiEndpoints } from "../../auto/ApiEndpoints";
-import { LocalStore } from "../../sync/LocalStore";
-import { HttpSyncApi } from "../../sync/SyncApi";
 import { LocalNote } from "../../sync/LocalNote";
 import { isOn, MONOSPACE, NOWRAP, tagsOf } from "../../sync/Metadata";
+import { session } from "../../sync/Session";
 import { SyncEngine } from "../../sync/SyncEngine";
-import { TabClaim } from "../../sync/TabClaim";
 import { Auth } from "../../utils/Auth";
 import { titleAndExcerpt } from "../../utils/format";
 import { Endpoints } from "../../utils/navigation/Endpoints";
@@ -22,8 +20,6 @@ import { SyncStatusIndicator } from "../SyncStatusIndicator";
 import { TagPanel, tagSearch } from "../TagPanel";
 import { AbstractPage } from "./AbstractPage";
 
-type Phase = "opening" | "active" | "elsewhere" | "failed";
-
 /** As in style.scss: one pane at a time. */
 const NARROW = "(max-width: 700px)";
 const TAGS_SHORTCUT = "Ctrl+Shift+[";
@@ -33,15 +29,9 @@ const LIST_SHORTCUT = "Ctrl+Shift+]";
  * The tags, the note list filtered on them and the search, then the selected note. On wide screens,
  * the tags and the list can be closed and resized. On narrow ones, one at a time: the list or the
  * note, or the tags over the list.
- * Runs the user's sync engine while this tab holds their notes (see TabClaim).
+ * Opens the user's notes (see NotesSession) if they aren't yet.
  */
 export class NotesPage extends AbstractPage {
-  private phase: Phase = "opening";
-  private failure?: string;
-  private claim?: TabClaim;
-  private store?: LocalStore;
-  private engine?: SyncEngine;
-  private unsubscribe: (() => void)[] = [];
   private selectedId?: string;
   private filter: TagFilter = NO_FILTER;
   private tagSearch = "";
@@ -58,10 +48,6 @@ export class NotesPage extends AbstractPage {
   private showTags = false;
   private layout: PaneLayout = loadLayout();
   private version?: string;
-  private readonly onPageHide = () => void this.engine?.flush();
-  private readonly onVisibilityChange = () => {
-    if (document.visibilityState === "hidden") void this.engine?.flush();
-  };
   /** By physical key: [ and ] move around on other keyboard layouts. Cmd too, for macOS webviews: browsers keep Cmd+Shift+[ for tabs. */
   private readonly onKeyDown = (e: KeyboardEvent) => {
     if (this.onSearchKey(e)) {
@@ -78,23 +64,25 @@ export class NotesPage extends AbstractPage {
   };
 
   oninit() {
-    window.addEventListener("pagehide", this.onPageHide);
-    document.addEventListener("visibilitychange", this.onVisibilityChange);
     document.addEventListener("keydown", this.onKeyDown);
-    void this.activate();
+    const username = Auth.getUsername();
+    if (username) {
+      this.filter = loadFilter(username);
+      void session.open(username);
+    }
     ApiEndpoints.Version.call({})
       .then((output) => (this.version = output.version + " (" + output.revision + ")"))
       .catch(() => undefined);
   }
 
+  /** The notes stay open, for the other pages. */
   onremove() {
-    window.removeEventListener("pagehide", this.onPageHide);
-    document.removeEventListener("visibilitychange", this.onVisibilityChange);
     document.removeEventListener("keydown", this.onKeyDown);
-    void this.deactivate().then(() => {
-      this.claim?.close();
-      this.claim = undefined;
-    });
+    if (this.selectedId) this.engine?.discardIfEmpty(this.selectedId);
+  }
+
+  private get engine(): SyncEngine | undefined {
+    return session.engine;
   }
 
   getPageTitle(): string {
@@ -104,7 +92,7 @@ export class NotesPage extends AbstractPage {
   }
 
   render(): m.Children {
-    const engine = this.phase === "active" ? this.engine : undefined;
+    const engine = session.phase === "active" ? this.engine : undefined;
     const selected = engine && this.selectedId ? engine.get(this.selectedId) : undefined;
     const tagging = this.showTags && !this.selectedId;
     const filtering = isActive(this.filter);
@@ -164,15 +152,16 @@ export class NotesPage extends AbstractPage {
   }
 
   private body(): m.Children {
-    switch (this.phase) {
+    switch (session.phase) {
+      case "idle":
       case "opening":
         return m(".pagemessage", "Opening your notes…");
       case "failed":
-        return m(".pagemessage", "Your notes couldn't be opened on this device: " + this.failure);
+        return m(".pagemessage", "Your notes couldn't be opened on this device: " + session.failure);
       case "elsewhere":
         return m(".pagemessage", [
           m("p", "Your notes are open in another tab."),
-          m("button", { onclick: () => void this.activate() }, "Use them here"),
+          m("button", { onclick: () => void session.takeOver() }, "Use them here"),
         ]);
       case "active":
         return this.panes(this.engine!);
@@ -356,63 +345,14 @@ export class NotesPage extends AbstractPage {
     this.selectedId = id;
   }
 
-  private async activate() {
-    const username = Auth.getUsername();
-    if (!username) return;
-    this.phase = "opening";
-    this.filter = loadFilter(username);
-    m.redraw();
-    this.claim ??= new TabClaim(username);
-    const won = await this.claim.claim(() => this.lose());
-    if (!won) {
-      this.phase = "elsewhere";
-      m.redraw();
-      return;
-    }
-    try {
-      this.store = await LocalStore.open(username);
-      const engine = new SyncEngine(this.store, new HttpSyncApi());
-      this.unsubscribe = [
-        engine.onChange(() => m.redraw()),
-      ];
-      this.engine = engine;
-      await engine.start();
-      this.phase = "active";
-    } catch (e) {
-      this.failure = e instanceof Error ? e.message : String(e);
-      this.phase = "failed";
-    }
-    m.redraw();
-  }
-
-  /** Another tab took the notes over. */
-  private async lose() {
-    await this.deactivate();
-    this.phase = "elsewhere";
-    m.redraw();
-  }
-
-  private async deactivate() {
-    const engine = this.engine;
-    this.engine = undefined;
-    this.unsubscribe.forEach((unsubscribe) => unsubscribe());
-    this.unsubscribe = [];
-    await engine?.stop();
-    this.store?.close();
-    this.store = undefined;
-  }
-
   /** Logging out wipes this device's copy of the notes: a shared computer mustn't keep them. */
   private async logout() {
     const pending = this.engine?.status().pending ?? 0;
     if (pending > 0 && !confirm(pending + (pending > 1 ? " notes have" : " note has")
       + " changes not synced yet, which will be lost. Log out anyway?")) return;
     const username = Auth.getUsername();
-    await this.deactivate();
-    this.claim?.close();
-    this.claim = undefined;
     if (username) {
-      await LocalStore.destroy(username);
+      await session.destroy(username);
       saveFilter(username, NO_FILTER);
     }
     await Auth.logout();
