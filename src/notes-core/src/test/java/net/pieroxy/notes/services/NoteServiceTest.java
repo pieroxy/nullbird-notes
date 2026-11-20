@@ -23,6 +23,7 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -615,5 +616,21 @@ public class NoteServiceTest {
     assertEquals(PushStatus.CONFLICT, result.status());
     assertEquals(List.of("work"), result.copy().tags());
     assertEquals(Map.of("monospace", "true"), result.copy().options());
+  }
+
+  @Test
+  public void aRetryOfAChangeWhoseRevisionWasThinnedOutGetsTheNoteAsItIsNow() throws IOException {
+    push(A, 0, BASE);
+    PushResult second = push(A, 1, BASE + "1");
+    push(A, 2, BASE + "2");
+    push(A, 3, BASE + "3");
+    // All on the same day, 200 days ago by then: only the first revision and the head stay.
+    stores.getStore("alice").thin(System.currentTimeMillis() + Duration.ofDays(200).toMillis());
+    assertNull(stores.getStore("alice").readRevision(A, second.note().revision()));
+
+    PushResult replay = service.push("alice", "device-1", edit(second.changeId(), A, 1, BASE + "1"));
+    assertEquals(PushStatus.APPLIED, replay.status());
+    assertEquals(4, replay.note().revision());
+    assertEquals(BASE + "3", replay.content().apply(""));
   }
 }

@@ -345,6 +345,13 @@ public class NoteService implements Service {
   private static PushResult replay(UserNoteStore store, NoteChange change, ChangeRecord done) throws IOException {
     NoteMeta meta = store.get(done.noteId());
     Revision revision = store.readRevision(done.noteId(), done.revision());
+    if (revision == null) {
+      // Thinned out: long applied, its details are gone. The client gets the note as it is now
+      // (a conflict copy it made reaches it as any other change).
+      NoteMeta now = store.get(change.noteId());
+      return new PushResult(change.changeId(), PushStatus.APPLIED, null, null, info(now), now.deleted() ? null
+          : full(store.readContent(now.id())), null, null);
+    }
     String submitted = revision.submittedContent() != null ? revision.submittedContent() : revision.content();
     NoteInfo info = info(meta, revision);
     if (done.noteId().equals(change.noteId())) {

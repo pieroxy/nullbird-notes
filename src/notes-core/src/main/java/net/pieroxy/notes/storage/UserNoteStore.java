@@ -28,6 +28,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -43,7 +44,8 @@ import java.util.stream.Collectors;
  * The head revision's file holds its text; an older one's, a splice turning the next revision's
  * text back into its own (a reverse delta), except every {@link #FULL_REVISION_INTERVAL}th one
  * and those the splice wouldn't make much smaller. Reading a revision applies the splices from
- * the nearest complete one: recent revisions, the ones sync reads, are the cheapest.
+ * the nearest complete one: recent revisions, the ones sync reads, are the cheapest. Old
+ * revisions are thinned out (see {@link ThinningPolicy}): numbers of revisions gone are gaps.
  * Every note's note.json is loaded into memory when the store opens: listing and change queries
  * never touch the disk. Methods are synchronized: commits for a user are serialized.
  * <p>
@@ -64,13 +66,14 @@ public class UserNoteStore {
   /** Lowercase UUID: note IDs name folders. */
   public static final Pattern NOTE_ID_PATTERN = Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
   static final int TITLE_MAX_LENGTH = 100;
+  private static final Pattern REVISION_FILE_PATTERN = Pattern.compile("(\\d+)\\.json\\.lz4");
   /** Bounds the splices applied to read an old revision. */
   static final int FULL_REVISION_INTERVAL = 200;
   private final static Gson GSON = new Gson();
   private final static Gson PRETTY_GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
   /** The steps of a commit, in order. */
-  enum CommitStep { REVISION, CONTENT, META, USER_STATE, PREVIOUS_AS_DELTA }
+  enum CommitStep { REVISION, CONTENT, META, USER_STATE, PREVIOUS_AS_DELTA, THINNING_REWRITES }
 
   /** Visible for tests: throwing from it simulates a crash right after that step. */
   interface CommitHook {
@@ -196,11 +199,114 @@ public class UserNoteStore {
     return content;
   }
 
-  /** @return null if there's no such note or revision. */
+  /** @return null if there's no such note or revision (thinned out, see {@link #thin}). */
   public synchronized Revision readRevision(String noteId, int revision) throws IOException {
     NoteMeta meta = index.get(noteId);
-    if (meta == null || revision < 1 || revision > meta.revision()) return null;
+    if (meta == null || revision < 1 || revision > meta.revision() || !Files.exists(revisionFile(noteId, revision))) return null;
     return readRevisionFile(noteId, revision);
+  }
+
+  /**
+   * Thins out every note's old revisions (see {@link ThinningPolicy}), one note at a time: commits
+   * to other notes go on meanwhile.
+   *
+   * @return how many revisions were deleted.
+   */
+  public int thin(long now) throws IOException {
+    List<String> noteIds;
+    synchronized (this) {
+      noteIds = new ArrayList<>(index.keySet());
+    }
+    int deleted = 0;
+    for (String noteId : noteIds) deleted += thinNote(noteId, now);
+    return deleted;
+  }
+
+  /**
+   * Kept revisions whose delta applies to one that goes are first rewritten as deltas of the next
+   * kept one, each atomically; only then are the others deleted. Interrupted, it leaves complete
+   * chains, plus files of revisions that should have gone, deleted next time.
+   */
+  synchronized int thinNote(String noteId, long now) throws IOException {
+    NoteMeta meta = index.get(noteId);
+    if (meta == null) return 0;
+    List<StoredRevision> stored = new ArrayList<>();
+    for (int revision : existingRevisions(noteId, meta.revision())) stored.add(readStored(noteId, revision));
+    if (stored.isEmpty()) return 0;
+    Set<Integer> keep = ThinningPolicy.keep(stored.stream().map(s -> new ThinningPolicy.Entry(s.revision(), s.at(), s.deleted())).toList(), now);
+    int head = stored.get(stored.size() - 1).revision();
+    boolean submittedToDrop = stored.stream().anyMatch(s -> s.revision() != head && hasSubmitted(s) && ThinningPolicy.dropsSubmitted(s.at(), now));
+    if (keep.size() == stored.size() && !submittedToDrop) return 0;
+
+    // From the head down, each text from the one above: one splice per revision.
+    int above = 0;
+    String aboveText = null;
+    int nextKept = 0;
+    String nextKeptText = null;
+    for (int i = stored.size() - 1; i >= 0; i--) {
+      StoredRevision revision = stored.get(i);
+      String text;
+      if (revision.content() != null) text = revision.content();
+      else if (revision.deltaBase() != null && revision.deltaBase() == above) text = revision.delta().apply(aboveText);
+      else text = readRevisionFile(noteId, revision.revision()).content();
+      if (keep.contains(revision.revision())) {
+        if (revision.revision() != head) rewriteIfNeeded(noteId, revision, text, keep, nextKept, nextKeptText, now);
+        nextKept = revision.revision();
+        nextKeptText = text;
+      }
+      above = revision.revision();
+      aboveText = text;
+    }
+    commitHook.after(CommitStep.THINNING_REWRITES);
+    int deleted = 0;
+    for (StoredRevision revision : stored) {
+      if (!keep.contains(revision.revision())) {
+        Files.deleteIfExists(revisionFile(noteId, revision.revision()));
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
+  /** A kept revision: rewritten if its delta's base goes, or to drop an old submitted text. */
+  private void rewriteIfNeeded(String noteId, StoredRevision revision, String text, Set<Integer> keep, int nextKept, String nextKeptText,
+                               long now) throws IOException {
+    boolean baseGoes = revision.content() == null && !keep.contains(revision.deltaBase());
+    boolean dropSubmitted = hasSubmitted(revision) && ThinningPolicy.dropsSubmitted(revision.at(), now);
+    if (!baseGoes && !dropSubmitted) return;
+    Splice submitted = dropSubmitted ? null : revision.submittedDelta() != null ? revision.submittedDelta()
+        : revision.submittedContent() != null ? Splice.compute(text, revision.submittedContent()) : null;
+    StoredRevision rewritten;
+    Splice delta = revision.content() == null ? Splice.compute(nextKeptText, text) : null;
+    if (delta == null || delta.middle().length() > text.length() / 2) {
+      rewritten = new StoredRevision(revision.revision(), revision.seq(), revision.at(), revision.changeId(), revision.deviceId(),
+          revision.deleted(), text, null, null, null, null, submitted);
+    } else {
+      rewritten = new StoredRevision(revision.revision(), revision.seq(), revision.at(), revision.changeId(), revision.deviceId(),
+          revision.deleted(), null, nextKept, delta, Hashes.sha256(text), null, submitted);
+    }
+    writeRevisionFile(noteId, rewritten);
+  }
+
+  private static boolean hasSubmitted(StoredRevision revision) {
+    return revision.submittedDelta() != null || revision.submittedContent() != null;
+  }
+
+  /** In revision order, up to {@code head}: past it are leftovers of interrupted commits. */
+  private List<Integer> existingRevisions(String noteId, int head) throws IOException {
+    Path dir = noteDir(noteId).resolve("revisions");
+    List<Integer> revisions = new ArrayList<>();
+    if (!Files.isDirectory(dir)) return revisions;
+    try (DirectoryStream<Path> files = Files.newDirectoryStream(dir)) {
+      for (Path file : files) {
+        Matcher matcher = REVISION_FILE_PATTERN.matcher(file.getFileName().toString());
+        if (!matcher.matches()) continue;
+        int revision = Integer.parseInt(matcher.group(1));
+        if (revision >= 1 && revision <= head) revisions.add(revision);
+      }
+    }
+    revisions.sort(null);
+    return revisions;
   }
 
   /**

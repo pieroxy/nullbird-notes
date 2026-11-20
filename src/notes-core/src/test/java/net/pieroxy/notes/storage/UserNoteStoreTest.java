@@ -17,12 +17,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
@@ -46,6 +48,10 @@ public class UserNoteStoreTest {
   /** Advances by a second on every read, so that every commit gets its own time. */
   private static class TickingClock extends Clock {
     private long millis = 1_763_481_600_000L;
+
+    void advance(Duration duration) {
+      millis += duration.toMillis();
+    }
 
     @Override
     public long millis() {
@@ -604,5 +610,74 @@ public class UserNoteStoreTest {
     assertTrue(storedRevision(A, 1).has("delta"));
     assertEquals("a long enough first text", store.readRevision(A, 1).content());
     assertEquals("what was sent", store.readRevision(A, 1).submittedContent());
+  }
+
+  /**
+   * Revisions 1-5 on a day 200 days before now, 6-15 within an hour 30 days before, 16-20 two days
+   * before: by the policy, 1 (the first), 5 (its day's last), 15 (its hour's last) and 16-20 stay.
+   */
+  private List<String> commitOverTime() throws Exception {
+    List<String> texts = new ArrayList<>();
+    String base = "A paragraph long enough for deltas to be worth it.\n".repeat(20);
+    for (int i = 0; i < 20; i++) {
+      if (i == 5) clock.advance(Duration.ofDays(170));
+      if (i == 15) clock.advance(Duration.ofDays(28));
+      String text = base + "version " + i + "\n";
+      texts.add(text);
+      store.commit(A, i, write(text, "c" + i));
+    }
+    clock.advance(Duration.ofDays(2));
+    return texts;
+  }
+
+  private static final Set<Integer> KEPT = Set.of(1, 5, 15, 16, 17, 18, 19, 20);
+
+  @Test
+  public void thinningKeepsWhatThePolicySaysAndEveryKeptRevisionReadsBackExactly() throws Exception {
+    store.fullRevisionInterval = 7;
+    List<String> texts = commitOverTime();
+    long now = clock.millis();
+
+    assertEquals(12, store.thin(now));
+    for (int revision = 1; revision <= 20; revision++) {
+      Revision read = store.readRevision(A, revision);
+      if (KEPT.contains(revision)) assertEquals("revision " + revision, texts.get(revision - 1), read.content());
+      else assertNull("revision " + revision, read);
+    }
+    assertEquals(0, store.thin(now));
+    reopen();
+    assertEquals(texts.get(0), store.readRevision(A, 1).content());
+  }
+
+  @Test
+  public void anInterruptedThinningLeavesEveryRevisionReadableAndFinishesNextTime() throws Exception {
+    List<String> texts = commitOverTime();
+    long now = clock.millis();
+    store.commitHook = step -> {
+      if (step == UserNoteStore.CommitStep.THINNING_REWRITES) throw new SimulatedCrash();
+    };
+    assertThrows(SimulatedCrash.class, () -> store.thin(now));
+    reopen();
+
+    for (int revision = 1; revision <= 20; revision++) assertEquals(texts.get(revision - 1), store.readRevision(A, revision).content());
+    assertEquals(12, store.thin(now));
+    for (int revision : KEPT) assertEquals(texts.get(revision - 1), store.readRevision(A, revision).content());
+  }
+
+  @Test
+  public void thinningDropsSubmittedTextsOlderThanADayButNotTheHeads() throws Exception {
+    store.commit(A, 0, new NoteWrite("merged, a long enough text", false, "c1", "device-1", "sent, a long enough text", null));
+    store.commit(A, 1, new NoteWrite("merged again, a long enough text", false, "c2", "device-1", "sent again, a long enough text", null));
+    clock.advance(Duration.ofHours(12));
+    store.commit(A, 2, new NoteWrite("recent, a long enough text", false, "c3", "device-1", "sent recently, a long enough text", null));
+    store.commit(A, 3, new NoteWrite("head, a long enough text", false, "c4", "device-1", "sent head, a long enough text", null));
+    clock.advance(Duration.ofHours(13));
+    store.thin(clock.millis());
+
+    assertNull(store.readRevision(A, 1).submittedContent());
+    assertNull(store.readRevision(A, 2).submittedContent());
+    assertEquals("sent recently, a long enough text", store.readRevision(A, 3).submittedContent());
+    assertEquals("sent head, a long enough text", store.readRevision(A, 4).submittedContent());
+    assertEquals("merged, a long enough text", store.readRevision(A, 1).content());
   }
 }
