@@ -6,6 +6,7 @@ import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { NO_FILTER, saveFilter } from "../../utils/TagFilter";
 import { ChangePasswordForm } from "../ChangePasswordForm";
+import { ImportNotes } from "../ImportNotes";
 import { PageSection, sectionedPage } from "../SectionedPage";
 import { AbstractPage } from "./AbstractPage";
 
@@ -76,6 +77,12 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
         + " changes not synced yet: the export has " + (pending > 1 ? "them" : "it") + " as last synced.") : null,
       // A plain link: the server answers with a download, the page stays.
       m("a.button", { href: "/export", download: "" }, "Export my notes"),
+      m("h2", "Import"),
+      m("p", "Adds the notes of an export to yours: this app's or Simplenote's, the .zip file or the notes.json in it. "
+        + "You see what it would do before running it."),
+      m("p.muted", "Notes you already have are skipped: the same note (by its ID), or the same text. "
+        + "Nothing of yours is changed or deleted."),
+      m(ImportNotes),
     ];
   }
 

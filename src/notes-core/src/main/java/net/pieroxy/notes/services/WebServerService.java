@@ -4,6 +4,7 @@ import net.pieroxy.notes.api.ApiServlet;
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.webserver.AccessValve;
 import net.pieroxy.notes.webserver.ExportServlet;
+import net.pieroxy.notes.webserver.ImportServlet;
 import net.pieroxy.notes.webserver.SecurityHeadersFilter;
 import net.pieroxy.notes.webserver.WebappResourceExtractor;
 import org.apache.catalina.LifecycleException;
@@ -35,7 +36,8 @@ public class WebServerService implements Service {
 
   @Override
   public List<Class<? extends Service>> getDependencies() {
-    return List.of(SettingsService.class, SessionService.class, ClientGuardService.class, NoteStoreService.class, NoteService.class);
+    return List.of(SettingsService.class, SessionService.class, ClientGuardService.class, NoteStoreService.class, NoteService.class,
+        ImportService.class);
   }
 
   @Override
@@ -76,6 +78,8 @@ public class WebServerService implements Service {
       ctx.addServletMappingDecoded("/api/*", "api");
       tomcat.addServlet("", "export", new ExportServlet(endpointServiceProvider()));
       ctx.addServletMappingDecoded(ExportServlet.PATH, "export");
+      tomcat.addServlet("", "import", new ImportServlet(endpointServiceProvider()));
+      ctx.addServletMappingDecoded(ImportServlet.PATH, "import");
       addSecurityHeaders(ctx);
       addMimeTypes(ctx);
 
@@ -134,6 +138,11 @@ public class WebServerService implements Service {
       @Override
       public NoteService getNoteService() {
         return scoped.getNoteService();
+      }
+
+      @Override
+      public ImportService getImportService() {
+        return scoped.getImportService();
       }
 
       @Override

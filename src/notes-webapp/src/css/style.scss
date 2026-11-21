@@ -348,6 +348,11 @@ button {
       font-weight: 600;
     }
 
+    // A second part of the section (Export, then Import): set apart.
+    * + h2 {
+      margin-top: 32px;
+    }
+
     p {
       margin: 0 0 12px;
     }
@@ -402,6 +407,60 @@ button {
     .successmessage {
       color: var(--status-ok);
     }
+  }
+}
+
+// My Account > Your notes > Import.
+.importnotes {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+
+  p {
+    margin: 0;
+  }
+
+  .hidden {
+    display: none;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 20px;
+  }
+
+  .toolarge {
+    max-height: 200px;
+    overflow-y: auto;
+    padding-left: 36px;
+    color: var(--text-muted);
+    font-size: 14px;
+
+    .title {
+      color: var(--text);
+    }
+  }
+
+  .buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .muted {
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .errormessage {
+    color: var(--error);
+    font-size: 14px;
+  }
+
+  .successmessage {
+    color: var(--status-ok);
+    font-size: 14px;
   }
 }
 

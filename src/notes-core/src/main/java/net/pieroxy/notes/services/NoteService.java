@@ -276,6 +276,10 @@ public class NoteService implements Service {
     return key != null && OPTION_KEY_PATTERN.matcher(key).matches();
   }
 
+  static boolean isValidOption(String key, String value) {
+    return isValidOptionKey(key) && value != null && value.length() <= MAX_OPTION_VALUE_LENGTH;
+  }
+
   /** The text the client's change derives from; null if it can't be found (see {@link RejectReason#BASE_GONE}). */
   private static String ancestor(UserNoteStore store, NoteChange change, NoteMeta head) throws IOException {
     if (change.basedOnChangeId() != null) {

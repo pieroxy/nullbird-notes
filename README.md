@@ -133,7 +133,8 @@ while copying (a few seconds; devices retry on their own), or copy from a filesy
 (ZFS, btrfs, LVM): the server reads it like data left by a power cut, which is always consistent.
 
 Copy `<configDir>` and `<dataFolder>`. `<dataFolder>/tomcat` and `<dataFolder>/webapp-ui` are
-recreated on startup, `<dataFolder>/logs` is only logs.
+recreated on startup, `<dataFolder>/logs` is only logs, `<dataFolder>/imports` only files waiting to
+be imported (emptied on startup).
 
 ```
 systemctl stop nullbird-notes
@@ -151,6 +152,23 @@ To restore, with the server stopped:
 
 Edits a device hadn't synced yet are kept and merged. Edits synced after the backup was made are
 lost, on the devices too.
+
+## Export and import
+
+In My Account > Your notes, each user can export their notes as a .zip file laid out as
+Simplenote's export, and import one: this app's or Simplenote's, the .zip file or the
+`source/notes.json` in it (up to 64 MB, 100,000 notes).
+
+The import first shows what it would do, then waits for the user to run it or cancel (for 15
+minutes at most). It only adds notes, with their dates, tags and trashed state. It skips:
+
+- a note the user already has: same ID (whatever its text), or same text (whatever its ID);
+- a note larger than `maxNoteSizeMb`.
+
+Simplenote's notes get new IDs; this app's keep theirs, so importing the same file twice imports
+nothing the second time. The logs get a line per note of the file, with its ID there: imported
+(INFO), skipped as already there along with the existing note's ID (INFO), or skipped as too large
+(WARNING).
 
 ## Browsers
 

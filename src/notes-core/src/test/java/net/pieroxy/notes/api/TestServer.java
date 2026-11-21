@@ -9,6 +9,7 @@ import net.pieroxy.notes.config.CredentialsFile;
 import net.pieroxy.notes.config.PasswordHasher;
 import net.pieroxy.notes.config.UserCredential;
 import net.pieroxy.notes.services.ClientGuardService;
+import net.pieroxy.notes.services.ImportService;
 import net.pieroxy.notes.services.NoteService;
 import net.pieroxy.notes.services.NoteStoreService;
 import net.pieroxy.notes.services.ServiceProvider;
@@ -87,7 +88,7 @@ class TestServer implements AutoCloseable {
     config.setAddress("127.0.0.1");
     config.setMaxNoteSizeMb(1);
     services = new ServiceProvider(new SettingsService(config, credentialsPath, new File(dir, "data")), new SessionService(),
-        new ClientGuardService(), new NoteStoreService(), new NoteService(), new WebServerService());
+        new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new WebServerService());
     try {
       services.init();
     } catch (RuntimeException e) {
@@ -196,6 +197,16 @@ class TestServer implements AutoCloseable {
     HttpResponse<String> raw(String path) throws Exception {
       return http.send(withBuild(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))).build(),
           HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** POSTs {@code body} as is to {@code path}, e.g. a file to /import. */
+    Response upload(String path, byte[] body) throws Exception {
+      HttpRequest request = withBuild(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)))
+          .header("Content-Type", "application/octet-stream")
+          .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+          .build();
+      HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+      return new Response(response.statusCode(), response.body());
     }
 
     /** {@link #raw}, for a binary response: a download. */

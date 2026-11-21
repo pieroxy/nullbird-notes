@@ -67,12 +67,36 @@ export class Api {
     } catch {
       throw new ApiError(ApiErrorKind.UNREACHABLE, options.signal?.aborted ? "The server took too long to answer." : "Cannot reach the server.");
     }
+    return Api.result<O>(response, options.endpoint, options.signal);
+  }
 
+  /**
+   * POSTs {@code file} as is to {@code path} (not an API endpoint: /import), which answers as the
+   * API does.
+   *
+   * @throws ApiError, as call does.
+   */
+  static async upload<O>(path: string, file: Blob, signal?: AbortSignal): Promise<O> {
+    let response: Response;
+    try {
+      response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "X-Notes-Build": BUILD_ID },
+        body: file,
+        signal,
+      });
+    } catch {
+      throw new ApiError(ApiErrorKind.UNREACHABLE, "Cannot reach the server.");
+    }
+    return Api.result<O>(response, path, signal);
+  }
+
+  private static async result<O>(response: Response, endpoint: string, signal?: AbortSignal): Promise<O> {
     let payload: ApiResponse<O>;
     try {
       payload = await response.json();
     } catch {
-      if (options.signal?.aborted) throw new ApiError(ApiErrorKind.UNREACHABLE, "The server took too long to answer.");
+      if (signal?.aborted) throw new ApiError(ApiErrorKind.UNREACHABLE, "The server took too long to answer.");
       throw new ApiError(ApiErrorKind.BAD_RESPONSE, "Unexpected response from the server (HTTP " + response.status + ").", response.status);
     }
 
@@ -86,7 +110,7 @@ export class Api {
         Auth.clearSession();
         m.redraw();
       }
-      throw new ApiError(ApiErrorKind.API, payload.error ?? ("API call to " + options.endpoint + " failed."), response.status);
+      throw new ApiError(ApiErrorKind.API, payload.error ?? ("API call to " + endpoint + " failed."), response.status);
     }
     return payload.result as O;
   }

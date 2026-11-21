@@ -342,6 +342,22 @@ public class UserNoteStore {
    * @throws IOException if the change couldn't be committed.
    */
   public synchronized NoteMeta commit(String noteId, int expectedRevision, NoteWrite write) throws IOException, StaleRevisionException {
+    return commit(noteId, expectedRevision, write, null, null);
+  }
+
+  /**
+   * Creates a note brought in by an import, as its revision 1, with the dates it had where it comes
+   * from rather than now's: the note list keeps its order.
+   *
+   * @throws StaleRevisionException if there's already a note {@code noteId}; nothing is written then.
+   */
+  public synchronized NoteMeta importNote(String noteId, NoteWrite write, long createdAt, long modifiedAt)
+      throws IOException, StaleRevisionException {
+    return commit(noteId, 0, write, createdAt, modifiedAt);
+  }
+
+  private NoteMeta commit(String noteId, int expectedRevision, NoteWrite write, Long createdAt, Long at)
+      throws IOException, StaleRevisionException {
     if (noteId == null || !NOTE_ID_PATTERN.matcher(noteId).matches()) {
       throw new IllegalArgumentException("Invalid note ID: " + noteId);
     }
@@ -350,7 +366,7 @@ public class UserNoteStore {
     int head = current == null ? 0 : current.revision();
     if (head != expectedRevision) throw new StaleRevisionException(noteId, expectedRevision, head);
 
-    long now = clock.millis();
+    long now = at != null ? at : clock.millis();
     long seq = lastSeq + 1;
     int revision = head + 1;
     byte[] content = write.content().getBytes(StandardCharsets.UTF_8);
@@ -368,13 +384,16 @@ public class UserNoteStore {
     AtomicFiles.write(noteDir.resolve("content.txt"), content);
     commitHook.after(CommitStep.CONTENT);
     NoteMeta meta = current == null
-        ? new NoteMeta(noteId, revision, seq, now, now, write.deleted(), title(write.content()), content.length, Hashes.sha256(content),
+        ? new NoteMeta(noteId, revision, seq, createdAt != null ? createdAt : now, now, write.deleted(), title(write.content()),
+            content.length, Hashes.sha256(content),
             write.changeId(), write.tags(), write.options(), 0, null)
         : new NoteMeta(noteId, revision, seq, current.createdAt(), now, write.deleted(), title(write.content()), content.length,
             Hashes.sha256(content), write.changeId(), current.tags(), current.options(), current.metaRevision(),
             current.lastMetaChangeId());
     writeMeta(meta);
     if (write.changeId() != null) changes.put(write.changeId(), new ChangeRecord(noteId, revision));
+    // A note created with tags: they may be new to the user.
+    if (current == null && !meta.tags().isEmpty()) keepTagOrderComplete(meta.tags(), null, seq);
     afterMetaWritten();
     storeAsDelta(noteId, head, write.content());
     commitHook.after(CommitStep.PREVIOUS_AS_DELTA);

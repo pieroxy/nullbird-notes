@@ -55,7 +55,7 @@ public class SessionServiceTest {
   public void setUp() {
     SettingsService settings = new SettingsService(new Configuration(), new File(tmp.getRoot(), "credentials.json"), tmp.getRoot());
     provider = new ServiceProvider(settings, new SessionService(), new ClientGuardService(), new NoteStoreService(), new NoteService(),
-        new WebServerService());
+        new ImportService(), new WebServerService());
   }
 
   /** A service as after a server (re)start: loaded from the data folder. */
