@@ -337,7 +337,8 @@ button {
   .pagesection {
     max-width: 560px;
 
-    a {
+    // Plain links only: a.button has its own colors.
+    a:not(.button) {
       color: var(--accent);
     }
 
