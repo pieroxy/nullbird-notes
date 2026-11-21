@@ -84,4 +84,20 @@ public class LogReaderTest {
     LogReader.read(log, 1, archived::add);
     assertEquals(List.of("yesterday", "later"), archived.stream().map(LogReader.Entry::message).toList());
   }
+
+  @Test
+  public void linesWrittenWithoutJavaUtilLoggingReadBackAsTheirOwnEntries() throws Exception {
+    LogRecord info = new LogRecord(Level.INFO, "Started");
+    info.setSourceClassName("Runner");
+    info.setSourceMethodName("main");
+    String shutdown = OneLineLogFormatter.line(System.currentTimeMillis(), Level.WARNING, "net.pieroxy.notes.standalone.Runner/shutdown", "Shutting down...");
+
+    List<LogReader.Entry> entries = parse(new OneLineLogFormatter().format(info) + shutdown);
+
+    assertEquals(2, entries.size());
+    assertEquals("", entries.get(0).details());
+    assertEquals("WARNING", entries.get(1).level());
+    assertEquals("Shutting down...", entries.get(1).message());
+    assertEquals("same run", entries.get(0).run(), entries.get(1).run());
+  }
 }

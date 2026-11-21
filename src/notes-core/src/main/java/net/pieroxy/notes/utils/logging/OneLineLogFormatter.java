@@ -7,6 +7,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Formatter;
+import java.util.logging.Level;
 import java.util.logging.LogRecord;
 
 /**
@@ -32,16 +33,8 @@ public final class OneLineLogFormatter extends Formatter {
 
   @Override
   public String format(LogRecord record) {
-    String timestamp =
-        TIMESTAMP_FORMAT.format(Instant.ofEpochMilli(record.getMillis()).atZone(ZoneId.systemDefault()));
     String source = record.getSourceClassName() + "/" + record.getSourceMethodName();
-
-    StringBuilder sb = new StringBuilder();
-    sb.append(timestamp).append(' ')
-        .append(RUN_ID).append(' ')
-        .append(rightAlign(record.getLevel().getName(), LEVEL_WIDTH)).append(' ')
-        .append(rightAlign(source, SOURCE_WIDTH)).append(' ')
-        .append(formatMessage(record)).append('\n');
+    StringBuilder sb = new StringBuilder(line(record.getMillis(), record.getLevel(), source, formatMessage(record)));
 
     if (record.getThrown() != null) {
       StringWriter sw = new StringWriter();
@@ -49,6 +42,17 @@ public final class OneLineLogFormatter extends Formatter {
       sb.append(sw);
     }
     return sb.toString();
+  }
+
+  /**
+   * One entry's line, newline included, as {@link #format} writes it: for what's written without
+   * java.util.logging (see Runner's shutdown), so that it reads back like any other entry.
+   *
+   * @param source class/method.
+   */
+  public static String line(long millis, Level level, String source, String message) {
+    String timestamp = TIMESTAMP_FORMAT.format(Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()));
+    return timestamp + ' ' + RUN_ID + ' ' + rightAlign(level.getName(), LEVEL_WIDTH) + ' ' + rightAlign(source, SOURCE_WIDTH) + ' ' + message + '\n';
   }
 
   private static String rightAlign(String s, int width) {
