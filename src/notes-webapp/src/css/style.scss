@@ -227,7 +227,7 @@ button {
   }
 }
 
-.accountpage {
+.sectionedpage {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -256,13 +256,13 @@ button {
     }
   }
 
-  .accountlayout {
+  .sectionedlayout {
     display: flex;
     flex: 1;
     min-height: 0;
   }
 
-  .accountnav {
+  .sectionednav {
     display: flex;
     flex-direction: column;
     flex: 0 0 240px;
@@ -272,7 +272,7 @@ button {
     background: var(--bg-pane);
   }
 
-  .accountuser {
+  .navheader {
     padding: 0 16px 16px;
     border-bottom: 1px solid var(--border);
 
@@ -316,21 +316,25 @@ button {
     }
   }
 
-  .accountversion {
+  .navfooter {
     margin: auto 0 0;
     padding: 16px 16px 0;
+  }
+
+  .accountversion {
+    margin: 0;
     color: var(--text-muted);
     font-size: 12px;
   }
 
-  .accountbody {
+  .sectionedbody {
     flex: 1;
     min-width: 0;
     overflow-y: auto;
     padding: 24px;
   }
 
-  .accountsection {
+  .pagesection {
     max-width: 560px;
 
     h2 {
@@ -406,10 +410,10 @@ a.button {
   text-decoration: none;
 }
 
-// Narrow screens: the list of sections, or one section.
+// Narrow screens: the list of sections, or one section (see sectionedPage).
 @media (max-width: 700px) {
-  .accountpage {
-    .accountnav {
+  .sectionedpage {
+    .sectionednav {
       flex: 1;
       border-right: none;
       background: var(--bg);
@@ -440,17 +444,17 @@ a.button {
       }
     }
 
-    .accountbody {
+    .sectionedbody {
       display: none;
       padding: 16px;
     }
 
     &.insection {
-      .accountnav {
+      .sectionednav {
         display: none;
       }
 
-      .accountbody {
+      .sectionedbody {
         display: block;
       }
 

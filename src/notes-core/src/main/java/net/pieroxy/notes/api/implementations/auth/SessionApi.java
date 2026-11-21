@@ -6,6 +6,7 @@ import net.pieroxy.notes.api.metadata.ApiMethod;
 import net.pieroxy.notes.api.metadata.Endpoint;
 import net.pieroxy.notes.api.metadata.Required;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
+import net.pieroxy.notes.config.UserCredential;
 import net.pieroxy.notes.services.IServiceProvider;
 import net.pieroxy.notes.services.SessionService;
 
@@ -33,7 +34,10 @@ public class SessionApi extends AbstractApiEndpoint<SessionApiInput, SessionApiO
     } else if (session != null && sessions.cookieRefreshDue(session)) {
       context.setSessionCookie(sessionId, secure);
     }
-    return new SessionApiOutput(session != null, session != null ? session.getUsername() : null);
+    if (session == null) return new SessionApiOutput(false, null, false);
+    // As credentials.json says now: it may have changed since the login.
+    UserCredential user = serviceProvider.getSettingsService().getUser(session.getUsername());
+    return new SessionApiOutput(true, session.getUsername(), user != null && user.isAdmin());
   }
 }
 
@@ -47,13 +51,17 @@ class SessionApiOutput {
   private boolean authenticated;
   /** Absent unless authenticated. */
   private String username;
+  /** False unless authenticated. */
+  @Required
+  private boolean admin;
 
   public SessionApiOutput() {
   }
 
-  public SessionApiOutput(boolean authenticated, String username) {
+  public SessionApiOutput(boolean authenticated, String username, boolean admin) {
     this.authenticated = authenticated;
     this.username = username;
+    this.admin = admin;
   }
 
   public boolean isAuthenticated() {
@@ -70,5 +78,13 @@ class SessionApiOutput {
 
   public void setUsername(String username) {
     this.username = username;
+  }
+
+  public boolean isAdmin() {
+    return admin;
+  }
+
+  public void setAdmin(boolean admin) {
+    this.admin = admin;
   }
 }

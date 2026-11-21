@@ -6,8 +6,7 @@ import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { NO_FILTER, saveFilter } from "../../utils/TagFilter";
 import { ChangePasswordForm } from "../ChangePasswordForm";
-import { icon, iconButton } from "../Icons";
-import { SyncStatusIndicator } from "../SyncStatusIndicator";
+import { PageSection, sectionedPage } from "../SectionedPage";
 import { AbstractPage } from "./AbstractPage";
 
 export interface AccountPageAttrs {
@@ -18,22 +17,14 @@ export interface AccountPageAttrs {
 /** Fetched once: moving between sections recreates the page. */
 let version: string | undefined;
 
-interface Section {
-  id: string;
-  title: string;
-  render: () => m.Children;
-}
-
 /**
  * The user's account: who's logged in and logging out, then its sections, each at
- * /account/:section. Wide screens show the list of sections beside the one open (/account opens
- * the first); narrow ones, one at a time: the list at /account, a section at its own route. Opens
- * the user's notes (see NotesSession) if they aren't yet: the sync goes on, and logging out knows
- * what isn't synced.
+ * /account/:section (see sectionedPage). Opens the user's notes (see NotesSession) if they aren't
+ * yet: the sync goes on, and logging out knows what isn't synced.
  */
 export class AccountPage extends AbstractPage<AccountPageAttrs> {
   private loggingOut = false;
-  private readonly sections: Section[] = [
+  private readonly sections: PageSection[] = [
     { id: "security", title: "Security", render: () => this.security() },
     { id: "data", title: "Your notes", render: () => this.data() },
   ];
@@ -53,35 +44,19 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
   }
 
   render({ attrs }: m.Vnode<AccountPageAttrs>): m.Children {
-    const engine = session.engine;
-    const chosen = this.sections.find((section) => section.id === attrs.section);
-    const shown = chosen ?? this.sections[0];
-    // Every element is always rendered; which ones show depends on the screen width and .insection (see style.scss).
-    return m("main.accountpage" + (chosen ? ".insection" : ""), [
-      m("header.topbar", [
-        iconButton("chevron-left", "Back to the notes", () => Routing.goToScreen(Endpoints.HOME), "backhome"),
-        iconButton("chevron-left", "Back to My Account", () => Routing.goToScreen(Endpoints.ACCOUNT), "backlist"),
-        m("h1.pagetitle", "My Account"),
-        m("h1.sectiontitle", shown.title),
-        engine ? m(SyncStatusIndicator, { status: engine.status(), onRetry: () => engine.retryNow(), align: "right" }) : null,
-      ]),
-      m(".accountlayout", [
-        m("nav.accountnav", [
-          m(".accountuser", [
-            m("p", ["Logged in as ", m("strong", Auth.getUsername())]),
-            m("p.muted", "Logging out removes your notes from this device. They stay on the server."),
-            m("button.secondary", { type: "button", disabled: this.loggingOut, onclick: () => void this.logout() }, "Log out"),
-          ]),
-          m("ul.sectionlinks", this.sections.map((section) =>
-            m("li", { key: section.id }, m(m.route.Link, {
-              href: Endpoints.ACCOUNT + "/" + section.id,
-              class: section === shown ? "active" : "",
-            }, [m("span", section.title), icon("chevron-right")])))),
-          version ? m("p.accountversion", "Version " + version) : null,
-        ]),
-        m(".accountbody", m("section.accountsection", { key: shown.id }, shown.render())),
-      ]),
-    ]);
+    return sectionedPage({
+      route: Endpoints.ACCOUNT,
+      title: "My Account",
+      sections: this.sections,
+      section: attrs.section,
+      className: "accountpage",
+      navHeader: [
+        m("p", ["Logged in as ", m("strong", Auth.getUsername())]),
+        m("p.muted", "Logging out removes your notes from this device. They stay on the server."),
+        m("button.secondary", { type: "button", disabled: this.loggingOut, onclick: () => void this.logout() }, "Log out"),
+      ],
+      navFooter: version ? m("p.accountversion", "Version " + version) : null,
+    });
   }
 
   private security(): m.Children {

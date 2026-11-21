@@ -76,6 +76,6 @@ public class AsyncEndpointTest {
   public void synchronousEndpointsAreUnaffected() throws Exception {
     TestServer.Response response = client.get("Session", "{}");
 
-    assertEquals("{\"ok\":true,\"result\":{\"authenticated\":false}}", response.body());
+    assertEquals("{\"ok\":true,\"result\":{\"authenticated\":false,\"admin\":false}}", response.body());
   }
 }

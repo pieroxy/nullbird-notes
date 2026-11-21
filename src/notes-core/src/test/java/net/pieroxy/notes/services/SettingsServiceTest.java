@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
@@ -122,5 +123,28 @@ public class SettingsServiceTest {
     write("{\"users\":[{\"username\":\"alice\"}]}");
     IllegalStateException e = assertThrows(IllegalStateException.class, this::start);
     assertEquals("Could not load " + credentialsFile() + ": user \"alice\" has no password hash and salt", e.getMessage());
+  }
+
+  @Test
+  public void readsTheAdminFlagWhichIsOffUnlessSaid() throws IOException {
+    String hash = new Gson().toJson(PasswordHasher.hash("secret"));
+    write("{\"users\":[{\"username\":\"alice\",\"admin\":true,\"password\":" + hash + "},"
+        + "{\"username\":\"bob\",\"password\":" + hash + "}]}");
+
+    SettingsService settings = start();
+
+    assertTrue(settings.getUser("alice").isAdmin());
+    assertFalse(settings.getUser("bob").isAdmin());
+  }
+
+  @Test
+  public void aPasswordChangeKeepsTheAdminFlag() throws IOException {
+    write("{\"users\":[{\"username\":\"alice\",\"admin\":true,\"password\":" + new Gson().toJson(PasswordHasher.hash("secret")) + "}]}");
+    SettingsService settings = start();
+
+    settings.setPassword("alice", PasswordHasher.hash("another secret"));
+
+    assertTrue(settings.getUser("alice").isAdmin());
+    assertTrue(PasswordHasher.verify("another secret", settings.getUser("alice").getPassword()));
   }
 }

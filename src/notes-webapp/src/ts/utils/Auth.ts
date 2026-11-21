@@ -21,6 +21,8 @@ const RETRY_DELAY_MS = 5000;
 export class Auth {
   /** Undefined until SessionApi has answered; null when not logged in. */
   private static username: string | null | undefined;
+  /** As the server said at login or at the last session check. */
+  private static admin = false;
   private static checkInProgress = false;
   private static unreachable = false;
 
@@ -37,12 +39,22 @@ export class Auth {
     return Auth.username ?? null;
   }
 
-  static setLoggedIn(username: string) {
+  /**
+   * Whether to show the Administration pages. Only the UI: the server checks for itself whatever
+   * they ask of it.
+   */
+  static isAdmin(): boolean {
+    return typeof Auth.username === "string" && Auth.admin;
+  }
+
+  static setLoggedIn(username: string, admin: boolean) {
     Auth.username = username;
+    Auth.admin = admin;
   }
 
   static clearSession() {
     Auth.username = null;
+    Auth.admin = false;
   }
 
   /** Logged out client-side even if the server can't be reached. */
@@ -60,6 +72,7 @@ export class Auth {
     ApiEndpoints.Session.call({})
       .then((output) => {
         Auth.username = output.authenticated ? output.username ?? null : null;
+        Auth.admin = output.admin;
         Auth.unreachable = false;
       })
       .catch(() => {

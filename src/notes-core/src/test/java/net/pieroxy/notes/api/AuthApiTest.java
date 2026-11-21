@@ -1,13 +1,18 @@
 package net.pieroxy.notes.api;
 
+import com.google.gson.JsonObject;
 import net.pieroxy.notes.utils.BuildInfo;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -70,5 +75,40 @@ public class AuthApiTest {
     }
     assertEquals(409, server.client().asBuild(null).post("Login", "{\"login\":\"alice\",\"password\":\"alice-password\"}").status());
     assertEquals(200, laptop.asBuild(BuildInfo.ID).get("ServerInfo", "{}").status());
+  }
+
+  @Test
+  public void loginAndSessionTellWhoIsAdmin() throws Exception {
+    server = new TestServer(tmp.getRoot(), Map.of("alice", "alice-password", "bob", "bob-password"), Set.of("alice"));
+
+    TestServer.Client alice = server.client();
+    JsonObject login = alice.post("Login", "{\"login\":\"alice\",\"password\":\"alice-password\"}").result();
+    assertTrue(login.get("admin").getAsBoolean());
+    assertTrue(alice.get("Session", "{}").result().get("admin").getAsBoolean());
+
+    TestServer.Client bob = server.client();
+    assertFalse(bob.post("Login", "{\"login\":\"bob\",\"password\":\"bob-password\"}").result().get("admin").getAsBoolean());
+    assertFalse(bob.get("Session", "{}").result().get("admin").getAsBoolean());
+
+    JsonObject refused = server.client().post("Login", "{\"login\":\"alice\",\"password\":\"wrong\"}").result();
+    assertFalse(refused.get("admin").getAsBoolean());
+    assertFalse(server.client().get("Session", "{}").result().get("admin").getAsBoolean());
+  }
+
+  @Test
+  public void theSessionSaysWhatCredentialsJsonSaysNow() throws Exception {
+    server = new TestServer(tmp.getRoot(), USERS, Set.of("alice"));
+    TestServer.Client alice = server.client().login("alice", "alice-password");
+
+    File credentials = new File(tmp.getRoot(), "credentials.json");
+    String json = Files.readString(credentials.toPath(), StandardCharsets.UTF_8);
+    assertTrue(json, json.contains("\"admin\":true"));
+    long before = credentials.lastModified();
+    Files.writeString(credentials.toPath(), json.replace("\"admin\":true", "\"admin\":false"), StandardCharsets.UTF_8);
+    credentials.setLastModified(before + 2000);
+
+    JsonObject session = alice.get("Session", "{}").result();
+    assertTrue(session.get("authenticated").getAsBoolean());
+    assertFalse(session.get("admin").getAsBoolean());
   }
 }

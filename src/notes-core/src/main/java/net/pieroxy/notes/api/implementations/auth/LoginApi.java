@@ -49,13 +49,13 @@ public class LoginApi extends AbstractApiEndpoint<LoginApiInput, LoginApiOutput>
     if (!ok) {
       guard.loginFailed(client);
       LOGGER.warning("Failed login for \"" + printable(input.getLogin()) + "\" from " + client);
-      return new LoginApiOutput(false, null);
+      return new LoginApiOutput(false, null, false);
     }
     guard.loginSucceeded(client);
     String sessionId = serviceProvider.getSessionService().create(user.getUsername(), context.getUserAgent());
     context.setSessionCookie(sessionId, serviceProvider.getSettingsService().isSessionCookieSecure());
     LOGGER.info("User \"" + user.getUsername() + "\" logged in from " + client);
-    return new LoginApiOutput(true, user.getUsername());
+    return new LoginApiOutput(true, user.getUsername(), user.isAdmin());
   }
 
   /** The submitted login, safe to log: control characters escaped, so it can't forge a log line. */
@@ -100,13 +100,17 @@ class LoginApiOutput {
   private boolean ok;
   /** Absent unless ok. */
   private String username;
+  /** False unless ok. */
+  @Required
+  private boolean admin;
 
   public LoginApiOutput() {
   }
 
-  public LoginApiOutput(boolean ok, String username) {
+  public LoginApiOutput(boolean ok, String username, boolean admin) {
     this.ok = ok;
     this.username = username;
+    this.admin = admin;
   }
 
   public boolean isOk() {
@@ -123,5 +127,13 @@ class LoginApiOutput {
 
   public void setUsername(String username) {
     this.username = username;
+  }
+
+  public boolean isAdmin() {
+    return admin;
+  }
+
+  public void setAdmin(boolean admin) {
+    this.admin = admin;
   }
 }

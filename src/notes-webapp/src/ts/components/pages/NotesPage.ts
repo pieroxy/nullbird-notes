@@ -137,6 +137,7 @@ export class NotesPage extends AbstractPage {
               m(".menuseparator"),
             ] : null,
             m("button.menuitem", { type: "button", onclick: () => Routing.goToScreen(Endpoints.ACCOUNT) }, "My Account"),
+            Auth.isAdmin() ? m("button.menuitem", { type: "button", onclick: () => Routing.goToScreen(Endpoints.ADMIN) }, "Administration") : null,
           ]),
         ]),
       ]),

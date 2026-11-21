@@ -67,7 +67,8 @@ java -jar notes-core-<version>.jar <configDir>
   - `maxNoteSizeMb`: the largest note; defaults to 10. Larger requests are refused with HTTP 413.
 - `credentials.json` (required, see `credentials.example.json`): one entry per user. It is re-read
   when it changes, so there's no need to restart after adding or removing a user. Usernames are
-  lowercase letters, digits, `.`, `_` and `-`.
+  lowercase letters, digits, `.`, `_` and `-`. `"admin": true` gives a user the Administration
+  pages.
 
 To get the `password` object for a user:
 

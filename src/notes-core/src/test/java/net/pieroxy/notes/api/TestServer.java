@@ -34,6 +34,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /** The whole server on a free local port, for tests going through HTTP. */
@@ -54,16 +55,26 @@ class TestServer implements AutoCloseable {
 
   /** @param users username to plaintext password. */
   TestServer(File dir, Map<String, String> users) throws IOException {
-    this(dir, users, freePort());
+    this(dir, users, Set.of(), freePort());
+  }
+
+  /** @param admins those of {@code users} who are admins. */
+  TestServer(File dir, Map<String, String> users, Set<String> admins) throws IOException {
+    this(dir, users, admins, freePort());
   }
 
   TestServer(File dir, Map<String, String> users, int port) throws IOException {
+    this(dir, users, Set.of(), port);
+  }
+
+  TestServer(File dir, Map<String, String> users, Set<String> admins, int port) throws IOException {
     this.port = port;
     List<UserCredential> credentials = new ArrayList<>();
     users.forEach((username, password) -> {
       UserCredential user = new UserCredential();
       user.setUsername(username);
       user.setPassword(PasswordHasher.hash(password));
+      user.setAdmin(admins.contains(username));
       credentials.add(user);
     });
     CredentialsFile credentialsFile = new CredentialsFile();
