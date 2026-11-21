@@ -67,6 +67,9 @@ export class LocalStore {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error);
+      // Committed now, not once the page next goes idle: a tab closed right after typing is torn
+      // down before that, and a transaction left uncommitted is lost with it.
+      transaction.commit();
     });
   }
 
