@@ -219,6 +219,14 @@ export class SyncEngine {
     this.schedulePush(0);
   }
 
+  /**
+   * {@link retryNow}, but only while waiting to retry: for hints that the server may be reachable
+   * again (the network came back, the app came back to the foreground). Otherwise nothing.
+   */
+  retryIfWaiting() {
+    if (this.nextRetryAt !== undefined) this.retryNow();
+  }
+
   /** Retries now instead of waiting for the backoff. */
   retryNow() {
     this.failures = 0;

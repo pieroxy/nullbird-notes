@@ -81,6 +81,11 @@ export class NotesSession {
     return this.currentEngine?.flush() ?? Promise.resolve();
   }
 
+  /** The server may be reachable again: ends the wait before the next retry, if there's one. */
+  retryIfWaiting() {
+    this.currentEngine?.retryIfWaiting();
+  }
+
   /** Closes the notes and deletes this device's copy of {@code username}'s, even if they weren't open. */
   destroy(username: string): Promise<void> {
     return this.serialize(async () => {

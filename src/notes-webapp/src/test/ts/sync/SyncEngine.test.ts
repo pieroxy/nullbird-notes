@@ -134,6 +134,24 @@ describe("SyncEngine", () => {
     expect(engine.get(A)?.text).toBe("wake the poll");
   });
 
+  test("retryIfWaiting cuts the backoff short, and does nothing while connected", async () => {
+    await startEngine();
+    const pushesBefore = server.pushes.length;
+    engine.retryIfWaiting();
+    await advance(100);
+    expect(engine.status().state).toBe("synced");
+    expect(server.pushes).toHaveLength(pushesBefore);
+
+    server.failNext = 1000;
+    server.write(A, "back online");
+    await until(() => (engine.status().nextRetryAt ?? 0) - Date.now() > 10_000);
+    server.failNext = 0;
+
+    engine.retryIfWaiting();
+    await until(() => engine.status().state === "synced", 1_000);
+    expect(engine.get(A)?.text).toBe("back online");
+  });
+
   test("a dead connection is noticed: no answer within the timeout means offline", async () => {
     await startEngine();
     server.silent = true;

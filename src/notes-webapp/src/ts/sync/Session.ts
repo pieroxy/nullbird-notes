@@ -9,4 +9,8 @@ export const session = new NotesSession(() => new HttpSyncApi(), () => m.redraw(
 window.addEventListener("pagehide", () => void session.flush());
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") void session.flush();
+  // Back to the foreground (a phone unlocked, the app switched back to): try now, not after the backoff.
+  else session.retryIfWaiting();
 });
+// A network is back. Not proof the server answers (a hotel's login page counts), but worth a try now.
+window.addEventListener("online", () => session.retryIfWaiting());
