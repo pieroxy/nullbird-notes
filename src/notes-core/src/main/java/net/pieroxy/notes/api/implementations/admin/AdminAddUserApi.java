@@ -1,6 +1,5 @@
 package net.pieroxy.notes.api.implementations.admin;
 
-import net.pieroxy.notes.api.metadata.AbstractAdminEndpoint;
 import net.pieroxy.notes.api.metadata.ApiMethod;
 import net.pieroxy.notes.api.metadata.AuthenticatedApiInput;
 import net.pieroxy.notes.api.metadata.Endpoint;
@@ -12,7 +11,6 @@ import net.pieroxy.notes.services.IServiceProvider;
 import net.pieroxy.notes.services.SettingsService;
 
 import java.time.Clock;
-import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 /**
@@ -20,8 +18,7 @@ import java.util.regex.Pattern;
  * folder already exists: the new user would get the notes of whoever had that name before.
  */
 @Endpoint(method = ApiMethod.POST)
-public class AdminAddUserApi extends AbstractAdminEndpoint<AdminAddUserApiInput, AdminResult> {
-  private final static Logger LOGGER = Logger.getLogger(AdminAddUserApi.class.getName());
+public class AdminAddUserApi extends AbstractUserChangeEndpoint<AdminAddUserApiInput> {
   /** Loose: something@something.tld, no spaces. Whether it reaches anyone, only sending to it tells. */
   static final Pattern EMAIL_PATTERN = Pattern.compile("[^\\s@]+@[^\\s@]+\\.[^\\s@]+");
   static final int MAX_EMAIL_LENGTH = 254;
@@ -34,7 +31,12 @@ public class AdminAddUserApi extends AbstractAdminEndpoint<AdminAddUserApiInput,
   }
 
   @Override
-  public AdminResult processAdmin(AdminAddUserApiInput input) throws Exception {
+  protected String describe(AdminAddUserApiInput input) {
+    return "adding user \"" + printable(input.getNewUsername()) + "\"";
+  }
+
+  @Override
+  protected AdminResult change(AdminAddUserApiInput input) throws Exception {
     String username = input.getNewUsername().trim();
     if (!SettingsService.USERNAME_PATTERN.matcher(username).matches()) {
       return AdminResult.refused("A username is 1 to 64 lowercase letters, digits, \".\", \"_\" or \"-\", starting with a letter or a digit.");
@@ -53,7 +55,7 @@ public class AdminAddUserApi extends AbstractAdminEndpoint<AdminAddUserApiInput,
     String password = PasswordGenerator.generate();
     settings.addUser(username, email.isEmpty() ? null : email, input.isAdmin(), PasswordHasher.hash(password),
         clock.instant());
-    LOGGER.info("\"" + input.getUsername() + "\" added user \"" + username + "\"" + (input.isAdmin() ? ", an admin" : ""));
+    log(input, "added user \"" + username + "\"" + (input.isAdmin() ? ", an admin" : "") + (email.isEmpty() ? "" : ", email " + email));
     return AdminResult.withPassword(password);
   }
 }

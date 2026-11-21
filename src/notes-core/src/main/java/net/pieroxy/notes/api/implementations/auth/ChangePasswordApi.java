@@ -35,6 +35,7 @@ public class ChangePasswordApi extends AbstractAuthenticatedEndpoint<ChangePassw
     String client = input.getClientAddress();
     String newPassword = input.getNewPassword();
     if (newPassword.codePointCount(0, newPassword.length()) < MIN_LENGTH) {
+      LOGGER.info("Password change for \"" + username + "\" from " + client + " refused: the new one is too short");
       return ChangePasswordApiOutput.refused("The new password must be at least " + MIN_LENGTH + " characters long.");
     }
 
@@ -54,6 +55,7 @@ public class ChangePasswordApi extends AbstractAuthenticatedEndpoint<ChangePassw
     }
     guard.loginSucceeded(client);
     if (newPassword.equals(input.getCurrentPassword())) {
+      LOGGER.info("Password change for \"" + username + "\" from " + client + " refused: the new one is the current one");
       return ChangePasswordApiOutput.refused("The new password is the same as the current one.");
     }
 
