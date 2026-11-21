@@ -5,13 +5,11 @@ import net.pieroxy.notes.api.metadata.ApiMethod;
 import net.pieroxy.notes.api.metadata.AuthenticatedApiInput;
 import net.pieroxy.notes.api.metadata.Endpoint;
 import net.pieroxy.notes.api.metadata.Required;
-import net.pieroxy.notes.api.metadata.TooManyRequestsException;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
 import net.pieroxy.notes.config.PasswordHasher;
 import net.pieroxy.notes.config.UserCredential;
 import net.pieroxy.notes.services.ClientGuardService;
 import net.pieroxy.notes.services.IServiceProvider;
-import net.pieroxy.notes.utils.RateLimiter;
 
 import java.util.logging.Logger;
 
@@ -39,21 +37,17 @@ public class ChangePasswordApi extends AbstractAuthenticatedEndpoint<ChangePassw
       return ChangePasswordApiOutput.refused("The new password must be at least " + MIN_LENGTH + " characters long.");
     }
 
-    ClientGuardService guard = serviceProvider.getClientGuardService();
-    try {
-      guard.checkLogin(client);
-    } catch (RateLimiter.RateExceededException e) {
-      long retryAfterSeconds = Math.max(1, (e.getRetryAfterMillis() + 999) / 1000);
-      LOGGER.warning("Password change refused for \"" + username + "\" from " + client + ": too many failed attempts");
-      throw new TooManyRequestsException("Too many failed attempts, retry in " + retryAfterSeconds + " s.", retryAfterSeconds);
-    }
     UserCredential user = serviceProvider.getSettingsService().getUser(username);
-    if (user == null || !PasswordHasher.verify(input.getCurrentPassword(), user.getPassword())) {
-      guard.loginFailed(client);
+    boolean ok;
+    try (ClientGuardService.PasswordCheck check = LoginApi.startPasswordCheck(serviceProvider.getClientGuardService(), client,
+        "Password change for \"" + username + "\"")) {
+      ok = user != null && PasswordHasher.verify(input.getCurrentPassword(), user.getPassword());
+      if (ok) check.succeeded();
+    }
+    if (!ok) {
       LOGGER.warning("Password change for \"" + username + "\" from " + client + ": wrong current password");
       return ChangePasswordApiOutput.refused("The current password is wrong.");
     }
-    guard.loginSucceeded(client);
     if (newPassword.equals(input.getCurrentPassword())) {
       LOGGER.info("Password change for \"" + username + "\" from " + client + " refused: the new one is the current one");
       return ChangePasswordApiOutput.refused("The new password is the same as the current one.");

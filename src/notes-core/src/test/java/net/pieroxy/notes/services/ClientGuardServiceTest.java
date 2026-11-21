@@ -5,6 +5,7 @@ import org.junit.Test;
 
 import java.time.Duration;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -72,5 +73,86 @@ public class ClientGuardServiceTest {
     Thread.sleep(300);
     guard.checkBanned(SCANNER);
     assertFalse("the count starts over after a ban", guard.notFound(SCANNER, "/admin"));
+  }
+
+  @Test
+  public void aFifthConcurrentPasswordCheckIsBusy() {
+    ClientGuardService guard = new ClientGuardService();
+    java.util.List<ClientGuardService.PasswordCheck> running = new java.util.ArrayList<>();
+    for (int i = 0; i < ClientGuardService.MAX_CONCURRENT_CHECKS; i++) running.add(guard.startPasswordCheck("10.0.0." + i));
+
+    assertThrows(ClientGuardService.Busy.class, () -> guard.startPasswordCheck(VISITOR));
+    running.get(0).close();
+    running.get(0).close(); // twice frees one slot, not two
+    running.add(guard.startPasswordCheck(VISITOR));
+    assertThrows(ClientGuardService.Busy.class, () -> guard.startPasswordCheck(SCANNER));
+  }
+
+  @Test
+  public void busyCountsNoAttempt() {
+    ClientGuardService guard = new ClientGuardService();
+    java.util.List<ClientGuardService.PasswordCheck> running = new java.util.ArrayList<>();
+    for (int i = 0; i < ClientGuardService.MAX_CONCURRENT_CHECKS; i++) running.add(guard.startPasswordCheck("10.0.0." + i));
+    for (int i = 0; i < 3 * ClientGuardService.MAX_FAILED_LOGINS; i++) {
+      assertThrows(ClientGuardService.Busy.class, () -> guard.startPasswordCheck(VISITOR));
+    }
+    running.forEach(ClientGuardService.PasswordCheck::close);
+
+    for (int i = 0; i < ClientGuardService.MAX_FAILED_LOGINS; i++) guard.startPasswordCheck(VISITOR).close();
+  }
+
+  @Test
+  public void anAttemptCountsAsFailedUntilItSucceeds() {
+    ClientGuardService guard = new ClientGuardService();
+    // Started, not finished: they already count, so parallel ones can't all get through.
+    java.util.List<ClientGuardService.PasswordCheck> unfinished = new java.util.ArrayList<>();
+    for (int i = 0; i < ClientGuardService.MAX_CONCURRENT_CHECKS; i++) unfinished.add(guard.startPasswordCheck(VISITOR));
+    unfinished.forEach(ClientGuardService.PasswordCheck::close);
+    guard.startPasswordCheck(VISITOR).close();
+
+    assertThrows(RateLimiter.RateExceededException.class, () -> guard.startPasswordCheck(VISITOR));
+    // Refused: no slot kept.
+    for (int i = 0; i < ClientGuardService.MAX_CONCURRENT_CHECKS; i++) guard.startPasswordCheck("10.0.0." + i).close();
+  }
+
+  @Test
+  public void aSuccessForgetsTheFailures() {
+    ClientGuardService guard = new ClientGuardService();
+    for (int i = 0; i < ClientGuardService.MAX_FAILED_LOGINS - 1; i++) guard.startPasswordCheck(VISITOR).close();
+    try (ClientGuardService.PasswordCheck check = guard.startPasswordCheck(VISITOR)) {
+      check.succeeded();
+    }
+    for (int i = 0; i < ClientGuardService.MAX_FAILED_LOGINS; i++) guard.startPasswordCheck(VISITOR).close();
+  }
+
+  @Test
+  public void ipv6AddressesCountByTheirSlash64() {
+    ClientGuardService guard = new ClientGuardService();
+    for (int i = 0; i < ClientGuardService.MAX_FAILED_LOGINS; i++) guard.startPasswordCheck("2001:db8:1:2::" + Integer.toHexString(i + 1)).close();
+
+    assertThrows(RateLimiter.RateExceededException.class, () -> guard.startPasswordCheck("2001:db8:1:2:ffff:ffff:ffff:ffff"));
+    guard.startPasswordCheck("2001:db8:1:3::1").close();
+  }
+
+  @Test
+  public void aScannerHoppingWithinItsSlash64IsBanned() {
+    ClientGuardService guard = new ClientGuardService();
+    for (int i = 0; i < ClientGuardService.MAX_NOT_FOUND; i++) guard.notFound("2001:db8:aa:bb::" + (i + 1), "/.env");
+
+    assertThrows(RateLimiter.RateExceededException.class, () -> guard.checkBanned("2001:db8:aa:bb:1234::9"));
+    guard.checkBanned("2001:db8:aa:bc::1");
+  }
+
+  @Test
+  public void addressKeys() {
+    assertEquals("203.0.113.7", ClientGuardService.addressKey("203.0.113.7"));
+    assertEquals("2001:db8:1:2::/64", ClientGuardService.addressKey("2001:db8:1:2:3:4:5:6"));
+    assertEquals("2001:db8:0:0::/64", ClientGuardService.addressKey("2001:db8::1"));
+    assertEquals("2001:db8:0:0::/64", ClientGuardService.addressKey("2001:DB8::1%eth0"));
+    assertEquals("203.0.113.7", ClientGuardService.addressKey("::ffff:203.0.113.7"));
+    // Not an address: as is, never looked up.
+    assertEquals("example.com", ClientGuardService.addressKey("example.com"));
+    assertEquals("evil.example:80", ClientGuardService.addressKey("evil.example:80"));
+    assertEquals(null, ClientGuardService.addressKey(null));
   }
 }

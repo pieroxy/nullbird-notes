@@ -30,32 +30,45 @@ public class LoginApi extends AbstractApiEndpoint<LoginApiInput, LoginApiOutput>
 
   /**
    * Refused outright, before the password is even checked, once the client's address failed too
-   * many times (see {@link ClientGuardService}). An unknown user fails like a wrong password.
+   * many times, or while the server checks as many passwords as it takes at once (see
+   * {@link ClientGuardService#startPasswordCheck}). An unknown user fails like a wrong password.
    */
   @Override
   public LoginApiOutput process(LoginApiInput input, ApiContext context) {
-    ClientGuardService guard = serviceProvider.getClientGuardService();
     String client = context.getRemoteAddr();
-    try {
-      guard.checkLogin(client);
-    } catch (RateLimiter.RateExceededException e) {
-      long retryAfterSeconds = Math.max(1, (e.getRetryAfterMillis() + 999) / 1000);
-      LOGGER.warning("Login refused for " + client + ": too many failed attempts, retry in " + retryAfterSeconds + " s");
-      throw new TooManyRequestsException("Too many failed logins, retry in " + retryAfterSeconds + " s.", retryAfterSeconds);
-    }
-
     UserCredential user = serviceProvider.getSettingsService().getUser(input.getLogin());
-    boolean ok = PasswordHasher.verify(input.getPassword(), user != null ? user.getPassword() : UNKNOWN_USER_HASH) && user != null;
+    boolean ok;
+    try (ClientGuardService.PasswordCheck check = startPasswordCheck(serviceProvider.getClientGuardService(), client, "Login")) {
+      ok = PasswordHasher.verify(input.getPassword(), user != null ? user.getPassword() : UNKNOWN_USER_HASH) && user != null;
+      if (ok) check.succeeded();
+    }
     if (!ok) {
-      guard.loginFailed(client);
       LOGGER.warning("Failed login for \"" + printable(input.getLogin()) + "\" from " + client);
       return new LoginApiOutput(false, null, false);
     }
-    guard.loginSucceeded(client);
     String sessionId = serviceProvider.getSessionService().create(user.getUsername(), context.getUserAgent());
     context.setSessionCookie(sessionId, serviceProvider.getSettingsService().isSessionCookieSecure());
     LOGGER.info("User \"" + user.getUsername() + "\" logged in from " + client);
     return new LoginApiOutput(true, user.getUsername(), user.isAdmin());
+  }
+
+  /**
+   * {@link ClientGuardService#startPasswordCheck}, its refusals as HTTP 429s, for every endpoint
+   * checking a password.
+   *
+   * @param what for the log: "Login", "Password change"...
+   */
+  public static ClientGuardService.PasswordCheck startPasswordCheck(ClientGuardService guard, String client, String what) {
+    try {
+      return guard.startPasswordCheck(client);
+    } catch (ClientGuardService.Busy e) {
+      // Not logged: under a flood, that would be a line per request.
+      throw new TooManyRequestsException("Please retry later.", 1);
+    } catch (RateLimiter.RateExceededException e) {
+      long retryAfterSeconds = Math.max(1, (e.getRetryAfterMillis() + 999) / 1000);
+      LOGGER.warning(what + " refused for " + client + ": too many failed attempts, retry in " + retryAfterSeconds + " s");
+      throw new TooManyRequestsException("Too many failed attempts, retry in " + retryAfterSeconds + " s.", retryAfterSeconds);
+    }
   }
 
   /** The submitted login, safe to log: control characters escaped, so it can't forge a log line. */

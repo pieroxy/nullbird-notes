@@ -1,6 +1,7 @@
 package net.pieroxy.notes.api;
 
 import com.google.gson.JsonObject;
+import net.pieroxy.notes.services.ClientGuardService;
 import net.pieroxy.notes.utils.BuildInfo;
 import org.junit.After;
 import org.junit.Rule;
@@ -110,5 +111,44 @@ public class AuthApiTest {
     JsonObject session = alice.get("Session", "{}").result();
     assertTrue(session.get("authenticated").getAsBoolean());
     assertFalse(session.get("admin").getAsBoolean());
+  }
+
+  @Test
+  public void aBurstOfWrongPasswordsChecksNoMoreThanTheLimit() throws Exception {
+    server = new TestServer(tmp.getRoot(), USERS);
+    int bursts = 30;
+    java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+    java.util.List<java.util.concurrent.Future<TestServer.Response>> responses = new java.util.ArrayList<>();
+    java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(bursts);
+    try {
+      for (int i = 0; i < bursts; i++) {
+        TestServer.Client client = server.client();
+        responses.add(pool.submit(() -> {
+          start.await();
+          return client.post("Login", "{\"login\":\"alice\",\"password\":\"guess\"}");
+        }));
+      }
+      start.countDown();
+      int checked = 0;
+      int busy = 0;
+      int locked = 0;
+      for (java.util.concurrent.Future<TestServer.Response> future : responses) {
+        TestServer.Response response = future.get();
+        if (response.status() == 200) {
+          assertFalse(response.json().getAsJsonObject("result").get("ok").getAsBoolean());
+          checked++;
+        } else {
+          assertEquals(response.body(), 429, response.status());
+          String error = response.json().get("error").getAsString();
+          if (error.equals("Please retry later.")) busy++;
+          else if (error.startsWith("Too many failed attempts")) locked++;
+          else throw new AssertionError(error);
+        }
+      }
+      assertTrue("checked " + checked, checked >= 1 && checked <= ClientGuardService.MAX_FAILED_LOGINS);
+      assertEquals(bursts, checked + busy + locked);
+    } finally {
+      pool.shutdownNow();
+    }
   }
 }

@@ -35,6 +35,17 @@ public class RateLimiter {
     if (hits != null && hits.size() >= maxHits) throw new RateExceededException(hits.peekFirst() + milliseconds - now);
   }
 
+  /**
+   * {@link #check} and {@link #hit} as one step: of concurrent callers, no more than the hits left
+   * get through.
+   *
+   * @throws RateExceededException if {@code key} already has {@code maxHits} hits in the window. Adds no hit then.
+   */
+  public synchronized void tryHit(String key) throws RateExceededException {
+    check(key);
+    hit(key);
+  }
+
   public synchronized void hit(String key) {
     long now = System.currentTimeMillis();
     String normalized = normalize(key);

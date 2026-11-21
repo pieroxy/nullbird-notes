@@ -70,4 +70,28 @@ public class RateLimiterTest {
     assertEquals(1, limiter.getNbKeys());
     assertEquals(1, limiter.getNbTimeStamps());
   }
+
+  @Test
+  public void tryHitLetsNoMoreThanTheHitsLeftThroughConcurrently() throws Exception {
+    RateLimiter limiter = new RateLimiter(60_000, 5);
+    java.util.concurrent.atomic.AtomicInteger passed = new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+    java.util.List<Thread> threads = new java.util.ArrayList<>();
+    for (int i = 0; i < 50; i++) {
+      Thread thread = new Thread(() -> {
+        try {
+          start.await();
+          limiter.tryHit("client");
+          passed.incrementAndGet();
+        } catch (RateLimiter.RateExceededException | InterruptedException expected) {
+          // over the limit
+        }
+      });
+      thread.start();
+      threads.add(thread);
+    }
+    start.countDown();
+    for (Thread thread : threads) thread.join();
+    assertEquals(5, passed.get());
+  }
 }
