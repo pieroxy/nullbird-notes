@@ -57,7 +57,8 @@ java -jar notes-core-<version>.jar <configDir>
 
 `<configDir>` holds:
 
-- `config.json` (optional, see `config.example.json`):
+- `config.json` (optional, see `config.example.json`). Admins can also edit it in Administration >
+  Config, except `dataFolder`; either way, it's read at startup only, so changes apply at the next restart.
   - `httpPort`: defaults to 8080.
   - `address`: the interface to listen on; blank for all.
   - `dataFolder`: relative to `<configDir>`; defaults to `data`.

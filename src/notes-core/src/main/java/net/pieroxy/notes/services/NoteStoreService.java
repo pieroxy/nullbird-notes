@@ -1,5 +1,6 @@
 package net.pieroxy.notes.services;
 
+import net.pieroxy.notes.storage.NoteMeta;
 import net.pieroxy.notes.storage.UserNoteStore;
 
 import java.io.IOException;
@@ -82,6 +83,15 @@ public class NoteStoreService implements Service {
     } catch (IOException e) {
       LOGGER.log(Level.SEVERE, "Could not list " + usersDir, e);
     }
+  }
+
+  /**
+   * @return the size in UTF-8 bytes of each of the user's notes larger than {@code minBytes}, deleted
+   * ones aside; none if the user has no data yet (nothing is created for them).
+   */
+  public List<Long> sizesAbove(String username, long minBytes) throws IOException {
+    if (!hasData(username)) return List.of();
+    return getStore(username).list().stream().filter(note -> !note.deleted() && note.size() > minBytes).map(NoteMeta::size).toList();
   }
 
   /** @return whether there's a data folder for {@code username}, e.g. left by a user removed from credentials.json. */

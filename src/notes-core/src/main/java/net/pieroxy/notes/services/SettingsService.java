@@ -43,6 +43,7 @@ public class SettingsService implements Service {
   public static final Pattern USERNAME_PATTERN = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
 
   private final Configuration config;
+  private final File configFile;
   private final File credentialsFile;
   private final File dataFolder;
   private final TrustedProxies trustedProxies;
@@ -52,9 +53,18 @@ public class SettingsService implements Service {
   private long credentialsLastModified;
   private long credentialsLength;
 
-  /** @throws IllegalArgumentException if config.json's trustedProxies or maxNoteSizeMb is invalid. */
+  /** {@link #SettingsService(Configuration, File, File, File)} with config.json beside credentials.json. */
   public SettingsService(Configuration config, File credentialsFile, File dataFolder) {
+    this(config, new File(credentialsFile.getAbsoluteFile().getParentFile(), "config.json"), credentialsFile, dataFolder);
+  }
+
+  /**
+   * @param config what config.json said at startup: in effect until the next one.
+   * @throws IllegalArgumentException if config.json's trustedProxies or maxNoteSizeMb is invalid.
+   */
+  public SettingsService(Configuration config, File configFile, File credentialsFile, File dataFolder) {
     this.config = config;
+    this.configFile = configFile;
     this.credentialsFile = credentialsFile;
     this.dataFolder = dataFolder;
     this.trustedProxies = TrustedProxies.parse(config.getTrustedProxies());
@@ -75,8 +85,50 @@ public class SettingsService implements Service {
     LOGGER.info(users.size() + " user(s) loaded from " + credentialsFile);
   }
 
+  /** As config.json was at startup: in effect until the next one, whatever it says now. */
   public Configuration getConfig() {
     return config;
+  }
+
+  public File getConfigFile() {
+    return configFile;
+  }
+
+  /**
+   * config.json as it is now on disk: what the next startup will use. All defaults if it doesn't exist.
+   *
+   * @throws IOException if it can't be read or parsed.
+   */
+  public synchronized Configuration readSavedConfig() throws IOException {
+    if (!configFile.exists()) return new Configuration();
+    try (Reader reader = Files.newBufferedReader(configFile.toPath(), StandardCharsets.UTF_8)) {
+      Configuration saved = new Gson().fromJson(reader, Configuration.class);
+      return saved == null ? new Configuration() : saved;
+    } catch (JsonParseException e) {
+      throw new IOException("invalid JSON in " + configFile + ": " + e.getMessage(), e);
+    }
+  }
+
+  /**
+   * Changes config.json, as read from disk now, created if it doesn't exist. Only what {@code change}
+   * touches changes: other fields, known to this version or not, stay. Takes effect at the next startup.
+   *
+   * @throws IOException if it can't be read, parsed or written.
+   */
+  public synchronized void updateSavedConfig(Consumer<JsonObject> change) throws IOException {
+    JsonObject root = new JsonObject();
+    if (configFile.exists()) {
+      JsonElement parsed;
+      try {
+        parsed = JsonParser.parseString(Files.readString(configFile.toPath(), StandardCharsets.UTF_8));
+      } catch (JsonParseException e) {
+        throw new IOException("invalid JSON in " + configFile + ": " + e.getMessage(), e);
+      }
+      if (!parsed.isJsonObject()) throw new IOException(configFile + " isn't a JSON object");
+      root = parsed.getAsJsonObject();
+    }
+    change.accept(root);
+    AtomicFiles.write(configFile.toPath(), (PRETTY_GSON.toJson(root) + "\n").getBytes(StandardCharsets.UTF_8));
   }
 
   public File getDataFolder() {

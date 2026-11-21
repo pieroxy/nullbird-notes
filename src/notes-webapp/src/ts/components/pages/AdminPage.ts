@@ -2,6 +2,7 @@ import m from "mithril";
 import { session } from "../../sync/Session";
 import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
+import { ConfigSection } from "../AdminConfig";
 import { UserDetail, UserList } from "../AdminUsers";
 import { PageSection, sectionedPage } from "../SectionedPage";
 import { AbstractPage } from "./AbstractPage";
@@ -21,7 +22,7 @@ export class AdminPage extends AbstractPage<AdminPageAttrs> {
   private username?: string;
   private readonly sections: PageSection[] = [
     { id: "users", title: "Users", render: () => this.username !== undefined ? m(UserDetail, { key: this.username, username: this.username }) : m(UserList) },
-    { id: "config", title: "Config", render: () => this.placeholder("Config", "This server's configuration.") },
+    { id: "config", title: "Config", render: () => m(ConfigSection) },
   ];
 
   oninit() {
@@ -42,12 +43,5 @@ export class AdminPage extends AbstractPage<AdminPageAttrs> {
       section: attrs.username !== undefined ? "users" : attrs.section,
       className: "adminpage",
     });
-  }
-
-  private placeholder(title: string, what: string): m.Children {
-    return [
-      m("h2", title),
-      m("p.muted", what + " Coming soon."),
-    ];
   }
 }

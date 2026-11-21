@@ -102,6 +102,11 @@ class TestServer implements AutoCloseable {
     }
   }
 
+  /** The running services, to set up what the API can't, e.g. a note over the size limit. */
+  ServiceProvider services() {
+    return services;
+  }
+
   /** A device: its own cookies, so its own session. */
   Client client() {
     return new Client(new CookieManager());

@@ -71,7 +71,7 @@ public class Runner {
 
     try {
       DataFormat.upgrade(dataFolder.toPath());
-      serviceProvider = new ServiceProvider(new SettingsService(config, credentialsFile, dataFolder), new SessionService(),
+      serviceProvider = new ServiceProvider(new SettingsService(config, configFile, credentialsFile, dataFolder), new SessionService(),
           new ClientGuardService(), new NoteStoreService(), new NoteService(), new WebServerService());
       serviceProvider.init();
     } catch (IllegalStateException | IllegalArgumentException | IOException e) {

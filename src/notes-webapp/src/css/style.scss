@@ -58,11 +58,11 @@ body {
   font-size: 15px;
 }
 
-input, button {
+input, button, textarea {
   font: inherit;
 }
 
-input {
+input, textarea {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -591,6 +591,57 @@ button {
   .errormessage {
     color: var(--error);
     font-size: 14px;
+  }
+
+  // Administration > Config.
+  .configform {
+    max-width: 480px;
+
+    h3 {
+      margin: 8px 0 0;
+    }
+
+    textarea {
+      resize: vertical;
+    }
+  }
+
+  .ineffect {
+    color: var(--status-offline);
+    font-size: 13px;
+  }
+
+  .notice {
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: var(--bg-selected);
+    font-size: 14px;
+  }
+
+  code.readonly {
+    padding: 6px 10px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+  }
+
+  .fieldhint code {
+    overflow-wrap: anywhere;
+  }
+
+  ul.warnings {
+    align-self: stretch;
+    margin: 0;
+    padding: 10px 12px 10px 28px;
+    border: 1px solid var(--status-offline);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 14px;
+
+    li + li {
+      margin-top: 6px;
+    }
   }
 }
 
