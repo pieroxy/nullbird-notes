@@ -217,6 +217,7 @@ export class NotesPage extends AbstractPage {
           tags: tagsOf(selected),
           monospace: isOn(selected, MONOSPACE),
           nowrap: isOn(selected, NOWRAP),
+          markdown: isOn(selected, MARKDOWN),
           onEdit: (text: string) => engine.edit(selected.id, text),
           onAddTag: (tag: string) => engine.addTag(selected.id, tag),
           onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),

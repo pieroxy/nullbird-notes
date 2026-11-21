@@ -7,6 +7,7 @@ import { computeSplice } from "../sync/Splice";
 import { continueList } from "../utils/ListContinuation";
 import { MAX_MATCHES, Range } from "../utils/Search";
 import { iconButton } from "./Icons";
+import { markdownStyle } from "./MarkdownStyle";
 import { TagEditor } from "./TagEditor";
 
 /** While a search is active. */
@@ -28,6 +29,7 @@ export interface NoteEditorAttrs {
   tags: string[];
   monospace: boolean;
   nowrap: boolean;
+  markdown: boolean;
   onEdit: (text: string) => void;
   onAddTag: (tag: string) => boolean;
   onRemoveTag: (tag: string) => void;
@@ -210,13 +212,14 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
 }
 
 function optionsKey(attrs: NoteEditorAttrs): string {
-  return attrs.monospace + " " + attrs.nowrap;
+  return attrs.monospace + " " + attrs.nowrap + " " + attrs.markdown;
 }
 
 function options(attrs: NoteEditorAttrs): Extension {
   return [
     attrs.nowrap ? [] : EditorView.lineWrapping,
     EditorView.editorAttributes.of({ class: attrs.monospace ? "monospace" : "" }),
+    attrs.markdown ? markdownStyle : [],
   ];
 }
 
