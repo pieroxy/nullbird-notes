@@ -943,6 +943,27 @@ a.button {
   }
 }
 
+// iOS 26+ blurs the top of an installed web app (its "scroll edge effect"), the top bars with it,
+// unless the page's top edge is a fixed, full-width box of a plain color: then it extends that
+// color instead. This is that box, over the top bars' own padding, of their color. Not in a
+// browser tab: no blur there.
+.edgeguard {
+  display: none;
+}
+
+@media (display-mode: standalone) {
+  .edgeguard {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    height: max(var(--safe-top), 3px);
+    background: var(--bg);
+  }
+}
+
 // Shown by compat.js instead of the app, on a browser too old for it.
 .unsupported {
   max-width: 480px;

@@ -11,13 +11,12 @@
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="apple-mobile-web-app-title" content="Notes">
-  <!-- The installed app on iOS draws under the status bar (the header's padding keeps clear of it):
-       with the default, iOS reserves that strip and fades it over the header. -->
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1b1d21">
 </head>
 <body>
+  <!-- In the installed app on iOS 26+, keeps the system blur off the top bars (see .edgeguard). -->
+  <div class="edgeguard" aria-hidden="true"></div>
   <div id="app"></div>
   <!-- Before the bundle: turns away browsers too old for it (see compat.js). -->
   <script src="/compat.js"></script>
