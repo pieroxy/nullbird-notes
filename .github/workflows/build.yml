@@ -1,0 +1,35 @@
+# Builds and tests every push to main and every pull request: "mvn package" builds the web app,
+# runs the Java and web app tests, and makes the jar, kept as the run's artifact.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # The oldest the README promises.
+          java-version: 17
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/notes-webapp/package-lock.json
+      - run: mvn -B package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes-core-jar
+          path: |
+            src/notes-core/target/notes-core-*.jar
+            !src/notes-core/target/original-*.jar
