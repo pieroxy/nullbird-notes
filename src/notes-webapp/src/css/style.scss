@@ -337,6 +337,10 @@ button {
   .pagesection {
     max-width: 560px;
 
+    a {
+      color: var(--accent);
+    }
+
     h2 {
       margin: 0 0 12px;
       font-size: 15px;
@@ -358,7 +362,7 @@ button {
     }
   }
 
-  .changepassword {
+  .changepassword, .stackedform {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -397,6 +401,196 @@ button {
     .successmessage {
       color: var(--status-ok);
     }
+  }
+}
+
+// Administration > Users.
+.sectionedpage {
+  .sectionheader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+
+    h2 {
+      margin: 0;
+    }
+  }
+
+  button.withicon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    svg.icon {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .badge {
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: var(--bg-selected);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+
+    &.you {
+      background: var(--bg-pane);
+      color: var(--text-muted);
+    }
+  }
+
+  .username {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    overflow-wrap: anywhere;
+  }
+
+  .userlist {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--border);
+
+    a {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 4px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      text-decoration: none;
+
+      &:hover {
+        background: var(--bg-selected);
+      }
+
+      > svg.icon {
+        flex: none;
+        width: 16px;
+        height: 16px;
+        color: var(--text-muted);
+      }
+    }
+
+    .usermeta {
+      margin-top: 2px;
+      color: var(--text-muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .adduser {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-pane);
+
+    p {
+      margin: 0;
+    }
+  }
+
+  .checkfield {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .stackedform .checkfield {
+    margin: 0;
+  }
+
+  .buttons {
+    display: flex;
+    gap: 8px;
+  }
+
+  .backlink {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: 12px;
+    color: var(--accent);
+    font-size: 14px;
+    text-decoration: none;
+
+    svg.icon {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  h2.username {
+    font-size: 17px;
+  }
+
+  h3 {
+    margin: 20px 0 8px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .userfacts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 16px;
+    margin: 0 0 12px;
+    font-size: 14px;
+
+    dt {
+      color: var(--text-muted);
+    }
+
+    dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .generatedpassword {
+    align-self: stretch;
+
+    .passwordrow {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 360px;
+      padding: 4px 4px 4px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+    }
+
+    code.password {
+      flex: 1;
+      font-size: 16px;
+      letter-spacing: .04em;
+      user-select: all;
+      overflow-wrap: anywhere;
+    }
+
+    .muted {
+      margin: 6px 0 0;
+    }
+  }
+
+  .errormessage {
+    color: var(--error);
+    font-size: 14px;
   }
 }
 

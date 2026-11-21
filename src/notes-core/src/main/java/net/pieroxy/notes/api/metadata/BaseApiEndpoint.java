@@ -121,6 +121,8 @@ public abstract class BaseApiEndpoint<I, O> implements ApiEndpoint {
     if (error instanceof NotAuthenticatedException) {
       // Routine (a restart, or just an old tab): no SEVERE stack trace for it.
       res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+    } else if (error instanceof ForbiddenException) {
+      res.setStatus(HttpServletResponse.SC_FORBIDDEN);
     } else if (error instanceof InvalidInputException) {
       res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
     } else if (error instanceof RequestTooLargeException) {

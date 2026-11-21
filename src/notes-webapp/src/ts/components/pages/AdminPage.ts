@@ -2,12 +2,15 @@ import m from "mithril";
 import { session } from "../../sync/Session";
 import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
+import { UserDetail, UserList } from "../AdminUsers";
 import { PageSection, sectionedPage } from "../SectionedPage";
 import { AbstractPage } from "./AbstractPage";
 
 export interface AdminPageAttrs {
   /** From the route: /admin/:section. Absent at /admin. */
   section?: string;
+  /** From the route: /admin/users/:username, a user's page in the Users section. */
+  username?: string;
 }
 
 /**
@@ -15,8 +18,9 @@ export interface AdminPageAttrs {
  * /admin/:section (see sectionedPage). Opens the user's notes as My Account does, so the sync goes on.
  */
 export class AdminPage extends AbstractPage<AdminPageAttrs> {
+  private username?: string;
   private readonly sections: PageSection[] = [
-    { id: "users", title: "Users", render: () => this.placeholder("Users", "The users of this server.") },
+    { id: "users", title: "Users", render: () => this.username !== undefined ? m(UserDetail, { key: this.username, username: this.username }) : m(UserList) },
     { id: "config", title: "Config", render: () => this.placeholder("Config", "This server's configuration.") },
   ];
 
@@ -30,11 +34,12 @@ export class AdminPage extends AbstractPage<AdminPageAttrs> {
   }
 
   render({ attrs }: m.Vnode<AdminPageAttrs>): m.Children {
+    this.username = attrs.username;
     return sectionedPage({
       route: Endpoints.ADMIN,
       title: "Administration",
       sections: this.sections,
-      section: attrs.section,
+      section: attrs.username !== undefined ? "users" : attrs.section,
       className: "adminpage",
     });
   }

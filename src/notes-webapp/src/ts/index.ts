@@ -14,6 +14,7 @@ const routes: m.RouteDefs = {
   [Endpoints.ACCOUNT_SECTION]: new AuthenticatedPageResolver(AccountPage),
   [Endpoints.ADMIN]: new AuthenticatedPageResolver(AdminPage, { adminOnly: true }),
   [Endpoints.ADMIN_SECTION]: new AuthenticatedPageResolver(AdminPage, { adminOnly: true }),
+  [Endpoints.ADMIN_USER]: new AuthenticatedPageResolver(AdminPage, { adminOnly: true }),
 };
 
 m.route(document.getElementById("app")!, Endpoints.HOME, routes);

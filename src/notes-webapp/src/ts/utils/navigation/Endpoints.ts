@@ -5,4 +5,5 @@ export enum Endpoints {
   ACCOUNT_SECTION = "/account/:section",
   ADMIN = "/admin",
   ADMIN_SECTION = "/admin/:section",
+  ADMIN_USER = "/admin/users/:username",
 }

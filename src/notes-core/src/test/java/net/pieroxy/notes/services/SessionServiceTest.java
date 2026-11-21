@@ -181,4 +181,29 @@ public class SessionServiceTest {
 
     assertTrue(sessions.cookieRefreshDue(sessions.use(id)));
   }
+
+  @Test
+  public void lastSeenIsTheLatestUseOfTheUsersLiveSessions() {
+    SessionService sessions = started();
+    assertNull(sessions.lastSeen("alice"));
+    String laptop = sessions.create("alice", "laptop");
+    clock.advance(Duration.ofHours(1));
+    String phone = sessions.create("alice", "phone");
+    Instant phoneLogin = clock.instant();
+    clock.advance(Duration.ofHours(1));
+    sessions.create("bob", "bob's");
+
+    assertEquals(phoneLogin, sessions.lastSeen("alice"));
+    clock.advance(Duration.ofHours(1));
+    sessions.use(laptop);
+    assertEquals(clock.instant(), sessions.lastSeen("alice"));
+
+    sessions.invalidateAll("alice");
+    assertNull(sessions.get(laptop));
+    assertNull(sessions.get(phone));
+    assertNull("no session left: not known", sessions.lastSeen("alice"));
+    assertNotNull(sessions.lastSeen("bob"));
+    clock.advance(SessionService.LIFETIME);
+    assertNull("expired", sessions.lastSeen("bob"));
+  }
 }

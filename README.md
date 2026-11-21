@@ -68,7 +68,8 @@ java -jar notes-core-<version>.jar <configDir>
 - `credentials.json` (required, see `credentials.example.json`): one entry per user. It is re-read
   when it changes, so there's no need to restart after adding or removing a user. Usernames are
   lowercase letters, digits, `.`, `_` and `-`. `"admin": true` gives a user the Administration
-  pages.
+  pages, where admins add users and reset their passwords. Users added there also get `email`
+  (optional) and `createdAt`.
 
 To get the `password` object for a user:
 

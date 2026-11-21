@@ -146,6 +146,25 @@ public class SessionService implements Service {
     if (sessions.entrySet().removeIf(entry -> entry.getValue().getUsername().equals(username) && !entry.getKey().equals(kept))) save();
   }
 
+  /** Ends every session of {@code username}: logged out everywhere. */
+  public void invalidateAll(String username) {
+    invalidateOthers(username, null);
+  }
+
+  /**
+   * @return the last use of any of the user's sessions: when they were last seen online. Null if
+   * they have none left (never logged in, logged out, or expired).
+   */
+  public Instant lastSeen(String username) {
+    Instant now = clock.instant();
+    Instant last = null;
+    for (Session session : sessions.values()) {
+      if (!session.getUsername().equals(username) || session.isExpired(now)) continue;
+      if (last == null || session.lastUsedAt.isAfter(last)) last = session.lastUsedAt;
+    }
+    return last;
+  }
+
   /** Writes the sessions if anything changed since the last write. */
   void flush() {
     if (dirty) save();

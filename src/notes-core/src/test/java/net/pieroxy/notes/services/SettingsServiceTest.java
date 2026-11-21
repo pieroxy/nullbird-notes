@@ -13,6 +13,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -146,5 +147,39 @@ public class SettingsServiceTest {
 
     assertTrue(settings.getUser("alice").isAdmin());
     assertTrue(PasswordHasher.verify("another secret", settings.getUser("alice").getPassword()));
+  }
+
+  @Test
+  public void addsUsersAndSwitchesTheirAdminFlagKeepingWhatItDoesntKnow() throws IOException {
+    write("{\"comment\":\"kept\",\"users\":[{\"username\":\"alice\",\"admin\":true,\"future\":{\"x\":1},\"password\":"
+        + new Gson().toJson(PasswordHasher.hash("secret")) + "}]}");
+    SettingsService settings = start();
+
+    settings.addUser("bob", "bob@example.com", false, PasswordHasher.hash("bob secret"), Instant.parse("2026-11-21T06:30:00Z"));
+    settings.addUser("carol", null, true, PasswordHasher.hash("carol secret"), Instant.parse("2026-11-21T06:31:00Z"));
+    settings.setAdmin("bob", true);
+    settings.setAdmin("carol", false);
+
+    assertEquals(List.of("alice", "bob", "carol"), settings.listUsers().stream().map(UserCredential::getUsername).toList());
+    UserCredential bob = settings.getUser("bob");
+    assertTrue(bob.isAdmin());
+    assertEquals("bob@example.com", bob.getEmail());
+    assertEquals(Instant.parse("2026-11-21T06:30:00Z"), bob.createdAtInstant());
+    assertTrue(PasswordHasher.verify("bob secret", bob.getPassword()));
+    assertFalse(settings.getUser("carol").isAdmin());
+    assertNull(settings.getUser("carol").getEmail());
+    String json = Files.readString(credentialsFile().toPath(), StandardCharsets.UTF_8);
+    assertTrue(json, json.contains("\"comment\": \"kept\"") && json.contains("\"future\": {"));
+    assertFalse("cleared, not false", json.contains("\"admin\": false"));
+    assertThrows(IllegalArgumentException.class, () -> settings.addUser("bob", null, false, PasswordHasher.hash("x"), Instant.now()));
+    assertThrows(IllegalArgumentException.class, () -> settings.addUser("../x", null, false, PasswordHasher.hash("x"), Instant.now()));
+    assertThrows(IllegalArgumentException.class, () -> settings.setAdmin("nobody", true));
+  }
+
+  @Test
+  public void refusesToStartOnAnInvalidCreationDate() throws IOException {
+    write("{\"users\":[{\"username\":\"alice\",\"createdAt\":\"yesterday\",\"password\":" + new Gson().toJson(PasswordHasher.hash("secret")) + "}]}");
+    IllegalStateException e = assertThrows(IllegalStateException.class, this::start);
+    assertTrue(e.getMessage(), e.getMessage().contains("invalid createdAt"));
   }
 }

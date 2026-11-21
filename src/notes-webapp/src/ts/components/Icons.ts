@@ -19,6 +19,10 @@ const ICONS = {
   "chevron-up": [["path", { d: "m18 15-6-6-6 6" }]],
   "chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
   check: [["path", { d: "M20 6 9 17l-5-5" }]],
+  copy: [
+    ["rect", { width: 14, height: 14, x: 8, y: 8, rx: 2, ry: 2 }],
+    ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }],
+  ],
   x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
   "panel-left": [["rect", { width: 18, height: 18, x: 3, y: 3, rx: 2 }], ["path", { d: "M9 3v18" }]],
   list: [

@@ -19,8 +19,13 @@ import java.io.IOException;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -28,8 +33,8 @@ import java.util.regex.Pattern;
 /**
  * config.json and credentials.json. credentials.json is re-read whenever it changes on disk, so
  * users can be added or removed without a restart. A change that fails to load is logged and
- * ignored: the users loaded last stay in effect. The server writes it too, for a user's own
- * changes (their password).
+ * ignored: the users loaded last stay in effect. The server writes it too: a user's own password,
+ * and what admins change.
  */
 public class SettingsService implements Service {
   private final static Logger LOGGER = Logger.getLogger(SettingsService.class.getName());
@@ -105,32 +110,97 @@ public class SettingsService implements Service {
     return username == null ? null : users.get(username);
   }
 
+  /** @return every user, by username. */
+  public synchronized List<UserCredential> listUsers() {
+    reloadCredentialsIfChanged();
+    return users.values().stream().sorted(Comparator.comparing(UserCredential::getUsername)).toList();
+  }
+
   /**
-   * Replaces the user's password hash in credentials.json, as read from disk now. Only that field
-   * changes: the other users, and the user's other fields (known to this version or not), stay.
+   * Replaces the user's password hash in credentials.json.
    *
    * @throws IllegalArgumentException if there's no such user.
    * @throws IOException if credentials.json can't be read, parsed or written.
    */
   public synchronized void setPassword(String username, PasswordHash password) throws IOException {
+    updateUser(username, user -> user.add("password", PRETTY_GSON.toJsonTree(password)));
+  }
+
+  /**
+   * Sets or clears the user's admin flag in credentials.json. Cleared, the flag is removed: absent
+   * means not admin.
+   *
+   * @throws IllegalArgumentException if there's no such user.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized void setAdmin(String username, boolean admin) throws IOException {
+    updateUser(username, user -> {
+      if (admin) user.addProperty("admin", true);
+      else user.remove("admin");
+    });
+  }
+
+  /**
+   * Adds a user at the end of credentials.json.
+   *
+   * @param email null for none.
+   * @throws IllegalArgumentException if the username is invalid or taken.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized void addUser(String username, String email, boolean admin, PasswordHash password, Instant createdAt) throws IOException {
+    if (username == null || !USERNAME_PATTERN.matcher(username).matches()) {
+      throw new IllegalArgumentException("invalid username \"" + username + "\": must match " + USERNAME_PATTERN.pattern());
+    }
+    JsonObject root = readCredentialsTree();
+    if (!(root.get("users") instanceof JsonArray)) root.add("users", new JsonArray());
+    JsonArray entries = root.getAsJsonArray("users");
+    if (findUser(entries, username) != null) throw new IllegalArgumentException("user \"" + username + "\" already exists");
+    JsonObject user = new JsonObject();
+    user.addProperty("username", username);
+    if (email != null) user.addProperty("email", email);
+    if (admin) user.addProperty("admin", true);
+    user.addProperty("createdAt", createdAt.toString());
+    user.add("password", PRETTY_GSON.toJsonTree(password));
+    entries.add(user);
+    writeCredentialsTree(root);
+  }
+
+  /**
+   * Changes the user's entry in credentials.json, as read from disk now. Only what {@code change}
+   * touches changes: the other users, and the user's other fields (known to this version or not), stay.
+   */
+  private void updateUser(String username, Consumer<JsonObject> change) throws IOException {
+    JsonObject root = readCredentialsTree();
+    JsonObject user = root.get("users") instanceof JsonArray entries ? findUser(entries, username) : null;
+    if (user == null) throw new IllegalArgumentException("no user \"" + username + "\" in " + credentialsFile);
+    change.accept(user);
+    writeCredentialsTree(root);
+  }
+
+  private JsonObject readCredentialsTree() throws IOException {
     JsonElement root;
     try {
       root = JsonParser.parseString(Files.readString(credentialsFile.toPath(), StandardCharsets.UTF_8));
     } catch (JsonParseException e) {
       throw new IOException("invalid JSON: " + e.getMessage(), e);
     }
-    JsonObject user = null;
-    if (root.isJsonObject() && root.getAsJsonObject().get("users") instanceof JsonArray entries) {
-      for (JsonElement entry : entries) {
-        if (!entry.isJsonObject()) continue;
-        JsonElement name = entry.getAsJsonObject().get("username");
-        if (name != null && name.isJsonPrimitive() && username.equals(name.getAsString())) user = entry.getAsJsonObject();
-      }
-    }
-    if (user == null) throw new IllegalArgumentException("no user \"" + username + "\" in " + credentialsFile);
-    user.add("password", PRETTY_GSON.toJsonTree(password));
+    if (!root.isJsonObject()) throw new IOException("not a JSON object");
+    return root.getAsJsonObject();
+  }
+
+  /** Written atomically, then loaded: what's written is what's in effect, or the write fails. */
+  private void writeCredentialsTree(JsonObject root) throws IOException {
     AtomicFiles.write(credentialsFile.toPath(), (PRETTY_GSON.toJson(root) + "\n").getBytes(StandardCharsets.UTF_8));
     loadCredentials();
+  }
+
+  private static JsonObject findUser(JsonArray entries, String username) {
+    for (JsonElement entry : entries) {
+      if (!entry.isJsonObject()) continue;
+      JsonElement name = entry.getAsJsonObject().get("username");
+      if (name != null && name.isJsonPrimitive() && username.equals(name.getAsString())) return entry.getAsJsonObject();
+    }
+    return null;
   }
 
   private void reloadCredentialsIfChanged() {
@@ -164,6 +234,11 @@ public class SettingsService implements Service {
         }
         if (user.getPassword() == null || user.getPassword().getHash() == null || user.getPassword().getSalt() == null) {
           throw new IllegalArgumentException("user \"" + username + "\" has no password hash and salt");
+        }
+        try {
+          user.createdAtInstant();
+        } catch (DateTimeParseException e) {
+          throw new IllegalArgumentException("user \"" + username + "\" has an invalid createdAt, not ISO 8601: \"" + user.getCreatedAt() + "\"");
         }
         if (loaded.put(username, user) != null) {
           throw new IllegalArgumentException("user \"" + username + "\" is declared twice");

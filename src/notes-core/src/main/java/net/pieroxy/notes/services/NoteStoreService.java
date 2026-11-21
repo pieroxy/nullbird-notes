@@ -84,6 +84,14 @@ public class NoteStoreService implements Service {
     }
   }
 
+  /** @return whether there's a data folder for {@code username}, e.g. left by a user removed from credentials.json. */
+  public boolean hasData(String username) {
+    if (username == null || !SettingsService.USERNAME_PATTERN.matcher(username).matches()) {
+      throw new IllegalArgumentException("Invalid username: " + username);
+    }
+    return Files.exists(usersDir.resolve(username));
+  }
+
   public synchronized UserNoteStore getStore(String username) throws IOException {
     if (username == null || !SettingsService.USERNAME_PATTERN.matcher(username).matches()) {
       throw new IllegalArgumentException("Invalid username: " + username);
