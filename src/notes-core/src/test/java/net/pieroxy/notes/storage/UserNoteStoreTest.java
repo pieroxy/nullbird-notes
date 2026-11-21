@@ -678,4 +678,23 @@ public class UserNoteStoreTest {
     assertEquals("sent head, a long enough text", store.readRevision(A, 4).submittedContent());
     assertEquals("merged, a long enough text", store.readRevision(A, 1).content());
   }
+
+  @Test
+  public void aTagMissingFromTheOrderIsAddedAtItsEndOnLoad() throws Exception {
+    store.commit(A, 0, new NoteWrite("x", false, "c1", "d", null));
+    store.commitMeta(A, new MetaWrite("m1", "d", List.of("b", "a"), null, null, null));
+    store.setTagOrder(0, List.of("b", "a"));
+    // As if the commit adding "c" was interrupted before the order was written.
+    Path order = root.resolve("tag-order.json");
+    byte[] before = Files.readAllBytes(order);
+    store.commitMeta(A, new MetaWrite("m2", "d", List.of("c"), null, null, null));
+    Files.write(order, before);
+
+    UserNoteStore.StoredTagOrder loaded = reopen().getTagOrder();
+
+    assertEquals(List.of("b", "a", "c"), loaded.tags());
+    assertEquals(2, loaded.revision());
+    assertTrue("a change: clients must hear of it", loaded.seq() > store.get(A).seq());
+    assertEquals(loaded.seq(), store.getLastSeq());
+  }
 }

@@ -985,10 +985,80 @@ body.resizing {
     font-style: italic;
   }
 
-  .clearfilter {
-    margin: 4px 8px 0;
+  .footactions {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 8px 0;
+  }
+
+  .clearfilter, .reorder {
+    padding: 2px 4px;
     color: var(--accent);
     font-size: 13px;
+
+    &:disabled {
+      color: var(--text-muted);
+      background: transparent;
+    }
+  }
+
+  .reorder {
+    margin-left: auto;
+  }
+
+  .reorderhint {
+    margin: 4px 12px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  &.reordering .tagpanelfoot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: 8px;
+  }
+
+  .reorderitem {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 12px 4px 4px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+
+    &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    &.dragging {
+      background: var(--bg);
+      box-shadow: var(--shadow);
+    }
+  }
+
+  .grip {
+    display: inline-flex;
+    padding: 4px;
+    color: var(--text-muted);
+    cursor: grab;
+    // The pointer events are the drag's, not the page's scroll.
+    touch-action: none;
+
+    svg.icon {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .dragging .grip {
+    cursor: grabbing;
   }
 }
 

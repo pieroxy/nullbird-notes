@@ -17,6 +17,10 @@ import net.pieroxy.notes.sync.NoteInfo;
 import net.pieroxy.notes.sync.NoteRequest;
 import net.pieroxy.notes.sync.NotesResult;
 import net.pieroxy.notes.sync.PushResult;
+import net.pieroxy.notes.sync.TagOrder;
+import net.pieroxy.notes.sync.TagOrderChange;
+import net.pieroxy.notes.sync.TagOrderResult;
+import net.pieroxy.notes.sync.TagOrderStatus;
 import net.pieroxy.notes.sync.PushStatus;
 import net.pieroxy.notes.sync.RejectReason;
 import net.pieroxy.notes.sync.Splice;
@@ -53,6 +57,8 @@ public class NoteService implements Service {
   private final static int MAX_ID_LENGTH = 64;
   static final int MAX_TAGS = 100;
   static final int MAX_TAG_LENGTH = 64;
+  /** Far more tags than anyone has: a bound on a request's size. */
+  static final int MAX_ORDERED_TAGS = 10_000;
   static final int MAX_OPTIONS = 32;
   static final int MAX_OPTION_VALUE_LENGTH = 256;
   private static final Pattern OPTION_KEY_PATTERN = Pattern.compile("[A-Za-z0-9-]{1,64}");
@@ -126,6 +132,37 @@ public class NoteService implements Service {
     }
   }
 
+  /**
+   * Replaces the user's tag order, unless it changed since {@code change}'s base: the client then
+   * replays its moves on the current one. Each tag must be a valid one; tags in use but missing are
+   * added at the end.
+   */
+  public TagOrderResult pushTagOrder(String username, TagOrderChange change) throws IOException {
+    UserNoteStore store = noteStores.getStore(username);
+    synchronized (store) {
+      String invalid = validate(change);
+      if (invalid != null) return new TagOrderResult(TagOrderStatus.REJECTED, invalid, tagOrderOf(store.getTagOrder()));
+      try {
+        return new TagOrderResult(TagOrderStatus.APPLIED, null, tagOrderOf(store.setTagOrder(change.baseRevision(), change.tags())));
+      } catch (UserNoteStore.StaleTagOrderException e) {
+        return new TagOrderResult(TagOrderStatus.STALE, null, tagOrderOf(store.getTagOrder()));
+      }
+    }
+  }
+
+  private static String validate(TagOrderChange change) {
+    if (change.tags() == null) return "No tags.";
+    if (change.tags().size() > MAX_ORDERED_TAGS) return "At most " + MAX_ORDERED_TAGS + " tags.";
+    for (String tag : change.tags()) {
+      if (!isValidTag(tag)) return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.";
+    }
+    return null;
+  }
+
+  private static TagOrder tagOrderOf(UserNoteStore.StoredTagOrder order) {
+    return order == null ? null : new TagOrder(order.revision(), order.tags());
+  }
+
   public ChangesPage changes(String username, long since) throws IOException {
     UserNoteStore store = noteStores.getStore(username);
     synchronized (store) {
@@ -133,7 +170,10 @@ public class NoteService implements Service {
       boolean more = changed.size() > changesPageSize;
       List<NoteMeta> page = more ? changed.subList(0, changesPageSize) : changed;
       long seq = more ? page.get(page.size() - 1).seq() : store.getLastSeq();
-      return new ChangesPage(store.getStoreId(), seq, page.stream().map(NoteService::info).toList(), more);
+      UserNoteStore.StoredTagOrder order = store.getTagOrder();
+      // Within this page's range: a later change of the order comes with the page that reaches it.
+      TagOrder tagOrder = order != null && order.seq() > since && order.seq() <= seq ? tagOrderOf(order) : null;
+      return new ChangesPage(store.getStoreId(), seq, page.stream().map(NoteService::info).toList(), more, tagOrder);
     }
   }
 

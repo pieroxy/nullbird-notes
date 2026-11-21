@@ -12,13 +12,16 @@ import net.pieroxy.notes.services.NoteService;
 import net.pieroxy.notes.sync.MetaChange;
 import net.pieroxy.notes.sync.NoteChange;
 import net.pieroxy.notes.sync.PushResult;
+import net.pieroxy.notes.sync.TagOrderChange;
+import net.pieroxy.notes.sync.TagOrderResult;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Applies changes in order, each on its own: one rejected change doesn't stop the next. Text
- * changes come first, so that metadata changes can apply to notes created in the same push.
+ * changes come first, so that metadata changes can apply to notes created in the same push; the
+ * tag order last, so that it finds the tags those metadata changes add.
  */
 @Endpoint(method = ApiMethod.POST)
 public class PushApi extends AbstractAuthenticatedEndpoint<PushApiInput, PushApiOutput> {
@@ -44,7 +47,8 @@ public class PushApi extends AbstractAuthenticatedEndpoint<PushApiInput, PushApi
     for (MetaChange change : metaChanges) {
       metaResults.add(notes.pushMeta(input.getUsername(), input.getDeviceId(), change));
     }
-    return new PushApiOutput(results, metaResults);
+    TagOrderResult tagOrder = input.getTagOrder() == null ? null : notes.pushTagOrder(input.getUsername(), input.getTagOrder());
+    return new PushApiOutput(results, metaResults, tagOrder);
   }
 }
 
@@ -56,6 +60,16 @@ class PushApiInput extends AuthenticatedApiInput {
   @Required
   private List<NoteChange> changes;
   private List<MetaChange> metaChanges;
+  /** Absent: the order doesn't change. */
+  private TagOrderChange tagOrder;
+
+  public TagOrderChange getTagOrder() {
+    return tagOrder;
+  }
+
+  public void setTagOrder(TagOrderChange tagOrder) {
+    this.tagOrder = tagOrder;
+  }
 
   public String getDeviceId() {
     return deviceId;
@@ -90,13 +104,24 @@ class PushApiOutput {
   /** One per metadata change, in the same order. */
   @Required
   private List<PushResult> metaResults;
+  /** Absent if no tag order was sent. */
+  private TagOrderResult tagOrder;
 
   public PushApiOutput() {
   }
 
-  public PushApiOutput(List<PushResult> results, List<PushResult> metaResults) {
+  public PushApiOutput(List<PushResult> results, List<PushResult> metaResults, TagOrderResult tagOrder) {
     this.results = results;
     this.metaResults = metaResults;
+    this.tagOrder = tagOrder;
+  }
+
+  public TagOrderResult getTagOrder() {
+    return tagOrder;
+  }
+
+  public void setTagOrder(TagOrderResult tagOrder) {
+    this.tagOrder = tagOrder;
   }
 
   public List<PushResult> getResults() {

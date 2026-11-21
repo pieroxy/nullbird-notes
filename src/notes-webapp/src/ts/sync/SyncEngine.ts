@@ -1,4 +1,4 @@
-import { ChangesPage, MetaChange, NoteChange, NoteContent, NoteRequest, PushResult } from "../auto/api-types";
+import { ChangesPage, MetaChange, NoteChange, NoteContent, NoteRequest, PushResult, TagOrderChange, TagOrderResult, TagOrderStatus } from "../auto/api-types";
 import { ApiError, ApiErrorKind } from "../utils/api/Api";
 import { LocalNote } from "./LocalNote";
 import { LocalStore, SyncMeta } from "./LocalStore";
@@ -11,6 +11,7 @@ import {
 } from "./Outcomes";
 import { sha256 } from "./Sha256";
 import { SyncApi } from "./SyncApi";
+import { displayOrder, orderToSend, TagMove } from "./TagOrder";
 import { uuid } from "./Uuid";
 
 export type SyncState = "starting" | "synced" | "saving" | "offline" | "error" | "signedOut" | "outdated";
@@ -132,7 +133,7 @@ export class SyncEngine {
     if (this.errorMessage) return { ...base, state: "error", message: this.errorMessage, nextRetryAt: this.nextRetryAt };
     if (this.offlineSince !== undefined) return { ...base, state: "offline", offlineSince: this.offlineSince, nextRetryAt: this.nextRetryAt };
     if (!this.connected) return { ...base, state: "starting" };
-    if (this.pushing || all.some((note) => hasWork(note))) return { ...base, state: "saving" };
+    if (this.pushing || all.some((note) => hasWork(note)) || this.tagMoves().length > 0) return { ...base, state: "saving" };
     return { ...base, state: "synced" };
   }
 
@@ -185,6 +186,33 @@ export class SyncEngine {
   removeTag(id: string, tag: string) {
     const note = this.notes.get(id);
     if (note && tagsOf(note).includes(tag)) this.changeMeta(note, removeTag(note.metaOps ?? noOps(), tag));
+  }
+
+  /**
+   * The order to list {@code shown} (tags) in, as the user ordered them: undefined while they
+   * never did (alphabetical, then). See TagOrder.ts.
+   */
+  tagOrder(shown: string[]): string[] | undefined {
+    return displayOrder(this.meta.tagOrder, this.tagMoves(), this.allTags(), shown);
+  }
+
+  /** Moves a tag in the order: shown at once, sent to the server with the next push. */
+  moveTag(move: TagMove) {
+    this.meta = { ...this.meta, tagMoves: [...this.tagMoves(), move] };
+    void this.store.putMeta(this.meta);
+    this.schedulePush(0);
+    this.notify();
+  }
+
+  private tagMoves(): TagMove[] {
+    return this.meta.tagMoves ?? [];
+  }
+
+  /** Every tag of every note on the device, deleted ones included, as the server counts them. */
+  private allTags(): Set<string> {
+    const tags = new Set<string>();
+    for (const note of this.notes.values()) for (const tag of tagsOf(note)) tags.add(tag);
+    return tags;
   }
 
   /** A boolean option: off is its default, so it's unset rather than set to "false". */
@@ -274,6 +302,7 @@ export class SyncEngine {
     for (const note of updated) this.notes.set(note.id, note);
     await this.store.putNotes(updated);
     this.meta = { ...this.meta, storeId: page.storeId, cursor: page.seq };
+    if (page.tagOrder && page.tagOrder.revision > (this.meta.tagOrder?.revision ?? 0)) this.meta = { ...this.meta, tagOrder: page.tagOrder };
     await this.store.putMeta(this.meta);
     this.notify();
   }
@@ -302,7 +331,8 @@ export class SyncEngine {
     const all = [...this.notes.values()].map(forResync);
     for (const note of all) this.notes.set(note.id, note);
     await this.store.putNotes(all);
-    this.meta = { deviceId: this.meta.deviceId, cursor: 0 };
+    // The new data's tag order comes with it; the moves not sent yet are replayed on it.
+    this.meta = { deviceId: this.meta.deviceId, cursor: 0, tagMoves: this.meta.tagMoves };
     await this.store.putMeta(this.meta);
     this.notify();
   }
@@ -325,7 +355,7 @@ export class SyncEngine {
   private async push() {
     if (!this.running || this.pushing || this.signedOut || this.outdated || this.nextRetryAt !== undefined) return;
     const candidates = [...this.notes.values()].filter(hasWork);
-    if (candidates.length === 0) return;
+    if (candidates.length === 0 && this.tagMoves().length === 0) return;
     this.pushing = true;
     this.notify();
     try {
@@ -333,21 +363,42 @@ export class SyncEngine {
         this.maxNoteSize = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.maxNoteSize(signal));
       }
       const batch = await this.prepareBatch(candidates);
-      if (batch.changes.length > 0 || batch.metaChanges.length > 0) {
+      // The moves made so far: those made while the push is out stay for the next one.
+      const sentMoves = this.tagMoves().length;
+      const tagOrder: TagOrderChange | undefined = sentMoves > 0
+        ? { baseRevision: this.meta.tagOrder?.revision ?? 0, tags: orderToSend(this.meta.tagOrder, this.tagMoves(), this.allTags()) }
+        : undefined;
+      if (batch.changes.length > 0 || batch.metaChanges.length > 0 || tagOrder) {
         const output = await this.withTimeout(TIMINGS.requestTimeout,
-          (signal) => this.api.push(this.meta.deviceId, batch.changes, batch.metaChanges, signal));
+          (signal) => this.api.push(this.meta.deviceId, batch.changes, batch.metaChanges, tagOrder, signal));
         // Stopped meanwhile: another engine may own the store now. Pending changes get resent, then replayed.
         if (!this.running) return;
         await this.applyPushResults(output.results, output.metaResults);
+        if (output.tagOrder) await this.applyTagOrderResult(output.tagOrder, sentMoves);
       }
       this.succeeded();
       this.pushing = false;
-      if ([...this.notes.values()].some((note) => isPushable(note) || hasMetaToPush(note))) this.schedulePush(0);
+      if ([...this.notes.values()].some((note) => isPushable(note) || hasMetaToPush(note)) || this.tagMoves().length > 0) this.schedulePush(0);
     } catch (e) {
       this.pushing = false;
       await this.failed(e);
     }
     this.notify();
+  }
+
+  /**
+   * Applied, the moves sent are done; stale (the order changed since), they stay, to be replayed on
+   * the order the server has now; rejected, they're dropped: they'd be rejected again.
+   */
+  private async applyTagOrderResult(result: TagOrderResult, sentMoves: number) {
+    const known = this.meta.tagOrder?.revision ?? 0;
+    let meta: SyncMeta = this.meta;
+    if (result.order && result.order.revision >= known) meta = { ...meta, tagOrder: result.order };
+    else if (!result.order && result.status === TagOrderStatus.STALE) meta = { ...meta, tagOrder: undefined };
+    if (result.status !== TagOrderStatus.STALE) meta = { ...meta, tagMoves: this.tagMoves().slice(sentMoves) };
+    if (result.status === TagOrderStatus.REJECTED) console.warn("Tag order refused by the server: " + result.message);
+    this.meta = meta;
+    await this.store.putMeta(meta);
   }
 
   /**

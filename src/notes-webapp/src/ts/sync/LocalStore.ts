@@ -1,3 +1,5 @@
+import { TagOrder } from "../auto/api-types";
+import { TagMove } from "./TagOrder";
 import { LocalNote } from "./LocalNote";
 
 /** Sync state of the device, stored alongside the notes. */
@@ -6,6 +8,10 @@ export interface SyncMeta {
   /** Absent until the first page of changes. */
   storeId?: string;
   cursor: number;
+  /** The server's tag order: absent while the user never ordered their tags. */
+  tagOrder?: TagOrder;
+  /** Tag moves the server hasn't confirmed yet, oldest first (see TagOrder.ts). */
+  tagMoves?: TagMove[];
 }
 
 const NOTES = "notes";

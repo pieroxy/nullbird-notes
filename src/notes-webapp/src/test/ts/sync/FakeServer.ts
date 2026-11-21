@@ -1,5 +1,6 @@
 import {
   ChangesPage, MetaChange, NoteChange, NoteInfo, NoteRequest, NotesResult, PushApiOutput, PushResult, PushStatus, RejectReason,
+  TagOrder, TagOrderChange, TagOrderResult, TagOrderStatus,
 } from "../../../ts/auto/api-types";
 import { ApiError, ApiErrorKind } from "../../../ts/utils/api/Api";
 import { sha256Bytes } from "../../../ts/sync/Sha256";
@@ -41,6 +42,10 @@ export class FakeServer implements SyncApi {
   fetchGate?: Promise<void>;
   /** Every fetch received, in order. */
   readonly fetches: NoteRequest[][] = [];
+  /** The user's tag order, as the real server keeps it (see UserNoteStore): none until first sent. */
+  tagOrder?: TagOrder & { seq: number };
+  /** Every tag order received, in order. */
+  readonly tagOrderPushes: TagOrderChange[] = [];
   private readonly replays = new Map<string, PushResult>();
   private waiters: (() => void)[] = [];
 
@@ -62,7 +67,8 @@ export class FakeServer implements SyncApi {
       });
     }
     const notes = [...this.notes.values()].map((n) => n.info).filter((info) => info.seq > since).sort((a, b) => a.seq - b.seq);
-    return { storeId: this.storeId, seq: this.seq, notes, more: false };
+    const order = this.tagOrder && this.tagOrder.seq > since ? { revision: this.tagOrder.revision, tags: this.tagOrder.tags } : undefined;
+    return { storeId: this.storeId, seq: this.seq, notes, more: false, tagOrder: order };
   }
 
   async getNotes(requests: NoteRequest[]): Promise<NotesResult> {
@@ -85,14 +91,29 @@ export class FakeServer implements SyncApi {
     return { notes, missing };
   }
 
-  async push(_deviceId: string, changes: NoteChange[], metaChanges: MetaChange[]): Promise<PushApiOutput> {
+  async push(_deviceId: string, changes: NoteChange[], metaChanges: MetaChange[], tagOrder?: TagOrderChange): Promise<PushApiOutput> {
     this.check();
     if (changes.length > 0) this.pushes.push(changes);
     if (metaChanges.length > 0) this.metaPushes.push(metaChanges);
+    if (tagOrder) this.tagOrderPushes.push(tagOrder);
     if (this.gate) await this.gate;
     const results = changes.map((change) => this.once(change.changeId, () => this.onPush?.(change) ?? this.fastForward(change)));
     const metaResults = metaChanges.map((change) => this.once(change.changeId, () => this.applyMeta(change)));
-    return { results, metaResults };
+    return { results, metaResults, tagOrder: tagOrder ? this.applyTagOrder(tagOrder) : undefined };
+  }
+
+  /** Another device's tag order. */
+  writeTagOrder(tags: string[]) {
+    this.seq++;
+    this.tagOrder = { revision: (this.tagOrder?.revision ?? 0) + 1, tags, seq: this.seq };
+    this.wake();
+  }
+
+  private applyTagOrder(change: TagOrderChange): TagOrderResult {
+    const current = () => (this.tagOrder ? { revision: this.tagOrder.revision, tags: this.tagOrder.tags } : undefined);
+    if (change.baseRevision !== (this.tagOrder?.revision ?? 0)) return { status: TagOrderStatus.STALE, order: current() };
+    this.writeTagOrder([...new Set(change.tags)]);
+    return { status: TagOrderStatus.APPLIED, order: current() };
   }
 
   /** Another device's tag and option change. */
@@ -100,6 +121,11 @@ export class FakeServer implements SyncApi {
     const note = this.notes.get(id)!;
     this.seq++;
     note.info = { ...note.info, seq: this.seq, tags, options };
+    // As the real server: once there's an order, a tag new to the user goes at its end.
+    if (this.tagOrder) {
+      const added = tags.filter((tag) => !this.tagOrder!.tags.includes(tag));
+      if (added.length > 0) this.tagOrder = { revision: this.tagOrder.revision + 1, tags: [...this.tagOrder.tags, ...added], seq: this.seq };
+    }
     this.wake();
     return note.info;
   }

@@ -49,10 +49,28 @@ export function tagCounts(filter: TagFilter, notes: string[][]): TagCount[] {
     .sort((a, b) => a.tag.localeCompare(b.tag, undefined, { sensitivity: "base" }) || (a.tag < b.tag ? -1 : 1));
 }
 
+/** {@code counts} in {@code order} (as the user ordered their tags), or as they are without one. */
+export function inOrder(counts: TagCount[], order: string[] | undefined): TagCount[] {
+  if (!order) return counts;
+  const rank = new Map(order.map((tag, i) => [tag, i]));
+  return [...counts].sort((a, b) => (rank.get(a.tag) ?? order.length) - (rank.get(b.tag) ?? order.length));
+}
+
 /** Those whose name contains {@code search}, ignoring case. */
 export function findTags(counts: TagCount[], search: string): TagCount[] {
   const needle = search.trim().toLowerCase();
   return needle ? counts.filter((count) => count.tag.toLowerCase().includes(needle)) : counts;
+}
+
+/**
+ * The tags to list: those found by {@code search}, without, while tags are selected, those that
+ * would leave no note: dead ends, since selected tags combine. Selected ones always stay, to be
+ * unselected. Not in the untagged view: no shown note has a tag, every count is 0, and tags are
+ * the way out of it.
+ */
+export function visibleTags(counts: TagCount[], filter: TagFilter, search: string): TagCount[] {
+  const found = findTags(counts, search);
+  return filter.tags.length > 0 ? found.filter((count) => count.selected || count.count > 0) : found;
 }
 
 const STORAGE_PREFIX = "notes.tagFilter.";

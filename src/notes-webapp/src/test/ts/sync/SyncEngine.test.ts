@@ -400,4 +400,98 @@ describe("SyncEngine", () => {
     expect(engine.get(A)?.text).toBe("Mine, edited during the fetch");
     await until(() => server.text(A) === "Mine, edited during the fetch");
   });
+
+  describe("tag order", () => {
+    async function withTags() {
+      server.write(A, "First");
+      server.write(B, "Second");
+      server.writeMeta(A, ["work", "home"], {});
+      server.writeMeta(B, ["art"], {});
+      await startEngine();
+    }
+
+    test("alphabetical until the first move, which starts from it", async () => {
+      await withTags();
+      expect(engine.tagOrder(["work", "home", "art"])).toBeUndefined();
+
+      engine.moveTag({ tag: "work", after: null });
+      expect(engine.tagOrder(["work", "home", "art"])).toEqual(["work", "art", "home"]);
+      await until(() => engine.status().state === "synced");
+      expect(server.tagOrderPushes).toEqual([{ baseRevision: 0, tags: ["work", "art", "home"] }]);
+      expect(server.tagOrder?.tags).toEqual(["work", "art", "home"]);
+      expect((await store.getMeta())?.tagMoves).toEqual([]);
+    });
+
+    test("another device's order arrives with the changes", async () => {
+      await withTags();
+      server.writeTagOrder(["home", "art", "work"]);
+      await until(() => engine.tagOrder(["work", "home", "art"])?.[0] === "home");
+      expect(engine.tagOrder(["work", "home", "art"])).toEqual(["home", "art", "work"]);
+    });
+
+    test("moves made on two devices both survive: a stale one is replayed on the newer order", async () => {
+      await withTags();
+      engine.moveTag({ tag: "home", after: null });
+      await until(() => server.tagOrder?.revision === 1);
+      await until(() => engine.status().state === "synced");
+      // Offline here, the user moves art to the top; meanwhile another device moves work to the top.
+      server.failNext = 1000;
+      engine.moveTag({ tag: "art", after: null });
+      await until(() => engine.status().state === "offline");
+      server.writeTagOrder(["work", "home", "art"]);
+      server.failNext = 0;
+      engine.retryNow();
+
+      await until(() => engine.status().state === "synced" && server.tagOrder?.tags[0] === "art", 5_000);
+      expect(server.tagOrder?.tags).toEqual(["art", "work", "home"]);
+      // Sent on the other device's order, whether learned from the changes or from a stale refusal.
+      expect(server.tagOrderPushes.at(-1)).toEqual({ baseRevision: 2, tags: ["art", "work", "home"] });
+      expect(engine.tagOrder(["work", "home", "art"])).toEqual(["art", "work", "home"]);
+    });
+
+    test("moves are kept on the device until the server has them", async () => {
+      await withTags();
+      server.failNext = 1000;
+      engine.moveTag({ tag: "work", after: null });
+      await until(() => engine.status().state === "offline");
+      await engine.stop();
+
+      server.failNext = 0;
+      engine = new SyncEngine(store, server);
+      await engine.start();
+      expect(engine.tagOrder(["work", "home", "art"])).toEqual(["work", "art", "home"]);
+      await until(() => server.tagOrder?.tags[0] === "work");
+    });
+
+    test("once ordered, a new tag goes at the end: before the server has it, and after", async () => {
+      await withTags();
+      engine.moveTag({ tag: "work", after: null });
+      await until(() => engine.status().state === "synced");
+
+      server.failNext = 1000;
+      engine.addTag(B, "aaa");
+      expect(engine.tagOrder(["work", "home", "art", "aaa"])).toEqual(["work", "art", "home", "aaa"]);
+      server.failNext = 0;
+      engine.retryNow();
+      await until(() => engine.status().state === "synced" && server.tagOrder?.tags.includes("aaa") === true, 5_000);
+      await until(() => engine.tagOrder(["aaa"])?.length === 1 && (engine as unknown as { meta: { tagOrder?: { tags: string[] } } }).meta.tagOrder?.tags.includes("aaa") === true, 5_000);
+      expect(engine.tagOrder(["work", "home", "art", "aaa"])).toEqual(["work", "art", "home", "aaa"]);
+    });
+
+    test("a stale order is replayed on the one the server returns", async () => {
+      await withTags();
+      engine.moveTag({ tag: "home", after: null });
+      await until(() => engine.status().state === "synced" && server.tagOrder?.revision === 1);
+      // Another device's order, which this one doesn't hear of before pushing: no wake-up.
+      server.tagOrder = { revision: 2, tags: ["work", "home", "art"], seq: server.tagOrder!.seq };
+      engine.moveTag({ tag: "art", after: null });
+
+      await until(() => engine.status().state === "synced" && server.tagOrder?.revision === 3, 5_000);
+      expect(server.tagOrderPushes.slice(-2)).toEqual([
+        { baseRevision: 1, tags: ["art", "home", "work"] },
+        { baseRevision: 2, tags: ["art", "work", "home"] },
+      ]);
+      expect(engine.tagOrder(["work", "home", "art"])).toEqual(["art", "work", "home"]);
+    });
+  });
 });

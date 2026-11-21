@@ -20,6 +20,7 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ import java.util.stream.Collectors;
  * notes/&lt;id&gt;/content.txt         the head revision's content, plain UTF-8
  * notes/&lt;id&gt;/revisions/NNNNNN.json.lz4   every {@link Revision}
  * notes/&lt;id&gt;/meta/NNNNNN.json  every {@link MetaRevision}
+ * tag-order.json                 {@link StoredTagOrder}: absent until the user first reorders their tags
  * </pre>
  * The head revision's file holds its text; an older one's, a splice turning the next revision's
  * text back into its own (a reverse delta), except every {@link #FULL_REVISION_INTERVAL}th one
@@ -58,8 +60,12 @@ import java.util.stream.Collectors;
  *   <li>a content.txt not matching note.json's hash is rewritten from the head revision when read;</li>
  *   <li>a stale user.json is superseded by the notes' own seq on load;</li>
  *   <li>a previous revision not turned into a delta stays complete: only bigger;</li>
- *   <li>a note folder without note.json (an interrupted creation) is ignored.</li>
+ *   <li>a note folder without note.json (an interrupted creation) is ignored;</li>
+ *   <li>a tag missing from tag-order.json (a metadata commit interrupted before it) is added at
+ *   its end on load.</li>
  * </ul>
+ * Once there's a tag order, a metadata commit keeps it complete: a tag new to the user goes at its
+ * end, and one no note has any more leaves it.
  */
 public class UserNoteStore {
   private final static Logger LOGGER = Logger.getLogger(UserNoteStore.class.getName());
@@ -81,6 +87,23 @@ public class UserNoteStore {
   }
 
   private record UserState(long lastSeq, String storeId) {}
+
+  /**
+   * The order the user gave their tags.
+   *
+   * @param seq when it last changed, from the same sequence as the notes: change queries report it.
+   */
+  public record StoredTagOrder(int revision, long seq, List<String> tags) {}
+
+  /** A tag order sent with another base revision than the current one. */
+  public static class StaleTagOrderException extends Exception {
+    public StaleTagOrderException(int expected, int actual) {
+      super("The tag order is at revision " + actual + ", expected " + expected);
+    }
+  }
+
+  /** Case-insensitive first, as the web app sorts tags. */
+  private static final Comparator<String> ALPHABETICAL = String.CASE_INSENSITIVE_ORDER.thenComparing(Comparator.naturalOrder());
 
   /**
    * A revision file: {@code content}, or {@code delta} applied to revision {@code deltaBase}'s
@@ -105,6 +128,8 @@ public class UserNoteStore {
   private final Map<String, String> metaChanges = new HashMap<>();
   private long lastSeq;
   private String storeId;
+  /** Null until the user first reorders their tags. */
+  private StoredTagOrder tagOrder;
   private final List<Runnable> seqWaiters = new ArrayList<>();
   CommitHook commitHook = step -> {};
   /** Visible for tests. */
@@ -398,8 +423,69 @@ public class UserNoteStore {
         metaRevision, write.changeId());
     writeMeta(meta);
     if (write.changeId() != null) metaChanges.put(write.changeId(), noteId);
+    keepTagOrderComplete(tags, write.removeTags(), seq);
     afterMetaWritten();
     return meta;
+  }
+
+  /** @return the user's tag order, null if they never reordered their tags. */
+  public synchronized StoredTagOrder getTagOrder() {
+    return tagOrder;
+  }
+
+  /**
+   * Replaces the tag order at {@code baseRevision} (0 when there's none yet) with {@code tags},
+   * duplicates dropped, tags in use but missing added at the end alphabetically. Left as is if
+   * that's already the order.
+   *
+   * @throws StaleTagOrderException if the order isn't at {@code baseRevision} any more.
+   */
+  public synchronized StoredTagOrder setTagOrder(int baseRevision, List<String> tags) throws IOException, StaleTagOrderException {
+    int current = tagOrder == null ? 0 : tagOrder.revision();
+    if (baseRevision != current) throw new StaleTagOrderException(baseRevision, current);
+    LinkedHashSet<String> order = new LinkedHashSet<>(tags);
+    usedTags().stream().filter(tag -> !order.contains(tag)).sorted(ALPHABETICAL).forEach(order::add);
+    List<String> next = List.copyOf(order);
+    if (tagOrder != null && next.equals(tagOrder.tags())) return tagOrder;
+    long seq = lastSeq + 1;
+    writeTagOrder(new StoredTagOrder(current + 1, seq, next));
+    lastSeq = seq;
+    wakeSeqWaiters();
+    try {
+      writeUserState();
+    } catch (IOException e) {
+      LOGGER.log(Level.SEVERE, "Could not write user.json of " + root.getFileName() + " (recovered from tag-order.json on next load)", e);
+    }
+    return tagOrder;
+  }
+
+  /**
+   * After a metadata commit leaving a note with {@code tags}: a tag new to the user goes at the end
+   * of the order, and a removed one no note has any more leaves it. Nothing while there's no order.
+   */
+  private void keepTagOrderComplete(List<String> tags, List<String> removed, long seq) throws IOException {
+    if (tagOrder == null) return;
+    LinkedHashSet<String> order = new LinkedHashSet<>(tagOrder.tags());
+    boolean changed = false;
+    for (String tag : tags) changed |= order.add(tag);
+    if (removed != null) {
+      for (String tag : removed) {
+        if (order.contains(tag) && index.values().stream().noneMatch(note -> note.tags().contains(tag))) changed |= order.remove(tag);
+      }
+    }
+    if (changed) writeTagOrder(new StoredTagOrder(tagOrder.revision() + 1, seq, List.copyOf(order)));
+  }
+
+  /** Every tag of every note, deleted ones included: they come back with their tags if restored. */
+  private Set<String> usedTags() {
+    Set<String> used = new HashSet<>();
+    for (NoteMeta note : index.values()) used.addAll(note.tags());
+    return used;
+  }
+
+  private void writeTagOrder(StoredTagOrder order) throws IOException {
+    AtomicFiles.write(root.resolve("tag-order.json"), PRETTY_GSON.toJson(order).getBytes(StandardCharsets.UTF_8));
+    tagOrder = order;
   }
 
   /** The note's tags once {@code write} is applied: removals first, additions at the end. */
@@ -477,11 +563,32 @@ public class UserNoteStore {
       }
     }
     loadNotes();
+    loadTagOrder();
     if (storeId == null) {
       storeId = UUID.randomUUID().toString();
       writeUserState();
       LOGGER.info("New store ID for " + root.getFileName() + ": its clients will resync from scratch");
     }
+  }
+
+  /** A tag in use but missing (a metadata commit interrupted before the order was written) is added at the end. */
+  private void loadTagOrder() throws IOException {
+    Path file = root.resolve("tag-order.json");
+    if (!Files.isRegularFile(file)) return;
+    StoredTagOrder stored = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8), StoredTagOrder.class);
+    if (stored == null || stored.tags() == null) return;
+    tagOrder = stored;
+    lastSeq = Math.max(lastSeq, stored.seq());
+    LinkedHashSet<String> order = new LinkedHashSet<>(stored.tags());
+    List<String> missing = usedTags().stream().filter(tag -> !order.contains(tag)).sorted(ALPHABETICAL).toList();
+    if (missing.isEmpty()) return;
+    order.addAll(missing);
+    long seq = lastSeq + 1;
+    writeTagOrder(new StoredTagOrder(stored.revision() + 1, seq, List.copyOf(order)));
+    lastSeq = seq;
+    // Without a storeId yet, load() writes user.json next.
+    if (storeId != null) writeUserState();
+    LOGGER.warning("Tag order of " + root.getFileName() + " completed with " + missing.size() + " tag(s) missing from it");
   }
 
   private void writeUserState() throws IOException {

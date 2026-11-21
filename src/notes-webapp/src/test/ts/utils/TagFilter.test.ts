@@ -1,4 +1,4 @@
-import { isActive, matches, NO_FILTER, tagCounts, toggle, toggleUntagged } from "../../../ts/utils/TagFilter";
+import { inOrder, isActive, matches, NO_FILTER, tagCounts, toggle, toggleUntagged, visibleTags } from "../../../ts/utils/TagFilter";
 
 const NOTES = [["work", "urgent"], ["work"], ["home"], [], ["work", "home"]];
 
@@ -48,5 +48,40 @@ describe("TagFilter", () => {
 
   test("sorted regardless of case, then upper case first", () => {
     expect(tagCounts(NO_FILTER, [["b", "a", "B", "C"]]).map((c) => c.tag)).toEqual(["a", "B", "b", "C"]);
+  });
+
+  test("inOrder: as ordered, alphabetical without an order, unknown ones last", () => {
+    const counts = [{ tag: "a", count: 1, selected: false }, { tag: "b", count: 1, selected: false }, { tag: "c", count: 0, selected: true }];
+    expect(inOrder(counts, undefined).map((c) => c.tag)).toEqual(["a", "b", "c"]);
+    expect(inOrder(counts, ["b", "a"]).map((c) => c.tag)).toEqual(["b", "a", "c"]);
+  });
+
+  describe("visibleTags", () => {
+    const notes = [["work", "urgent"], ["work"], ["home"], []];
+
+    test("no filter: every tag", () => {
+      expect(visibleTags(tagCounts(NO_FILTER, notes), NO_FILTER, "").map((c) => c.tag)).toEqual(["home", "urgent", "work"]);
+    });
+
+    test("a tag selected: those that would leave no note go, the selected one stays", () => {
+      const filter = { tags: ["work"], untagged: false };
+      expect(visibleTags(tagCounts(filter, notes), filter, "").map((c) => c.tag)).toEqual(["urgent", "work"]);
+    });
+
+    test("a selected tag no note has any more stays, to be unselected", () => {
+      const filter = { tags: ["gone"], untagged: false };
+      expect(visibleTags(tagCounts(filter, notes), filter, "").map((c) => c.tag)).toEqual(["gone"]);
+    });
+
+    test("the search narrows what's left", () => {
+      const filter = { tags: ["work"], untagged: false };
+      expect(visibleTags(tagCounts(filter, notes), filter, "URG").map((c) => c.tag)).toEqual(["urgent"]);
+      expect(visibleTags(tagCounts(filter, notes), filter, "home")).toEqual([]);
+    });
+
+    test("the untagged view keeps every tag: they're the way out", () => {
+      const filter = { tags: [], untagged: true };
+      expect(visibleTags(tagCounts(filter, notes), filter, "").map((c) => c.tag)).toEqual(["home", "urgent", "work"]);
+    });
   });
 });

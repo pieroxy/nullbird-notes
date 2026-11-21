@@ -1,6 +1,7 @@
 import m from "mithril";
 import { LocalNote } from "../../sync/LocalNote";
 import { isOn, MONOSPACE, NOWRAP, tagsOf } from "../../sync/Metadata";
+import { moveTo } from "../../sync/TagOrder";
 import { session } from "../../sync/Session";
 import { SyncEngine } from "../../sync/SyncEngine";
 import { Auth } from "../../utils/Auth";
@@ -9,7 +10,7 @@ import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { loadLayout, PaneLayout, resetWidth, saveLayout, SidePane, tagsShown, toggleList, toggleTags, withWidth } from "../../utils/PaneLayout";
 import { findMatches, fold, matches as searchMatches, MAX_MATCHES, parseQuery, Range, SearchIndex, snippet } from "../../utils/Search";
-import { findTags, isActive, loadFilter, matches, NO_FILTER, saveFilter, TagCount, TagFilter, tagCounts, toggle } from "../../utils/TagFilter";
+import { inOrder, isActive, loadFilter, matches, NO_FILTER, saveFilter, TagCount, TagFilter, tagCounts, toggle, visibleTags } from "../../utils/TagFilter";
 import { Dropdown } from "../Dropdown";
 import { icon, iconButton } from "../Icons";
 import { FindAttrs, NoteEditor } from "../NoteEditor";
@@ -104,7 +105,7 @@ export class NotesPage extends AbstractPage {
             search: this.tagSearch,
             onSearch: (search) => (this.tagSearch = search),
             onPick: () => {
-              const first = findTags(this.tagCounts(engine), this.tagSearch)[0];
+              const first = visibleTags(this.tagCounts(engine), this.filter, this.tagSearch)[0];
               if (first) this.setFilter(toggle(this.filter, first.tag));
             },
           }) : m("span.spacer"),
@@ -178,10 +179,21 @@ export class NotesPage extends AbstractPage {
       m(TagPanel, {
         key: "tags",
         filter: this.filter,
-        counts: tagCounts(this.filter, [...tags.values()]),
+        counts: this.tagCounts(engine),
         search: this.tagSearch,
         untaggedCount: [...tags.values()].filter((noteTags) => noteTags.length === 0).length,
         onChange: onFilter,
+        onMove: (tag: string, index: number) => {
+          const listed = this.tagCounts(engine).map((count) => count.tag);
+          engine.moveTag(moveTo(listed, tag, index));
+        },
+        onMoveBy: (tag: string, by: number) => {
+          // From the order as it is now: the engine has the previous move already, the page may not show it yet.
+          const listed = this.tagCounts(engine).map((count) => count.tag);
+          const at = listed.indexOf(tag);
+          const to = at + by;
+          if (at >= 0 && to >= 0 && to < listed.length) engine.moveTag(moveTo(listed, tag, to));
+        },
       }),
       this.resizer("tags"),
       m(NoteList, {
@@ -254,8 +266,10 @@ export class NotesPage extends AbstractPage {
     saveLayout(layout);
   }
 
+  /** In the user's order, once they gave one; alphabetical until then. */
   private tagCounts(engine: SyncEngine): TagCount[] {
-    return tagCounts(this.filter, engine.list().map(tagsOf));
+    const counts = tagCounts(this.filter, engine.list().map(tagsOf));
+    return inOrder(counts, engine.tagOrder(counts.map((count) => count.tag)));
   }
 
   private searchAttrs() {
