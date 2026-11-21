@@ -2,8 +2,9 @@ import { NoteInfo, PushResult, PushStatus, RejectReason } from "../../../ts/auto
 import { LocalNote } from "../../../ts/sync/LocalNote";
 import {
   applyPushResult, applyRemote, changeOf, created, deletedLocally, edited, forResync, haveRevision, isPushable, needsFetch,
-  prepareChange, remoteText, sortKey,
+  prepareChange, remoteText, sortKey, compareNotes,
 } from "../../../ts/sync/Outcomes";
+import { noOps, setOption } from "../../../ts/sync/Metadata";
 import { computeSplice, fullSplice } from "../../../ts/sync/Splice";
 
 const ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -239,5 +240,28 @@ describe("local edits", () => {
   test("unsynced edits sort by their local time", () => {
     expect(sortKey(synced(BASE, 3))).toBe(1003);
     expect(sortKey(edited(synced(BASE, 3), "x", 5000))).toBe(5000);
+  });
+});
+
+describe("compareNotes", () => {
+  const at = (id: string, modifiedAt: number, pinned = false): LocalNote => ({
+    ...synced(id, 1), id, info: info(1, { id, modifiedAt, options: pinned ? { pinned: "true" } : {} }),
+  });
+  const order = (notes: LocalNote[]) => [...notes].sort(compareNotes).map((note) => note.id);
+
+  test("pinned first, then the others, each newest first", () => {
+    expect(order([at("old", 1), at("pinned-old", 2, true), at("new", 5), at("pinned-new", 3, true)]))
+      .toEqual(["pinned-new", "pinned-old", "new", "old"]);
+  });
+
+  test("a pinned note edited goes to the top of the pinned ones", () => {
+    const edited = { ...at("pinned-old", 2, true), dirty: true, editedAt: 99 };
+    expect(order([at("pinned-new", 3, true), edited, at("new", 50)])).toEqual(["pinned-old", "pinned-new", "new"]);
+  });
+
+  test("a pin or an unpin not synced yet counts", () => {
+    const pinning = { ...at("old", 1), metaOps: setOption(noOps(), "pinned", "true") };
+    const unpinning = { ...at("was-pinned", 2, true), pendingMeta: { changeId: "m1", ops: setOption(noOps(), "pinned", undefined) } };
+    expect(order([at("new", 5), unpinning, pinning])).toEqual(["old", "new", "was-pinned"]);
   });
 });

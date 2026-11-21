@@ -1184,6 +1184,16 @@ body.resizing {
     gap: 8px;
   }
 
+  .pinned {
+    display: inline-flex;
+    color: var(--text-muted);
+
+    svg.icon {
+      width: 13px;
+      height: 13px;
+    }
+  }
+
   .title {
     flex: 1;
     font-weight: 500;

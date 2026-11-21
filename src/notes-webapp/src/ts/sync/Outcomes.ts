@@ -1,6 +1,6 @@
 import { NoteChange, NoteContent, NoteInfo, PushResult, PushStatus, RejectReason } from "../auto/api-types";
 import { LocalNote } from "./LocalNote";
-import { mergeOps, metaStateOf, noOps } from "./Metadata";
+import { isOn, mergeOps, metaStateOf, noOps, PINNED } from "./Metadata";
 import { applySplice, computeSplice } from "./Splice";
 
 /**
@@ -161,4 +161,13 @@ export function deletedLocally(note: LocalNote, now: number): LocalNote | undefi
 /** For the note list: newest first, unsynced edits by their local time until the server's catches up. */
 export function sortKey(note: LocalNote): number {
   return note.dirty || !note.info ? Math.max(note.editedAt, note.info?.modifiedAt ?? 0) : note.info.modifiedAt;
+}
+
+/**
+ * The note list's order: pinned notes first, then the others, each newest first (see sortKey).
+ * Pinned as the user sees it: a pin not synced yet counts.
+ */
+export function compareNotes(a: LocalNote, b: LocalNote): number {
+  const pinned = Number(isOn(b, PINNED)) - Number(isOn(a, PINNED));
+  return pinned !== 0 ? pinned : sortKey(b) - sortKey(a);
 }

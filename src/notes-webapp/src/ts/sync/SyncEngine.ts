@@ -7,7 +7,7 @@ import {
 } from "./Metadata";
 import {
   applyPushResult, applyRemote, changeOf, created, deletedLocally, edited, forResync, haveRevision, isPushable, needsFetch,
-  prepareChange, remoteText, sortKey,
+  compareNotes, prepareChange, remoteText,
 } from "./Outcomes";
 import { sha256 } from "./Sha256";
 import { SyncApi } from "./SyncApi";
@@ -114,9 +114,9 @@ export class SyncEngine {
   }
 
 
-  /** Notes not deleted, newest first. */
+  /** Notes not deleted, pinned ones first, then newest first (see compareNotes). */
   list(): LocalNote[] {
-    return [...this.notes.values()].filter((note) => !note.deleted).sort((a, b) => sortKey(b) - sortKey(a));
+    return [...this.notes.values()].filter((note) => !note.deleted).sort(compareNotes);
   }
 
   get(id: string): LocalNote | undefined {

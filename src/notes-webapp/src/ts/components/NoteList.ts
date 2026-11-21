@@ -1,10 +1,11 @@
 import m from "mithril";
 import { LocalNote } from "../sync/LocalNote";
+import { isOn, PINNED } from "../sync/Metadata";
 import { sortKey } from "../sync/Outcomes";
 import { shortDate, titleAndExcerpt } from "../utils/format";
 import { Snippet } from "../utils/Search";
 import { isActive, NO_FILTER, TagFilter, toggle } from "../utils/TagFilter";
-import { iconButton } from "./Icons";
+import { icon, iconButton } from "./Icons";
 import { noteSearch, NoteSearchAttrs } from "./NoteSearch";
 
 export interface NoteListAttrs extends NoteSearchAttrs {
@@ -21,6 +22,9 @@ export interface NoteListAttrs extends NoteSearchAttrs {
 }
 
 export class NoteList implements m.ClassComponent<NoteListAttrs> {
+  /** Where the selected note was last drawn. */
+  private selectedIndex = -1;
+
   view({ attrs }: m.Vnode<NoteListAttrs>): m.Children {
     const filtered = isActive(attrs.filter);
     const searching = attrs.snippetOf !== undefined;
@@ -57,9 +61,23 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
     const { title, excerpt } = titleAndExcerpt(note.text);
     const snippet = attrs.snippetOf?.(note);
     const unsynced = note.dirty || note.pending !== undefined;
-    return m("li" + (note.id === attrs.selectedId ? ".selected" : ""), { key: note.id, onclick: () => attrs.onSelect(note.id) }, [
+    const selected = note.id === attrs.selectedId;
+    // Pinning or unpinning moves the selected note: keep it in sight.
+    const keepInSight = (vnode: m.VnodeDOM) => {
+      if (!selected) return;
+      const index = attrs.notes.indexOf(note);
+      if (index !== this.selectedIndex) (vnode.dom as HTMLElement).scrollIntoView({ block: "nearest" });
+      this.selectedIndex = index;
+    };
+    return m("li" + (selected ? ".selected" : ""), {
+      key: note.id,
+      onclick: () => attrs.onSelect(note.id),
+      oncreate: keepInSight,
+      onupdate: keepInSight,
+    }, [
       m(".itemhead", [
         m("span.title" + (title ? "" : ".untitled"), title || "New note"),
+        isOn(note, PINNED) ? m("span.pinned", { title: "Pinned", "aria-label": "Pinned" }, icon("pin")) : null,
         m("span.date", shortDate(sortKey(note))),
       ]),
       m(".itemfoot", [
