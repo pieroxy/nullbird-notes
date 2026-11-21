@@ -149,6 +149,29 @@ public class SimplenoteExportTest {
   }
 
   @Test
+  public void booleanOptionsAsSimplenotesPinnedAndMarkdown() throws Exception {
+    write(A, 0, "Both", false);
+    store.commitMeta(A, new MetaWrite("m1", "device", null, null, Map.of("pinned", "true", "markdown", "true", "monospace", "true",
+        "nowrap", "true", "color", "blue"), null));
+    write(B, 0, "Neither", false);
+    store.commitMeta(B, new MetaWrite("m2", "device", null, null, Map.of("pinned", "no"), null));
+
+    JsonArray notes = notesJson(export()).getAsJsonArray("activeNotes");
+    JsonObject both = notes.get(0).getAsJsonObject().get("content").getAsString().equals("Both") ? notes.get(0).getAsJsonObject()
+        : notes.get(1).getAsJsonObject();
+    JsonObject neither = both == notes.get(0).getAsJsonObject() ? notes.get(1).getAsJsonObject() : notes.get(0).getAsJsonObject();
+
+    for (String option : List.of("pinned", "markdown", "monospace", "nowrap")) {
+      assertTrue(option, both.get(option).getAsBoolean());
+      assertFalse(option, neither.has(option));
+    }
+    // An option the app doesn't know: as is, in options.
+    assertEquals("{\"color\":\"blue\"}", both.getAsJsonObject("options").toString());
+    // Not "true": not a pinned note, but still an option the user has.
+    assertEquals("no", neither.getAsJsonObject("options").get("pinned").getAsString());
+  }
+
+  @Test
   public void nonAsciiIsWrittenAsIs() throws Exception {
     write(A, 0, "Café <b> & \"quotes\"\ttab", false);
 

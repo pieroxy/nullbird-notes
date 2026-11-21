@@ -3,6 +3,7 @@ package net.pieroxy.notes.export;
 import com.google.gson.FormattingStyle;
 import com.google.gson.stream.JsonWriter;
 import net.pieroxy.notes.storage.NoteMeta;
+import net.pieroxy.notes.storage.NoteOptions;
 import net.pieroxy.notes.storage.UserNoteStore;
 
 import java.io.IOException;
@@ -28,8 +29,10 @@ import java.util.zip.ZipOutputStream;
  * <ul>
  * <li>{@code source/notes.json}: {@code activeNotes} and {@code trashedNotes}, most recently
  * modified first. Each note has its {@code id}, {@code content}, {@code creationDate} and
- * {@code lastModified} (ISO 8601, UTC, in milliseconds), and its {@code tags} if it has any; plus
- * {@code options} when set, which Simplenote doesn't have. Indented by 2 spaces, CRLF line endings,
+ * {@code lastModified} (ISO 8601, UTC, in milliseconds), each of {@link NoteOptions#BOOLEANS} set
+ * to true when on ({@code pinned} and {@code markdown} are Simplenote's; the others, a reader of
+ * Simplenote's skips), and its {@code tags} if it has any; plus, in {@code options}, any other
+ * option it has. Indented by 2 spaces, CRLF line endings,
  * no final line break.</li>
  * <li>a {@code .txt} file per note, in the same order: active notes at the root, deleted ones in
  * {@code trash/}. It holds the content, then, if the note has tags, {@code "\n\nTags:\n  "} and
@@ -90,14 +93,21 @@ public final class SimplenoteExport {
       json.name("content").value(content);
       json.name("creationDate").value(DATE.format(Instant.ofEpochMilli(note.createdAt())));
       json.name("lastModified").value(DATE.format(Instant.ofEpochMilli(note.modifiedAt())));
+      // As Simplenote's pinned and markdown: there when true only.
+      for (String option : NoteOptions.BOOLEANS) {
+        if (NoteOptions.isOn(note.options(), option)) json.name(option).value(true);
+      }
       if (!note.tags().isEmpty()) {
         json.name("tags").beginArray();
         for (String tag : note.tags()) json.value(tag);
         json.endArray();
       }
-      if (!note.options().isEmpty()) {
+      Map<String, String> others = new TreeMap<>(note.options());
+      // Written as fields above when on; any other value stays an option.
+      for (String key : NoteOptions.BOOLEANS) others.remove(key, NoteOptions.ON);
+      if (!others.isEmpty()) {
         json.name("options").beginObject();
-        for (Map.Entry<String, String> option : new TreeMap<>(note.options()).entrySet()) json.name(option.getKey()).value(option.getValue());
+        for (Map.Entry<String, String> option : others.entrySet()) json.name(option.getKey()).value(option.getValue());
         json.endObject();
       }
       json.endObject();

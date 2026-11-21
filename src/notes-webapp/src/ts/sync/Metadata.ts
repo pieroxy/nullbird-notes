@@ -6,6 +6,11 @@ import { LocalNote, MetaOps } from "./LocalNote";
  * the operations not acknowledged yet applied on top: in flight first, then not sent.
  */
 
+// The boolean options (see isOn), as the server names them (NoteOptions.java).
+/** Shown at the top of the list. */
+export const PINNED = "pinned";
+/** Its text rendered as Markdown. */
+export const MARKDOWN = "markdown";
 export const MONOSPACE = "monospace";
 export const NOWRAP = "nowrap";
 export const MAX_TAG_LENGTH = 64;

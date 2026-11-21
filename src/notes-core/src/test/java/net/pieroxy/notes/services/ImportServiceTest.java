@@ -169,7 +169,8 @@ public class ImportServiceTest {
   public void anExportComesBackAsItWas() throws Exception {
     UserNoteStore bob = store("bob");
     bob.commit(A, 0, new NoteWrite("Groceries\nmilk", false, "c1", "d", null));
-    bob.commitMeta(A, new MetaWrite("m1", "d", List.of("home", "list"), null, Map.of("color", "blue"), null));
+    bob.commitMeta(A, new MetaWrite("m1", "d", List.of("home", "list"), null, Map.of("color", "blue", "pinned", "true", "markdown", "true",
+        "monospace", "true", "nowrap", "true"), null));
     bob.commit(B, 0, new NoteWrite("Old idea", false, "c2", "d", null));
     bob.commit(B, 1, new NoteWrite("Old idea", true, "c3", "d", null));
     ByteArrayOutputStream zip = new ByteArrayOutputStream();
@@ -190,7 +191,7 @@ public class ImportServiceTest {
     NoteMeta exported = bob.get(A);
     assertEquals("Groceries\nmilk", alice.readContent(A));
     assertEquals(List.of("home", "list"), a.tags());
-    assertEquals(Map.of("color", "blue"), a.options());
+    assertEquals(Map.of("color", "blue", "pinned", "true", "markdown", "true", "monospace", "true", "nowrap", "true"), a.options());
     assertEquals(exported.createdAt(), a.createdAt());
     assertEquals(exported.modifiedAt(), a.modifiedAt());
     assertFalse(a.deleted());

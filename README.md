@@ -160,7 +160,9 @@ Simplenote's export, and import one: this app's or Simplenote's, the .zip file o
 `source/notes.json` in it (up to 64 MB, 100,000 notes).
 
 The import first shows what it would do, then waits for the user to run it or cancel (for 15
-minutes at most). It only adds notes, with their dates, tags and trashed state. It skips:
+minutes at most). It only adds notes, with their dates, tags, trashed state and options (pinned, Markdown, fixed-width
+font, no line wrap: each a field of the note set to true, as Simplenote's `pinned` and `markdown`).
+It skips:
 
 - a note the user already has: same ID (whatever its text), or same text (whatever its ID);
 - a note larger than `maxNoteSizeMb`.

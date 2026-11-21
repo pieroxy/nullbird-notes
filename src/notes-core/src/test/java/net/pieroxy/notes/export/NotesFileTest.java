@@ -61,6 +61,20 @@ public class NotesFileTest {
   }
 
   @Test
+  public void booleanFieldsBecomeOptions() throws Exception {
+    String json = """
+        {"activeNotes": [{"id": "a", "content": "Both", "pinned": true, "markdown": true},
+                         {"id": "b", "content": "Neither", "pinned": false, "markdown": "yes"},
+                         {"id": "c", "content": "Ours", "monospace": true, "nowrap": true, "options": {"pinned": "true", "color": "blue"}}]}""";
+
+    List<NotesFile.Note> notes = NotesFile.read(file(json), 1 << 20, 10);
+
+    assertEquals(Map.of("pinned", "true", "markdown", "true"), notes.get(0).options());
+    assertEquals(Map.of(), notes.get(1).options());
+    assertEquals(Map.of("pinned", "true", "color", "blue", "monospace", "true", "nowrap", "true"), notes.get(2).options());
+  }
+
+  @Test
   public void aNoteWithoutContentIsEmpty() throws Exception {
     assertEquals("", NotesFile.read(file("{\"activeNotes\": [{\"id\": \"x\"}]}"), 1 << 20, 10).get(0).content());
   }

@@ -4,6 +4,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import net.pieroxy.notes.api.metadata.InvalidInputException;
+import net.pieroxy.notes.storage.NoteOptions;
 
 import java.io.BufferedInputStream;
 import java.io.FilterInputStream;
@@ -28,8 +29,9 @@ import java.util.zip.ZipInputStream;
  * which only {@code source/notes.json} is read (the .txt files are made from it), or that
  * notes.json on its own. Told apart by their first bytes, whatever the file is called.
  * <p>
- * Lenient on what it doesn't need: fields it doesn't know (Simplenote's {@code pinned},
- * {@code markdown}, {@code publicURL}...) are skipped, and a date it can't read is null. Strict on
+ * The boolean options are fields of the note, true when on, as Simplenote's {@code pinned} and
+ * {@code markdown} (see {@link NoteOptions}). Lenient on what it doesn't need: fields it doesn't know (Simplenote's
+ * {@code publicURL}, {@code collaboratorEmails}...) are skipped, and a date it can't read is null. Strict on
  * size: the uncompressed notes.json can't exceed {@code maxJsonBytes}, so a small zip can't unpack
  * into gigabytes.
  */
@@ -125,6 +127,7 @@ public final class NotesFile {
     Long modifiedAt = null;
     List<String> tags = new ArrayList<>();
     Map<String, String> options = new LinkedHashMap<>();
+    List<String> flags = new ArrayList<>();
     json.beginObject();
     while (json.hasNext()) {
       String name = json.nextName();
@@ -134,6 +137,10 @@ public final class NotesFile {
         case "content" -> content = type == JsonToken.STRING ? json.nextString() : skipTo(json, "");
         case "creationDate" -> createdAt = type == JsonToken.STRING ? date(json.nextString()) : skipTo(json, null);
         case "lastModified" -> modifiedAt = type == JsonToken.STRING ? date(json.nextString()) : skipTo(json, null);
+        case NoteOptions.PINNED, NoteOptions.MARKDOWN, NoteOptions.MONOSPACE, NoteOptions.NOWRAP -> {
+          if (type == JsonToken.BOOLEAN && json.nextBoolean()) flags.add(name);
+          else if (type != JsonToken.BOOLEAN) json.skipValue();
+        }
         case "tags" -> {
           if (type != JsonToken.BEGIN_ARRAY) {
             json.skipValue();
@@ -163,6 +170,8 @@ public final class NotesFile {
       }
     }
     json.endObject();
+    // The fields win over an options object saying otherwise.
+    for (String flag : flags) options.put(flag, NoteOptions.ON);
     return new Note(id, content, createdAt, modifiedAt, deleted, tags, options);
   }
 

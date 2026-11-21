@@ -1,6 +1,6 @@
 import m from "mithril";
 import { LocalNote } from "../../sync/LocalNote";
-import { isOn, MONOSPACE, NOWRAP, tagsOf } from "../../sync/Metadata";
+import { isOn, MARKDOWN, MONOSPACE, NOWRAP, PINNED, tagsOf } from "../../sync/Metadata";
 import { moveTo } from "../../sync/TagOrder";
 import { session } from "../../sync/Session";
 import { SyncEngine } from "../../sync/SyncEngine";
@@ -133,6 +133,8 @@ export class NotesPage extends AbstractPage {
           m(Dropdown, { label: "Menu", triggerClass: "icon", align: "right", trigger: icon("ellipsis") }, [
             engine && selected && !selected.deleted ? [
               m(".menusection", "This note"),
+              checkItem("Pinned", isOn(selected, PINNED), (on) => engine.setOption(selected.id, PINNED, on)),
+              checkItem("Markdown", isOn(selected, MARKDOWN), (on) => engine.setOption(selected.id, MARKDOWN, on)),
               checkItem("Fixed-width font", isOn(selected, MONOSPACE), (on) => engine.setOption(selected.id, MONOSPACE, on)),
               checkItem("Wrap long lines", !isOn(selected, NOWRAP), (on) => engine.setOption(selected.id, NOWRAP, !on)),
               m(".menuseparator"),
