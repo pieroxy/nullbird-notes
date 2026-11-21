@@ -866,6 +866,21 @@ a.button {
   }
 }
 
+// Shown by compat.js instead of the app, on a browser too old for it.
+.unsupported {
+  max-width: 480px;
+  margin: 15vh auto 0;
+  padding: 0 16px;
+  color: var(--text);
+  line-height: 1.5;
+  text-align: center;
+
+  .unsupportedtitle {
+    font-size: 18px;
+    font-weight: 600;
+  }
+}
+
 body.dragging {
   -webkit-user-select: none;
   user-select: none;

@@ -18,5 +18,9 @@ const routes: m.RouteDefs = {
   [Endpoints.ADMIN_USER]: new AuthenticatedPageResolver(AdminPage, { adminOnly: true }),
 };
 
-m.route(document.getElementById("app")!, Endpoints.HOME, routes);
-registerServiceWorker();
+// Gone when compat.js found the browser too old, and replaced it with a message.
+const root = document.getElementById("app");
+if (root) {
+  m.route(root, Endpoints.HOME, routes);
+  registerServiceWorker();
+}

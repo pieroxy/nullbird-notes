@@ -156,6 +156,10 @@ lost, on the devices too.
 
 Chrome and Edge 111, Firefox 119, Safari 16.4 (macOS and iOS), or later.
 
+An older browser gets a message saying so instead of the app. On iOS, the version of Safari is the
+version of iOS: 16.4 or later. Other browsers on iOS (Chrome, Firefox...) use Safari's engine, so
+the same applies to them.
+
 ## Install as an app, offline
 
 Served over HTTPS (or on localhost), the web app can be installed: the install icon in Chrome or

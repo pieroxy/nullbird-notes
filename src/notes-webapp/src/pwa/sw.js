@@ -6,7 +6,7 @@
 //   can't be reached or takes longer than NAVIGATION_TIMEOUT_MS. Each copy fetched replaces the
 //   cached one, with the bundles it names; bundles it doesn't name are dropped.
 // - The bundles: named after their content, so from the cache when there.
-// - Icons and manifest: from the cache, refreshed in the background.
+// - Icons, manifest and compat.js: from the cache, refreshed in the background.
 //
 // Plain JavaScript, copied as is: its URL must stay /sw.js, and the browser compares its bytes to
 // tell whether it changed.
@@ -40,7 +40,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (BUNDLE.test(url.pathname)) event.respondWith(cacheFirst(request));
-  else if (url.pathname.startsWith("/icons/") || url.pathname === "/manifest.webmanifest") event.respondWith(refreshInBackground(event));
+  else if (url.pathname.startsWith("/icons/") || url.pathname === "/manifest.webmanifest" || url.pathname === "/compat.js") event.respondWith(refreshInBackground(event));
 });
 
 /** The server's page if it answers in time, else the cached one; a late answer still updates the cache. */

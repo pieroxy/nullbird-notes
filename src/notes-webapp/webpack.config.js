@@ -50,6 +50,7 @@ module.exports = (env, argv) => {
           { from: 'src/licenses', to: 'licenses' },
           { from: 'src/pwa/manifest.webmanifest', to: 'manifest.webmanifest' },
           { from: 'src/pwa/sw.js', to: 'sw.js' },
+          { from: 'src/compat/compat.js', to: 'compat.js' },
         ],
       }),
     ],
