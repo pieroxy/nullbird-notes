@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 
 /**
  * Security and caching headers, on every response. The page loads nothing but its own script,
- * stylesheet, icons and manifest, and calls nothing but /api/: the CSP allows exactly that. HSTS is left to
+ * stylesheet, icons, manifest and service worker, and calls nothing but /api/: the CSP allows exactly that. HSTS is left to
  * the reverse proxy, the only one to know whether the site is served over HTTPS.
  */
 public class SecurityHeadersFilter extends HttpFilter {
@@ -23,11 +23,14 @@ public class SecurityHeadersFilter extends HttpFilter {
       "connect-src 'self'",
       // The web app manifest, which makes the app installable.
       "manifest-src 'self'",
+      // The service worker (/sw.js), which keeps the app on the device to open offline.
+      "worker-src 'self'",
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'none'",
       "require-trusted-types-for 'script'",
-      "trusted-types 'none'");
+      // Only the policy that registers the service worker, and only for /sw.js (see ServiceWorker.ts).
+      "trusted-types notes-sw");
   /** Named after their content's hash by the webapp's build: a new content is a new name. */
   private static final Pattern IMMUTABLE = Pattern.compile("/bundle-[0-9a-f]+\\.(js|css)(\\.map)?");
 

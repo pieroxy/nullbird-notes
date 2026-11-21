@@ -6,6 +6,7 @@ import { LoginPage } from "./components/pages/LoginPage";
 import { NotesPage } from "./components/pages/NotesPage";
 import { AuthenticatedPageResolver } from "./utils/AuthenticatedPageResolver";
 import { Endpoints } from "./utils/navigation/Endpoints";
+import { registerServiceWorker } from "./utils/ServiceWorker";
 
 const routes: m.RouteDefs = {
   [Endpoints.LOGIN]: LoginPage,
@@ -18,3 +19,4 @@ const routes: m.RouteDefs = {
 };
 
 m.route(document.getElementById("app")!, Endpoints.HOME, routes);
+registerServiceWorker();

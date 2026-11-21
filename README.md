@@ -156,6 +156,18 @@ lost, on the devices too.
 
 Chrome and Edge 111, Firefox 119, Safari 16.4 (macOS and iOS), or later.
 
+## Install as an app, offline
+
+Served over HTTPS (or on localhost), the web app can be installed: the install icon in Chrome or
+Edge's address bar, "Install app" in Chrome's menu on Android, Share > "Add to Home Screen" on iOS
+(which then asks to log in once more: the installed app has its own storage).
+
+It then also opens without the server, on the notes of the user who last logged in on that device:
+edits are kept on the device and synced once the server is back. If the session ended meanwhile
+(expired, or logged out by a password change), the login page shows then, and the edits are sent
+after logging in. Logging out removes the notes from the device, and offline start with them. Over
+plain HTTP, browsers allow neither: the app works online only.
+
 ## Behind a reverse proxy
 
 - Set `trustedProxies` to the proxy's address, and `secureCookie` to `true` if it serves HTTPS.
