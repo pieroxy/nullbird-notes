@@ -866,8 +866,15 @@ a.button {
   }
 }
 
+body.dragging {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 body.resizing {
   cursor: col-resize;
+  -webkit-user-select: none;
   user-select: none;
 
   .resizer::after {
@@ -1005,6 +1012,14 @@ body.resizing {
 
   .reorder {
     margin-left: auto;
+  }
+
+  // Nothing to select in there, and on iOS the long press that starts a drag would select the
+  // tag names and open the callout menu. Safari still wants the prefix.
+  .reorderlist {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
 
   .reorderhint {

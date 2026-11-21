@@ -133,7 +133,10 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
     window.addEventListener("pointermove", move, { passive: false });
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", cancel);
+    // A finger wandering off the list mid-drag would select the page's text (a long press, on iOS).
+    document.body.classList.add("dragging");
     const stop = () => {
+      document.body.classList.remove("dragging");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", cancel);
