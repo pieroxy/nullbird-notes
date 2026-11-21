@@ -66,7 +66,7 @@ public class Runner {
     }
     File dataFolder = config.resolveDataFolder(configDir).getAbsoluteFile().toPath().normalize().toFile();
     Files.createDirectories(dataFolder.toPath());
-    LoggingBootstrap.configure(new File(dataFolder, "logs/log.txt").getAbsolutePath(), LogRetention.days(config.getKeepLogFiles()));
+    LoggingBootstrap.configure(LoggingBootstrap.logFileIn(dataFolder).getAbsolutePath(), LogRetention.days(config.getKeepLogFiles()));
     LOGGER.info("Config directory: " + configDir.getAbsoluteFile().toPath().normalize() + ", data folder: " + dataFolder);
 
     try {

@@ -1,5 +1,6 @@
 package net.pieroxy.notes.utils.logging;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -56,6 +57,11 @@ public final class LoggingBootstrap {
         millisUntilNextMidnight(),
         TimeUnit.HOURS.toMillis(ROTATION_PERIOD_HOURS),
         TimeUnit.MILLISECONDS);
+  }
+
+  /** Where the application log goes: {@code <dataFolder>/logs/log.txt}. */
+  public static File logFileIn(File dataFolder) {
+    return new File(dataFolder, "logs/log.txt");
   }
 
   /** Also governs the access log's retention (see AccessLog). */

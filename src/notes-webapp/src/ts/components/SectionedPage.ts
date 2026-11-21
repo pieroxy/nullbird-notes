@@ -10,6 +10,8 @@ export interface PageSection {
   id: string;
   title: string;
   render: () => m.Children;
+  /** Uses the whole width, e.g. for logs. */
+  wide?: boolean;
 }
 
 export interface SectionedPageAttrs {
@@ -55,7 +57,7 @@ export function sectionedPage(attrs: SectionedPageAttrs): m.Children {
           }, [m("span", section.title), icon("chevron-right")])))),
         attrs.navFooter ? m(".navfooter", attrs.navFooter) : null,
       ]),
-      m(".sectionedbody", m("section.pagesection", { key: shown.id }, shown.render())),
+      m(".sectionedbody", m("section.pagesection" + (shown.wide ? ".wide" : ""), { key: shown.id }, shown.render())),
     ]),
   ]);
 }
