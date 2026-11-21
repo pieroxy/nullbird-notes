@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 
 /**
  * Security and caching headers, on every response. The page loads nothing but its own script,
- * stylesheet and icon, and calls nothing but /api/: the CSP allows exactly that. HSTS is left to
+ * stylesheet, icons and manifest, and calls nothing but /api/: the CSP allows exactly that. HSTS is left to
  * the reverse proxy, the only one to know whether the site is served over HTTPS.
  */
 public class SecurityHeadersFilter extends HttpFilter {
@@ -21,6 +21,8 @@ public class SecurityHeadersFilter extends HttpFilter {
       "style-src 'self'",
       "img-src 'self'",
       "connect-src 'self'",
+      // The web app manifest, which makes the app installable.
+      "manifest-src 'self'",
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'none'",

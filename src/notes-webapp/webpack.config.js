@@ -48,6 +48,7 @@ module.exports = (env, argv) => {
         patterns: [
           { from: 'src/icons', to: 'icons', globOptions: { ignore: ['**/.DS_Store'] } },
           { from: 'src/licenses', to: 'licenses' },
+          { from: 'src/pwa/manifest.webmanifest', to: 'manifest.webmanifest' },
         ],
       }),
     ],

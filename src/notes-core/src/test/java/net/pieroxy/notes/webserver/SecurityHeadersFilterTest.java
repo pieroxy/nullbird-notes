@@ -11,7 +11,7 @@ public class SecurityHeadersFilterTest {
     assertEquals("public, max-age=31536000, immutable", SecurityHeadersFilter.cacheControl("/bundle-3a4b24.css.map"));
     assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/"));
     assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/index.html"));
-    assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/icons/favicon.svg"));
+    assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/icons/icon-192.png"));
     assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/bundle-xyz.js"));
     assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/icons/bundle-3a4b24.js"));
   }
