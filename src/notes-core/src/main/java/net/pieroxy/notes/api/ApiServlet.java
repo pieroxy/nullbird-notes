@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import net.pieroxy.notes.api.metadata.ApiEndpoint;
 import net.pieroxy.notes.api.metadata.ApiMethod;
 import net.pieroxy.notes.api.metadata.Endpoint;
+import net.pieroxy.notes.api.metadata.ServletApiContext;
 import net.pieroxy.notes.api.model.ApiResponse;
 import net.pieroxy.notes.services.IServiceProvider;
 import net.pieroxy.notes.utils.BuildInfo;
@@ -25,12 +26,18 @@ import java.util.logging.Logger;
  * Every call must carry the {@link #BUILD_HEADER} of the web app's build, which must be this
  * server's: a page left open across an upgrade is refused (HTTP 409) until it's reloaded, so that
  * it can't apply the previous version's rules.
+ * <p>
+ * A request body is read in full before the endpoint runs: only one with a valid session cookie
+ * may be as large as a note needs, others get {@link #ANONYMOUS_MAX_REQUEST_BYTES}, so that
+ * nobody can fill the memory without logging in.
  */
 public class ApiServlet extends HttpServlet {
   private final static Logger LOGGER = Logger.getLogger(ApiServlet.class.getName());
   private final static String API_PATH_PREFIX = "/api/";
   private final static String ENDPOINT_CLASS_SUFFIX = "Api";
   public final static String BUILD_HEADER = "X-Notes-Build";
+  /** Plenty for a login. */
+  public final static long ANONYMOUS_MAX_REQUEST_BYTES = 64 * 1024;
 
   private final IServiceProvider serviceProvider;
   private Map<String, ApiEndpoint> endpoints;
@@ -76,7 +83,9 @@ public class ApiServlet extends HttpServlet {
       }
       return;
     }
-    endpoint.process(new SizeLimitedRequest(req, serviceProvider.getSettingsService().getMaxRequestBytes()), resp);
+    boolean session = serviceProvider.getSessionService().get(ServletApiContext.sessionIdOf(req.getCookies())) != null;
+    long maxBytes = session ? serviceProvider.getSettingsService().getMaxRequestBytes() : ANONYMOUS_MAX_REQUEST_BYTES;
+    endpoint.process(new SizeLimitedRequest(req, maxBytes), resp);
   }
 
   private synchronized Map<String, ApiEndpoint> getOrDiscoverEndpoints() {

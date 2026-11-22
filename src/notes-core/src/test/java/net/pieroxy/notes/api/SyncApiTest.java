@@ -179,4 +179,17 @@ public class SyncApiTest {
     JsonObject notes = bob.post("GetNotes", "{\"notes\":[{\"id\":\"" + NOTE + "\"}]}").result();
     assertEquals(NOTE, notes.getAsJsonArray("missing").get(0).getAsString());
   }
+
+  @Test
+  public void onlyASessionAllowsARequestLargerThanALogin() throws Exception {
+    String large = pushInput("d", edit("c1", 0, "x".repeat((int) ApiServlet.ANONYMOUS_MAX_REQUEST_BYTES)));
+
+    assertEquals("refused before it's even read", 413, server.client().post("Push", large).status());
+    assertEquals(413, server.client().post("Login", "{\"login\":\"alice\",\"password\":\"" + "x".repeat(100_000) + "\"}").status());
+    TestServer.Client stale = server.client();
+    stale.setSessionCookie("no-such-session");
+    assertEquals(413, stale.post("Push", large).status());
+
+    assertEquals("APPLIED", onlyResult(laptop.post("Push", large)).get("status").getAsString());
+  }
 }

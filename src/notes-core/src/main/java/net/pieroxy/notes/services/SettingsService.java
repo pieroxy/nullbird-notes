@@ -145,7 +145,7 @@ public class SettingsService implements Service {
   }
 
   /**
-   * The largest API request body: room for a note at {@link #getMaxNoteSize()} even with JSON
+   * The largest API request body with a session (see ApiServlet): room for a note at {@link #getMaxNoteSize()} even with JSON
    * escaping doubling it (newlines, quotes), plus the rest of the request.
    */
   public long getMaxRequestBytes() {
