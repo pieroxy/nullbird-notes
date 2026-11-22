@@ -201,6 +201,12 @@ class TestServer implements AutoCloseable {
           HttpResponse.BodyHandlers.ofString());
     }
 
+    /** {@link #raw}, as relayed by a reverse proxy for {@code forwardedFor}. */
+    HttpResponse<String> rawForwardedFor(String path, String forwardedFor) throws Exception {
+      return http.send(withBuild(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))).header("X-Forwarded-For", forwardedFor)
+          .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
     /** POSTs {@code body} as is to {@code path}, e.g. a file to /import. */
     Response upload(String path, byte[] body) throws Exception {
       HttpRequest request = withBuild(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)))

@@ -79,4 +79,14 @@ public class TrustedProxiesTest {
       }
     }
   }
+
+  @Test
+  public void privateAddressesAreWhereProxiesUsuallyAre() {
+    for (String address : List.of("127.0.0.1", "0:0:0:0:0:0:0:1", "10.1.2.3", "172.18.0.1", "192.168.1.10", "169.254.0.1", "fd12::1", "fe80::1")) {
+      assertTrue(address, TrustedProxies.isPrivate(address));
+    }
+    for (String address : List.of("203.0.113.7", "172.32.0.1", "2001:db8::1", "localhost", "")) {
+      assertFalse(address, TrustedProxies.isPrivate(address));
+    }
+  }
 }

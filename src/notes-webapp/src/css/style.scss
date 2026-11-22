@@ -853,6 +853,37 @@ button {
     overflow-wrap: anywhere;
   }
 
+  .forwarders ul {
+    margin: 4px 0;
+    padding: 0;
+    list-style: none;
+
+    li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+    }
+  }
+
+  .forwarderinfo {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .forwardernote {
+    font-size: 13px;
+
+    &.risky {
+      color: var(--status-offline);
+    }
+  }
+
   ul.warnings {
     align-self: stretch;
     margin: 0;

@@ -18,6 +18,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 /**
@@ -31,6 +32,7 @@ public class AccessValve extends ValveBase implements org.apache.catalina.Access
   private final static int TOO_MANY_REQUESTS = 429;
 
   private final IServiceProvider serviceProvider;
+  private final AtomicBoolean untrustedForwardingWarned = new AtomicBoolean();
   private boolean requestAttributesEnabled;
 
   public AccessValve(IServiceProvider serviceProvider) {
@@ -40,23 +42,33 @@ public class AccessValve extends ValveBase implements org.apache.catalina.Access
 
   /**
    * Behind a trusted reverse proxy, swaps the proxy's address for the client's (see
-   * {@link TrustedProxies}), for everything downstream. Refuses a banned client outright, and
-   * counts its 404s otherwise (see {@link ClientGuardService#notFound}).
+   * {@link TrustedProxies}), for everything downstream. An untrusted address forwarding requests is
+   * likely a proxy left out: counted (see {@link ClientGuardService#countRequest}), and with none
+   * configured, warned about once. Refuses a banned client outright, and counts its 404s otherwise
+   * (see {@link ClientGuardService#notFound}).
    */
   @Override
   public void invoke(Request request, Response response) throws IOException, ServletException {
     TrustedProxies trustedProxies = serviceProvider.getSettingsService().getTrustedProxies();
-    if (!trustedProxies.isEmpty()) {
-      Enumeration<String> headers = request.getHeaders("X-Forwarded-For");
-      String forwardedFor = headers == null || !headers.hasMoreElements() ? null : String.join(",", Collections.list(headers));
-      String client = trustedProxies.clientAddress(request.getRemoteAddr(), forwardedFor);
-      if (!client.equals(request.getRemoteAddr())) {
+    ClientGuardService guard = serviceProvider.getClientGuardService();
+    String peer = request.getRemoteAddr();
+    Enumeration<String> headers = request.getHeaders("X-Forwarded-For");
+    String forwardedFor = headers == null || !headers.hasMoreElements() ? null : String.join(",", Collections.list(headers));
+    if (trustedProxies.isEmpty() || !trustedProxies.isTrusted(peer)) {
+      guard.countRequest(peer, forwardedFor);
+      if (trustedProxies.isEmpty() && forwardedFor != null && !untrustedForwardingWarned.getAndSet(true)) {
+        LOGGER.warning("A request from " + peer + " carries X-Forwarded-For, but trustedProxies is empty. If " + peer
+            + " is a reverse proxy, every client looks like it: one client's failed logins or 404s lock everyone out."
+            + " Set trustedProxies to its address in config.json. Logged once.");
+      }
+    } else {
+      String client = trustedProxies.clientAddress(peer, forwardedFor);
+      if (!client.equals(peer)) {
         request.setRemoteAddr(client);
         request.setRemoteHost(client);
       }
     }
 
-    ClientGuardService guard = serviceProvider.getClientGuardService();
     String client = request.getRemoteAddr();
     try {
       guard.checkBanned(client);

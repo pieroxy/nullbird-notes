@@ -113,6 +113,15 @@ public final class TrustedProxies {
     return client;
   }
 
+  /** A loopback, private (RFC 1918, fc00::/7) or link-local address: where a reverse proxy usually is. */
+  public static boolean isPrivate(String address) {
+    InetAddress parsed = literal(address);
+    if (parsed == null) return false;
+    byte[] bytes = parsed.getAddress();
+    return parsed.isLoopbackAddress() || parsed.isSiteLocalAddress() || parsed.isLinkLocalAddress()
+        || (bytes.length == 16 && (bytes[0] & 0xfe) == 0xfc);
+  }
+
   private static String withoutPort(String hop) {
     var bracketed = BRACKETED_IPV6.matcher(hop);
     if (bracketed.matches()) return bracketed.group(1);

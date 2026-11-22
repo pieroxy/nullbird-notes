@@ -160,4 +160,22 @@ public class AdminConfigApiTest {
     }
     assertEquals("{\"httpPort\":8080}", Files.readString(configFile().toPath(), StandardCharsets.UTF_8));
   }
+
+  @Test
+  public void addressesForwardingRequestsAreListedTheAdminsOwnMarked() throws Exception {
+    assertEquals(0, alice.get("AdminConfig", "{}").result().getAsJsonArray("forwarders").size());
+    alice.rawForwardedFor("/", "203.0.113.7");
+    alice.rawForwardedFor("/", "203.0.113.8");
+
+    var forwarders = alice.get("AdminConfig", "{}").result().getAsJsonArray("forwarders");
+
+    assertEquals(1, forwarders.size());
+    JsonObject proxy = forwarders.get(0).getAsJsonObject();
+    assertEquals("127.0.0.1", proxy.get("address").getAsString());
+    assertEquals(2, proxy.get("forwarded").getAsLong());
+    assertEquals("the AdminConfig call counts too", 3, proxy.get("requests").getAsLong());
+    assertEquals(2, proxy.get("clients").getAsInt());
+    assertTrue(proxy.get("privateAddress").getAsBoolean());
+    assertTrue("alice's own request came from it", proxy.get("yours").getAsBoolean());
+  }
 }

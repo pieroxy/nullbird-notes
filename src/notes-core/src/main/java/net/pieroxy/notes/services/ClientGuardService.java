@@ -5,6 +5,11 @@ import net.pieroxy.notes.utils.RateLimiter;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.Duration;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.regex.Pattern;
@@ -20,6 +25,8 @@ import java.util.regex.Pattern;
  *   <li>404s without a session, typically from a scanner probing paths, ban the address from the
  *   whole web server for {@link #BAN_DURATION}.</li>
  * </ul>
+ * It also remembers the untrusted addresses that forward requests (see {@link #countRequest}): likely
+ * reverse proxies left out of trustedProxies, which the admin's Config page offers to add.
  */
 public class ClientGuardService implements Service {
   public static final int MAX_FAILED_LOGINS = 5;
@@ -38,6 +45,11 @@ public class ClientGuardService implements Service {
    * PasswordHasher), and a flood of them, from however many addresses, mustn't take the server down.
    */
   public static final int MAX_CONCURRENT_CHECKS = 4;
+  /** Addresses seen forwarding requests, at most: the ones that forwarded the most. */
+  public static final int MAX_FORWARDERS = 10;
+  /** Distinct forwarded clients counted per address, at most. */
+  public static final int MAX_FORWARDED_CLIENTS = 100;
+  private static final int MAX_CLIENT_LENGTH = 64;
   /** Only the characters of an IPv6 literal (with an IPv4 tail, or a zone): what InetAddress parses without DNS. */
   private static final Pattern IPV6_LITERAL = Pattern.compile("[0-9A-Fa-f:.]+(%[0-9A-Za-z._-]+)?");
 
@@ -46,6 +58,7 @@ public class ClientGuardService implements Service {
   private final RateLimiter notFound;
   // One hit per ban: check() then refuses the address until that hit is banDuration old.
   private final RateLimiter bans;
+  private final Map<String, Forwarder> forwarders = new HashMap<>();
 
   public ClientGuardService() {
     this(NOT_FOUND_WINDOW, BAN_DURATION);
@@ -132,6 +145,58 @@ public class ClientGuardService implements Service {
       return true;
     }
   }
+
+  /**
+   * A request from {@code address}, which isn't a trusted proxy. One carrying X-Forwarded-For
+   * ({@code forwardedFor} not null) starts tracking the address; from then on, all its requests
+   * count, with or without. Once {@link #MAX_FORWARDERS} are tracked, a new address replaces the one
+   * that forwarded the fewest requests: a proxy in use stays, whatever a client faking the header does.
+   */
+  public synchronized void countRequest(String address, String forwardedFor) {
+    Forwarder forwarder = forwarders.get(address);
+    if (forwarder == null) {
+      if (forwardedFor == null) return;
+      if (forwarders.size() >= MAX_FORWARDERS) {
+        forwarders.values().stream().min(Comparator.comparingLong(f -> f.forwarded)).ifPresent(f -> forwarders.remove(f.address));
+      }
+      forwarder = new Forwarder(address);
+      forwarders.put(address, forwarder);
+    }
+    forwarder.requests++;
+    forwarder.lastSeenAt = System.currentTimeMillis();
+    if (forwardedFor == null) return;
+    forwarder.forwarded++;
+    // The rightmost hop: the address the proxy received the request from.
+    String client = forwardedFor.substring(forwardedFor.lastIndexOf(',') + 1).trim();
+    if (forwarder.clients.size() < MAX_FORWARDED_CLIENTS) forwarder.clients.add(client.substring(0, Math.min(client.length(), MAX_CLIENT_LENGTH)));
+  }
+
+  /** The addresses {@link #countRequest} tracks, the most forwarding first. */
+  public synchronized List<ForwarderStats> forwarders() {
+    return forwarders.values().stream()
+        .map(f -> new ForwarderStats(f.address, f.requests, f.forwarded, f.clients.size(), f.lastSeenAt))
+        .sorted(Comparator.comparingLong(ForwarderStats::forwarded).reversed())
+        .toList();
+  }
+
+  private static class Forwarder {
+    final String address;
+    final Set<String> clients = new HashSet<>();
+    long requests;
+    long forwarded;
+    long lastSeenAt;
+
+    Forwarder(String address) {
+      this.address = address;
+    }
+  }
+
+  /**
+   * @param requests  since its first forwarded one.
+   * @param forwarded requests carrying X-Forwarded-For.
+   * @param clients   distinct addresses forwarded for, at most {@link #MAX_FORWARDED_CLIENTS}.
+   */
+  public record ForwarderStats(String address, long requests, long forwarded, int clients, long lastSeenAt) {}
 
   /**
    * What the limits count by: an IPv4 address, or an IPv6 address's /64, the block a single

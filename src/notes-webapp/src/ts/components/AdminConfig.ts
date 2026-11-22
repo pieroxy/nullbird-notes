@@ -1,6 +1,6 @@
 import m from "mithril";
 import { ApiEndpoints } from "../auto/ApiEndpoints";
-import { AdminConfig, AdminConfigApiOutput } from "../auto/api-types";
+import { AdminConfig, AdminConfigApiOutput, AdminForwarder } from "../auto/api-types";
 import { configChanged, configWarnings, EditableConfig } from "../utils/ConfigWarnings";
 
 /** The form's fields, as typed. */
@@ -25,6 +25,11 @@ function fieldsOf(config: AdminConfig): Fields {
   };
 }
 
+/** The trusted proxies field's lines, one address or range each. */
+function proxyLines(text: string): string[] {
+  return text.split(/[\n,]/).map((line) => line.trim()).filter((line) => line !== "");
+}
+
 function editable(config: AdminConfig): EditableConfig {
   return { ...config };
 }
@@ -41,7 +46,7 @@ function parse(fields: Fields): EditableConfig | string {
   return {
     httpPort,
     address: fields.address.trim(),
-    trustedProxies: fields.trustedProxies.split(/[\n,]/).map((line) => line.trim()).filter((line) => line !== ""),
+    trustedProxies: proxyLines(fields.trustedProxies),
     secureCookie: fields.secureCookie,
     keepLogFiles,
     maxNoteSizeMb,
@@ -134,7 +139,8 @@ export class ConfigSection implements m.ClassComponent {
             }),
             m("span", "Secure cookie"),
           ]),
-          m("span.fieldhint", "Turn it on when users reach the service over HTTPS: the login cookie then never travels in clear."),
+          m("span.fieldhint", "The login cookie then never travels in clear. Turn it off only if users reach the service over plain HTTP: "
+            + "with it on, they can't log in."),
           inEffect("secureCookie"),
         ]),
         m("label.field", [
@@ -149,6 +155,7 @@ export class ConfigSection implements m.ClassComponent {
           m("span.fieldhint", "IP addresses or ranges (10.0.0.0/8) of your reverse proxies, one per line: their X-Forwarded-For header is believed."),
           inEffect("trustedProxies"),
         ]),
+        this.forwarders(config.forwarders, fields),
         m("h3", "Notes"),
         text("maxNoteSizeMb", "Largest note (MB)", "Larger notes are refused.", { type: "text", inputmode: "numeric", autocomplete: "off" }),
         m(".field", [
@@ -175,6 +182,42 @@ export class ConfigSection implements m.ClassComponent {
         this.saved ? m("p.successmessage", { role: "status" }, "Saved. Restart the service to apply it.") : null,
       ]),
     ];
+  }
+
+  /**
+   * The addresses that forwarded requests without being trusted: likely the proxy in front, but a
+   * client can fake the header, hence the evidence. Adding one only fills the field.
+   */
+  private forwarders(forwarders: AdminForwarder[], fields: Fields): m.Children {
+    if (forwarders.length === 0) return null;
+    const listed = proxyLines(fields.trustedProxies);
+    return m(".field.forwarders", [
+      m("span.fieldlabel", "Seen forwarding requests"),
+      m("span.fieldhint", "Since the service started, these addresses sent requests with an X-Forwarded-For header without being trusted. "
+        + "A reverse proxy adds it to nearly all of its requests, for many clients."),
+      m("ul", forwarders.map((forwarder) => {
+        const added = listed.includes(forwarder.address);
+        const share = Math.round(100 * forwarder.forwarded / Math.max(1, forwarder.requests));
+        const clients = forwarder.clients + (forwarder.moreClients ? "+" : "") + (forwarder.clients > 1 || forwarder.moreClients ? " clients" : " client");
+        return m("li", { key: forwarder.address }, [
+          m(".forwarderinfo", [
+            m("code", forwarder.address),
+            forwarder.yours ? m("span.forwardernote", "Your own requests come from it.") : null,
+            forwarder.privateAddress ? null : m("span.forwardernote.risky", "A public address: trust it only if it's your own proxy."),
+            m("span.fieldhint", share + "% of " + forwarder.requests.toLocaleString() + " requests forwarded, for " + clients
+              + ". Last seen " + new Date(forwarder.lastSeenAt).toLocaleString() + "."),
+          ]),
+          m("button.secondary", {
+            type: "button", disabled: this.saving || added,
+            onclick: () => {
+              fields.trustedProxies = [...listed, forwarder.address].join("\n");
+              this.saved = false;
+            },
+          }, added ? "Added" : "Add"),
+        ]);
+      })),
+      m("span.fieldhint", "A proxy in a Docker container can change address when it restarts: its network's range, e.g. 172.18.0.0/16, keeps working."),
+    ]);
   }
 
   private submit(e: Event, wanted: EditableConfig | undefined) {

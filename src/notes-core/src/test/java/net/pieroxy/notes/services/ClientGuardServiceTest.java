@@ -155,4 +155,39 @@ public class ClientGuardServiceTest {
     assertEquals("evil.example:80", ClientGuardService.addressKey("evil.example:80"));
     assertEquals(null, ClientGuardService.addressKey(null));
   }
+
+  @Test
+  public void remembersAddressesThatForwardOnceTheyDo() {
+    ClientGuardService guard = new ClientGuardService();
+    guard.countRequest(VISITOR, null);
+    assertTrue("no header yet: not tracked", guard.forwarders().isEmpty());
+
+    guard.countRequest("172.18.0.1", "203.0.113.7");
+    guard.countRequest("172.18.0.1", "198.51.100.1, 203.0.113.8");
+    guard.countRequest("172.18.0.1", "203.0.113.7");
+    guard.countRequest("172.18.0.1", null);
+
+    ClientGuardService.ForwarderStats proxy = guard.forwarders().get(0);
+    assertEquals("172.18.0.1", proxy.address());
+    assertEquals(4, proxy.requests());
+    assertEquals(3, proxy.forwarded());
+    assertEquals("the rightmost hop of each", 2, proxy.clients());
+  }
+
+  @Test
+  public void forwardedClientsAreCountedUpToTheCap() {
+    ClientGuardService guard = new ClientGuardService();
+    for (int i = 0; i < ClientGuardService.MAX_FORWARDED_CLIENTS + 50; i++) guard.countRequest("172.18.0.1", "10.0." + i / 256 + "." + i % 256);
+    assertEquals(ClientGuardService.MAX_FORWARDED_CLIENTS, guard.forwarders().get(0).clients());
+  }
+
+  @Test
+  public void aProxyInUseStaysWhateverAddressesComeAndGo() {
+    ClientGuardService guard = new ClientGuardService();
+    for (int i = 0; i < 20; i++) guard.countRequest("172.18.0.1", "203.0.113.7");
+    for (int i = 0; i < 5 * ClientGuardService.MAX_FORWARDERS; i++) guard.countRequest("198.51.100." + i, "1.2.3.4");
+
+    assertEquals(ClientGuardService.MAX_FORWARDERS, guard.forwarders().size());
+    assertEquals("the most forwarding first", "172.18.0.1", guard.forwarders().get(0).address());
+  }
 }
