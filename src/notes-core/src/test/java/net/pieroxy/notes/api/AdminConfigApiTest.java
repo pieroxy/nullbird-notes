@@ -94,6 +94,7 @@ public class AdminConfigApiTest {
     assertEquals("", saved.get("address").getAsString());
     assertEquals(10, saved.get("maxNoteSizeMb").getAsInt());
     assertEquals(0, saved.getAsJsonArray("trustedProxies").size());
+    assertTrue("secure unless turned off", saved.get("secureCookie").getAsBoolean());
     assertEquals(configFile().getAbsolutePath(), config.get("configFile").getAsString());
     assertEquals(new File(tmp.getRoot(), "data").getAbsolutePath(), config.get("dataFolderPath").getAsString());
   }
@@ -119,14 +120,14 @@ public class AdminConfigApiTest {
   public void writesOnlyWhatChangedKeepingTheRestForTheNextStart() throws Exception {
     Files.writeString(configFile().toPath(), "{\"dataFolder\":\"data\",\"future\":{\"x\":1},\"httpPort\":8080}", StandardCharsets.UTF_8);
 
-    JsonObject result = alice.post("AdminSaveConfig", save(9000, " 127.0.0.1 ", "[\" 10.0.0.0/8 \",\"\"]", true, 30, 5)).result();
+    JsonObject result = alice.post("AdminSaveConfig", save(9000, " 127.0.0.1 ", "[\" 10.0.0.0/8 \",\"\"]", false, 30, 5)).result();
 
     assertTrue(result.toString(), result.get("ok").getAsBoolean());
     JsonObject file = JsonParser.parseString(Files.readString(configFile().toPath(), StandardCharsets.UTF_8)).getAsJsonObject();
     assertEquals(9000, file.get("httpPort").getAsInt());
     assertEquals("127.0.0.1", file.get("address").getAsString());
     assertEquals("[\"10.0.0.0/8\"]", file.get("trustedProxies").toString());
-    assertTrue(file.get("secureCookie").getAsBoolean());
+    assertFalse(file.get("secureCookie").getAsBoolean());
     assertEquals(5, file.get("maxNoteSizeMb").getAsInt());
     assertFalse("30 is the default: unchanged, not written", file.has("keepLogFiles"));
     assertEquals("data", file.get("dataFolder").getAsString());
@@ -143,7 +144,7 @@ public class AdminConfigApiTest {
 
   @Test
   public void nothingChangedNothingWritten() throws Exception {
-    assertTrue(alice.post("AdminSaveConfig", save(8080, "", "[]", false, 30, 10)).result().get("ok").getAsBoolean());
+    assertTrue(alice.post("AdminSaveConfig", save(8080, "", "[]", true, 30, 10)).result().get("ok").getAsBoolean());
     assertFalse(configFile().exists());
   }
 

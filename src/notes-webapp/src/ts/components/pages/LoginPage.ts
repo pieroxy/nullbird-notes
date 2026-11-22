@@ -46,13 +46,18 @@ export class LoginPage extends AbstractPage {
     this.submitting = true;
     this.error = undefined;
     ApiEndpoints.Login.call({ login: this.login, password: this.password })
-      .then((output) => {
-        if (output.ok && output.username) {
-          Auth.setLoggedIn(output.username, output.admin);
-          Routing.goToScreen(Endpoints.HOME);
-        } else {
+      .then(async (output) => {
+        if (!output.ok || !output.username) {
           this.error = "Invalid login or password.";
+          return;
         }
+        if (!(await cookieKept())) {
+          this.error = "Logged in, but the browser didn't keep the session: this server sends it over HTTPS only. "
+            + "Use https://, or set \"secureCookie\" to false in the server's config.json.";
+          return;
+        }
+        Auth.setLoggedIn(output.username, output.admin);
+        Routing.goToScreen(Endpoints.HOME);
       })
       .catch((err: Error) => {
         this.error = err.message;
@@ -61,5 +66,17 @@ export class LoginPage extends AbstractPage {
         this.submitting = false;
         m.redraw();
       });
+  }
+}
+
+/**
+ * Whether the session cookie just set is sent back: a secure cookie is dropped over plain HTTP,
+ * which the browser doesn't report. Assumed kept if the server can't tell.
+ */
+async function cookieKept(): Promise<boolean> {
+  try {
+    return (await ApiEndpoints.Session.call({})).authenticated;
+  } catch {
+    return true;
   }
 }

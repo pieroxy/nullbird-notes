@@ -3,7 +3,7 @@
   "address": "",
   "dataFolder": "data",
   "trustedProxies": [],
-  "secureCookie": false,
+  "secureCookie": true,
   "keepLogFiles": 30,
   "maxNoteSizeMb": 10
 }

@@ -47,7 +47,9 @@ Write `notes/credentials.json` from `credentials.example.json`, with the printed
 java -jar notes-core-<version>.jar notes
 ```
 
-and open http://localhost:8080. The notes are stored in `notes/data`.
+and open http://localhost:8080. The notes are stored in `notes/data`. Chrome and Firefox accept the
+session cookie, HTTPS-only by default, on `localhost`; for other browsers, or to reach the server
+over plain HTTP from another machine, write `{"secureCookie": false}` in `notes/config.json`.
 
 ## Run
 
@@ -63,7 +65,8 @@ java -jar notes-core-<version>.jar <configDir>
   - `address`: the interface to listen on; blank for all.
   - `dataFolder`: relative to `<configDir>`; defaults to `data`.
   - `trustedProxies`: IPs or CIDR ranges of reverse proxies whose `X-Forwarded-For` is believed.
-  - `secureCookie`: set to `true` when served over HTTPS.
+  - `secureCookie`: the session cookie travels over HTTPS only; defaults to `true`. Set it to `false`
+    to serve over plain HTTP, or nobody can log in.
   - `keepLogFiles`: days of logs to keep; defaults to 30, `0` keeps them forever.
   - `maxNoteSizeMb`: the largest note; defaults to 10. Larger requests are refused with HTTP 413.
 - `credentials.json` (required, see `credentials.example.json`): one entry per user. It is re-read
@@ -113,7 +116,8 @@ docker build -t nullbird-notes .
 docker run --rm -it nullbird-notes hash-password
 ```
 
-`/config` is the config directory. The container runs as uid 10001, which must own it:
+`/config` is the config directory. The container runs as uid 10001, which must own it. Without HTTPS
+in front of it, `notes/config.json` needs `{"secureCookie": false}`.
 
 ```
 mkdir notes          # then write notes/credentials.json
@@ -194,7 +198,7 @@ plain HTTP, browsers allow neither: the app works online only.
 
 ## Behind a reverse proxy
 
-- Set `trustedProxies` to the proxy's address, and `secureCookie` to `true` if it serves HTTPS.
+- Set `trustedProxies` to the proxy's address, and `secureCookie` to `false` if it serves plain HTTP.
 - Over HTTPS, have the proxy send `Strict-Transport-Security`: the server can't know the site is
   served over HTTPS, so it doesn't.
 - Clients wait for changes with requests held open up to 25 s: the proxy's read timeout must be

@@ -87,6 +87,8 @@ class TestServer implements AutoCloseable {
     config.setHttpPort(port);
     config.setAddress("127.0.0.1");
     config.setMaxNoteSizeMb(1);
+    // Plain HTTP: the client's CookieManager wouldn't send a secure cookie back.
+    config.setSecureCookie(false);
     services = new ServiceProvider(new SettingsService(config, credentialsPath, new File(dir, "data")), new SessionService(),
         new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new WebServerService());
     try {

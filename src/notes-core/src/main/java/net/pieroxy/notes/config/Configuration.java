@@ -12,8 +12,8 @@ public class Configuration {
   private String dataFolder = "data";
   /** See {@code TrustedProxies}. */
   private List<String> trustedProxies;
-  /** Set when the server is reached over HTTPS (typically through a reverse proxy). */
-  private boolean secureCookie;
+  /** The session cookie travels over HTTPS only: false to serve over plain HTTP. */
+  private boolean secureCookie = true;
   /** See {@code LogRetention#days}. */
   private Integer keepLogFiles;
   private int maxNoteSizeMb = 10;
