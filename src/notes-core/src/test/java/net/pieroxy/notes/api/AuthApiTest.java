@@ -1,6 +1,9 @@
 package net.pieroxy.notes.api;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.pieroxy.notes.services.ClientGuardService;
 import net.pieroxy.notes.utils.BuildInfo;
 import org.junit.After;
@@ -150,5 +153,28 @@ public class AuthApiTest {
     } finally {
       pool.shutdownNow();
     }
+  }
+
+  @Test
+  public void aUserRemovedFromCredentialsIsRefusedEverywhereAtOnce() throws Exception {
+    server = new TestServer(tmp.getRoot(), Map.of("alice", "alice-password", "bob", "bob-password"));
+    TestServer.Client bob = server.client().login("bob", "bob-password");
+    TestServer.Client alice = server.client().login("alice", "alice-password");
+    assertEquals(200, bob.get("ServerInfo", "{}").status());
+
+    File credentials = new File(tmp.getRoot(), "credentials.json");
+    JsonObject root = JsonParser.parseString(Files.readString(credentials.toPath())).getAsJsonObject();
+    JsonArray kept = new JsonArray();
+    for (JsonElement user : root.getAsJsonArray("users")) {
+      if (!user.getAsJsonObject().get("username").getAsString().equals("bob")) kept.add(user);
+    }
+    root.add("users", kept);
+    Files.writeString(credentials.toPath(), root.toString());
+    assertTrue(credentials.setLastModified(credentials.lastModified() + 2000));
+
+    assertEquals(401, bob.get("ServerInfo", "{}").status());
+    assertFalse(bob.get("Session", "{}").result().get("authenticated").getAsBoolean());
+    assertEquals(401, bob.rawBytes("/export").statusCode());
+    assertEquals(200, alice.get("ServerInfo", "{}").status());
   }
 }

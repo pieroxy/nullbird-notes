@@ -2,6 +2,8 @@ package net.pieroxy.notes.services;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import net.pieroxy.notes.config.PasswordHash;
+import net.pieroxy.notes.config.UserCredential;
 import net.pieroxy.notes.utils.AtomicFiles;
 import net.pieroxy.notes.utils.Hashes;
 
@@ -31,6 +33,11 @@ import java.util.logging.Logger;
  * alone can't be used to take over a session. Logins and logouts are written at once; uses at most
  * every {@link #FLUSH_PERIOD} and on shutdown. An unreadable file is logged and ignored, which logs
  * everyone out.
+ * <p>
+ * A session holds a fingerprint of its user's password salt as of the login: a new password always
+ * comes with a new salt. It ends as soon as credentials.json no longer has that user with that salt,
+ * whoever changed it: a user removed, another one created under the same name, a password reset by
+ * hand. Sessions from before fingerprints take their user's on their next use.
  */
 public class SessionService implements Service {
   private final static Logger LOGGER = Logger.getLogger(SessionService.class.getName());
@@ -47,6 +54,7 @@ public class SessionService implements Service {
   private final Object writeLock = new Object();
   private volatile boolean dirty;
   private Path file;
+  private SettingsService settings;
   private ScheduledExecutorService flusher;
 
   public SessionService() {
@@ -64,12 +72,14 @@ public class SessionService implements Service {
 
   @Override
   public void init(IServiceProvider serviceProvider) {
-    file = serviceProvider.getSettingsService().getDataFolder().toPath().resolve("sessions.json");
+    settings = serviceProvider.getSettingsService();
+    file = settings.getDataFolder().toPath().resolve("sessions.json");
     load();
   }
 
   @Override
   public void start() {
+    dropStale();
     flusher = Executors.newSingleThreadScheduledExecutor(r -> {
       Thread thread = new Thread(r, "session-flush");
       thread.setDaemon(true);
@@ -89,7 +99,7 @@ public class SessionService implements Service {
   public String create(String username, String userAgent) {
     Instant now = clock.instant();
     String id = UUID.randomUUID().toString();
-    Session session = new Session(username, userAgent, now, now, now);
+    Session session = new Session(username, userAgent, now, now, now, fingerprint(settings.getUser(username)));
     // LoginApi sets the cookie.
     session.cookieRefreshedAt = now;
     sessions.put(Hashes.sha256(id), session);
@@ -97,17 +107,64 @@ public class SessionService implements Service {
     return id;
   }
 
-  /** @return the session, or null if unknown or expired. Doesn't count as a use. */
+  /** @return the session, or null if unknown, expired, or its user's credential changed. Doesn't count as a use. */
   public Session get(String sessionId) {
     if (sessionId == null) return null;
     String key = Hashes.sha256(sessionId);
     Session session = sessions.get(key);
     if (session == null) return null;
-    if (session.isExpired(clock.instant())) {
+    if (session.isExpired(clock.instant()) || !credentialHolds(session)) {
       if (sessions.remove(key, session)) dirty = true;
       return null;
     }
     return session;
+  }
+
+  /**
+   * Before a password change for the session's own user: the session takes {@code password}'s
+   * fingerprint once credentials.json has it, so that it carries on with no request in between
+   * refused. Does nothing for an unknown session.
+   */
+  public void expectPassword(String sessionId, PasswordHash password) {
+    Session session = sessionId == null ? null : sessions.get(Hashes.sha256(sessionId));
+    if (session == null) return;
+    session.expectedCredential = fingerprint(password);
+    save();
+  }
+
+  /**
+   * Whether credentials.json still has the session's user, with the password it had: a session from
+   * before fingerprints takes the current one. Logs why not.
+   */
+  private boolean credentialHolds(Session session) {
+    UserCredential user = settings.getUser(session.username);
+    if (user == null) {
+      LOGGER.info("Session of \"" + session.username + "\" ended: no such user in credentials.json any more");
+      return false;
+    }
+    String current = fingerprint(user);
+    if (session.credential == null || current.equals(session.expectedCredential)) {
+      session.credential = current;
+      session.expectedCredential = null;
+      dirty = true;
+      return true;
+    }
+    if (current.equals(session.credential)) return true;
+    LOGGER.info("Session of \"" + session.username + "\" ended: their password changed in credentials.json since it started");
+    return false;
+  }
+
+  /** Ends the sessions whose credential changed, so that they don't linger in the file and in {@link #lastSeen}. */
+  private void dropStale() {
+    if (sessions.values().removeIf(session -> !credentialHolds(session))) dirty = true;
+  }
+
+  private static String fingerprint(UserCredential user) {
+    return user == null ? null : fingerprint(user.getPassword());
+  }
+
+  private static String fingerprint(PasswordHash password) {
+    return Hashes.sha256(password.getSalt());
   }
 
   /** {@link #get}, and records a use of the session, which pushes its expiry back. */
@@ -156,6 +213,7 @@ public class SessionService implements Service {
    * they have none left (never logged in, logged out, or expired).
    */
   public Instant lastSeen(String username) {
+    dropStale();
     Instant now = clock.instant();
     Instant last = null;
     for (Session session : sessions.values()) {
@@ -165,8 +223,9 @@ public class SessionService implements Service {
     return last;
   }
 
-  /** Writes the sessions if anything changed since the last write. */
+  /** Writes the sessions if anything changed since the last write, credentials changed included. */
   void flush() {
+    dropStale();
     if (dirty) save();
   }
 
@@ -212,13 +271,18 @@ public class SessionService implements Service {
     private volatile Instant lastUsedAt;
     /** Not persisted: after a restart, the first use refreshes the cookie. */
     private volatile Instant cookieRefreshedAt;
+    /** The fingerprint of the user's password salt; null for a session from before fingerprints. */
+    private volatile String credential;
+    /** See {@link #expectPassword}. */
+    private volatile String expectedCredential;
 
-    Session(String username, String userAgent, Instant createdAt, Instant lastLoginAt, Instant lastUsedAt) {
+    Session(String username, String userAgent, Instant createdAt, Instant lastLoginAt, Instant lastUsedAt, String credential) {
       this.username = username;
       this.userAgent = userAgent;
       this.createdAt = createdAt;
       this.lastLoginAt = lastLoginAt;
       this.lastUsedAt = lastUsedAt;
+      this.credential = credential;
     }
 
     boolean isExpired(Instant now) {
@@ -264,6 +328,8 @@ public class SessionService implements Service {
     Long createdAt;
     Long lastLoginAt;
     Long lastUsedAt;
+    String credential;
+    String expectedCredential;
 
     StoredSession(String idHash, Session session) {
       this.idHash = idHash;
@@ -272,13 +338,17 @@ public class SessionService implements Service {
       this.createdAt = session.createdAt.toEpochMilli();
       this.lastLoginAt = session.lastLoginAt.toEpochMilli();
       this.lastUsedAt = session.lastUsedAt.toEpochMilli();
+      this.credential = session.credential;
+      this.expectedCredential = session.expectedCredential;
     }
 
     /** @return null if incomplete. */
     Session toSession() {
       if (username == null || createdAt == null || lastLoginAt == null || lastUsedAt == null) return null;
-      return new Session(username, userAgent, Instant.ofEpochMilli(createdAt), Instant.ofEpochMilli(lastLoginAt),
-          Instant.ofEpochMilli(lastUsedAt));
+      Session session = new Session(username, userAgent, Instant.ofEpochMilli(createdAt), Instant.ofEpochMilli(lastLoginAt),
+          Instant.ofEpochMilli(lastUsedAt), credential);
+      session.expectedCredential = expectedCredential;
+      return session;
     }
   }
 }

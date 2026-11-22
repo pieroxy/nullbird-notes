@@ -6,6 +6,7 @@ import net.pieroxy.notes.api.metadata.AuthenticatedApiInput;
 import net.pieroxy.notes.api.metadata.Endpoint;
 import net.pieroxy.notes.api.metadata.Required;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
+import net.pieroxy.notes.config.PasswordHash;
 import net.pieroxy.notes.config.PasswordHasher;
 import net.pieroxy.notes.config.UserCredential;
 import net.pieroxy.notes.services.ClientGuardService;
@@ -53,7 +54,9 @@ public class ChangePasswordApi extends AbstractAuthenticatedEndpoint<ChangePassw
       return ChangePasswordApiOutput.refused("The new password is the same as the current one.");
     }
 
-    serviceProvider.getSettingsService().setPassword(username, PasswordHasher.hash(newPassword));
+    PasswordHash hash = PasswordHasher.hash(newPassword);
+    serviceProvider.getSessionService().expectPassword(input.getSessionId(), hash);
+    serviceProvider.getSettingsService().setPassword(username, hash);
     serviceProvider.getSessionService().invalidateOthers(username, input.getSessionId());
     LOGGER.info("User \"" + username + "\" changed their password from " + client + ": logged out of their other sessions");
     return new ChangePasswordApiOutput(true, null);

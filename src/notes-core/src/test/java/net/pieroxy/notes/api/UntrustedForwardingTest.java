@@ -54,16 +54,16 @@ public class UntrustedForwardingTest {
     VALVE_LOGGER.removeHandler(capture);
   }
 
+  /** Tests run in parallel: other servers' warnings are told apart by the forwarded addresses, used by this test only. */
   @Test
   public void forwardingWithoutTrustedProxiesIsWarnedAboutOnce() throws Exception {
     TestServer.Client client = server.client();
     client.raw("/");
-    assertEquals("no header, no warning", 0, warnings.size());
+    client.rawForwardedFor("/", "198.18.7.1");
+    client.rawForwardedFor("/", "198.18.7.2");
 
-    client.rawForwardedFor("/", "203.0.113.7");
-    client.rawForwardedFor("/", "203.0.113.8");
-
-    assertEquals(1, warnings.size());
-    assertTrue(warnings.get(0).getMessage(), warnings.get(0).getMessage().contains("A request from 127.0.0.1 carries X-Forwarded-For"));
+    List<String> mine = warnings.stream().map(LogRecord::getMessage).filter(m -> m.contains("198.18.7.")).toList();
+    assertEquals(mine.toString(), 1, mine.size());
+    assertTrue(mine.get(0), mine.get(0).startsWith("A request from 127.0.0.1 carries X-Forwarded-For (198.18.7.1), but trustedProxies is empty."));
   }
 }

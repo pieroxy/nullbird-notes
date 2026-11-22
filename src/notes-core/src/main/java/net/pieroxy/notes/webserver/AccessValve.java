@@ -57,7 +57,7 @@ public class AccessValve extends ValveBase implements org.apache.catalina.Access
     if (trustedProxies.isEmpty() || !trustedProxies.isTrusted(peer)) {
       guard.countRequest(peer, forwardedFor);
       if (trustedProxies.isEmpty() && forwardedFor != null && !untrustedForwardingWarned.getAndSet(true)) {
-        LOGGER.warning("A request from " + peer + " carries X-Forwarded-For, but trustedProxies is empty. If " + peer
+        LOGGER.warning("A request from " + peer + " carries X-Forwarded-For (" + lastHop(forwardedFor) + "), but trustedProxies is empty. If " + peer
             + " is a reverse proxy, every client looks like it: one client's failed logins or 404s lock everyone out."
             + " Set trustedProxies to its address in config.json. Logged once.");
       }
@@ -90,6 +90,12 @@ public class AccessValve extends ValveBase implements org.apache.catalina.Access
           + ClientGuardService.MAX_NOT_FOUND + " requests answered 404 within "
           + ClientGuardService.NOT_FOUND_WINDOW.toSeconds() + " s, last one " + request.getRequestURI());
     }
+  }
+
+  /** The header's rightmost address, as a log can show it: only the characters of an IP address, at most 45. */
+  private static String lastHop(String forwardedFor) {
+    String hop = forwardedFor.substring(forwardedFor.lastIndexOf(',') + 1).trim().replaceAll("[^0-9A-Fa-f:.\\[\\]]", "");
+    return hop.substring(0, Math.min(hop.length(), 45));
   }
 
   /** {@code time} is ignored: its unit changed across Tomcat versions, so the duration comes from the request's own start. */

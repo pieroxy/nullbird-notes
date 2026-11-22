@@ -54,7 +54,7 @@ class TestServer implements AutoCloseable {
   private final ServiceProvider services;
   private final int port;
 
-  /** @param users username to plaintext password. */
+  /** @param users username to plaintext password; ignored if {@code dir} already has a credentials.json. */
   TestServer(File dir, Map<String, String> users) throws IOException {
     this(dir, users, Set.of(), freePort());
   }
@@ -70,18 +70,22 @@ class TestServer implements AutoCloseable {
 
   TestServer(File dir, Map<String, String> users, Set<String> admins, int port) throws IOException {
     this.port = port;
-    List<UserCredential> credentials = new ArrayList<>();
-    users.forEach((username, password) -> {
-      UserCredential user = new UserCredential();
-      user.setUsername(username);
-      user.setPassword(PasswordHasher.hash(password));
-      user.setAdmin(admins.contains(username));
-      credentials.add(user);
-    });
-    CredentialsFile credentialsFile = new CredentialsFile();
-    credentialsFile.setUsers(credentials);
     File credentialsPath = new File(dir, "credentials.json");
-    Files.writeString(credentialsPath.toPath(), new Gson().toJson(credentialsFile));
+    // Kept on a restart in the same folder, as a real one does: hashed again, every password would
+    // have a new salt, which ends the sessions.
+    if (!credentialsPath.exists()) {
+      List<UserCredential> credentials = new ArrayList<>();
+      users.forEach((username, password) -> {
+        UserCredential user = new UserCredential();
+        user.setUsername(username);
+        user.setPassword(PasswordHasher.hash(password));
+        user.setAdmin(admins.contains(username));
+        credentials.add(user);
+      });
+      CredentialsFile credentialsFile = new CredentialsFile();
+      credentialsFile.setUsers(credentials);
+      Files.writeString(credentialsPath.toPath(), new Gson().toJson(credentialsFile));
+    }
 
     Configuration config = new Configuration();
     config.setHttpPort(port);
