@@ -113,7 +113,8 @@ systemctl enable --now nullbird-notes
 
 ### With Docker
 
-The image is tagged with each version, and `latest`. It's built for amd64.
+The image is tagged with each version, and `latest`, for amd64 and arm64 (ARM servers, a Raspberry Pi
+with a 64-bit OS).
 
 ```
 docker run --rm -it ghcr.io/pieroxy/nullbird-notes hash-password
