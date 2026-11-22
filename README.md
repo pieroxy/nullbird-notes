@@ -25,7 +25,9 @@ backend's Java classes during the Maven build: never edit them.
 
 ## Build
 
-Requires Java 17+, Maven, Node.js and git.
+Each release's jar is on the [Releases](https://github.com/pieroxy/nullbird-notes/releases) page,
+and its Docker image is `ghcr.io/pieroxy/nullbird-notes`. To build it yourself instead, with Java
+17+, Maven, Node.js and git:
 
 ```
 mvn package
@@ -34,6 +36,8 @@ mvn package
 Produces `src/notes-core/target/notes-core-<version>.jar`.
 
 ## Quick start
+
+With Java 17+ and a release's jar:
 
 ```
 mkdir notes
@@ -109,11 +113,10 @@ systemctl enable --now nullbird-notes
 
 ### With Docker
 
-The image packages the jar built by `mvn package`, from the repository's root:
+The image is tagged with each version, and `latest`. It's built for amd64.
 
 ```
-docker build -t nullbird-notes .
-docker run --rm -it nullbird-notes hash-password
+docker run --rm -it ghcr.io/pieroxy/nullbird-notes hash-password
 ```
 
 `/config` is the config directory. The container runs as uid 10001, which must own it. Without HTTPS
@@ -122,13 +125,16 @@ in front of it, `notes/config.json` needs `{"secureCookie": false}`.
 ```
 mkdir notes          # then write notes/credentials.json
 chown -R 10001 notes
-docker run -d --name notes --restart unless-stopped -p 8080:8080 -v "$PWD/notes:/config" nullbird-notes
+docker run -d --name notes --restart unless-stopped -p 8080:8080 -v "$PWD/notes:/config" ghcr.io/pieroxy/nullbird-notes
 ```
+
+To build the image yourself: `mvn clean package` (the image takes the only jar in `target`), then
+`docker build -t nullbird-notes .` from the repository's root.
 
 ## Upgrade
 
-Back up, replace the jar (or rebuild the image), restart. The data is migrated on startup if
-needed.
+Back up, replace the jar (or `docker pull` the image and recreate the container), restart. The
+data is migrated on startup if needed.
 
 ## Backups
 
