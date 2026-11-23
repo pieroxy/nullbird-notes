@@ -27,6 +27,13 @@ jobs:
           cache: npm
           cache-dependency-path: src/notes-webapp/package-lock.json
       - run: mvn -B package
+      # Which test failed, and why, without the log.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: src/notes-core/target/surefire-reports
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: notes-core-jar

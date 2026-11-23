@@ -21,6 +21,7 @@ import net.pieroxy.notes.utils.BuildInfo;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.BindException;
 import java.net.CookieManager;
 import java.net.HttpCookie;
 import java.net.ServerSocket;
@@ -54,22 +55,25 @@ class TestServer implements AutoCloseable {
   private final ServiceProvider services;
   private final int port;
 
+  /** Ports tried when this server picks its own: another test's server may take the one it found free first. */
+  private static final int PORT_ATTEMPTS = 5;
+
   /** @param users username to plaintext password; ignored if {@code dir} already has a credentials.json. */
   TestServer(File dir, Map<String, String> users) throws IOException {
-    this(dir, users, Set.of(), freePort());
+    this(dir, users, Set.of(), 0);
   }
 
   /** @param admins those of {@code users} who are admins. */
   TestServer(File dir, Map<String, String> users, Set<String> admins) throws IOException {
-    this(dir, users, admins, freePort());
+    this(dir, users, admins, 0);
   }
 
   TestServer(File dir, Map<String, String> users, int port) throws IOException {
     this(dir, users, Set.of(), port);
   }
 
+  /** @param port 0 to pick a free one. */
   TestServer(File dir, Map<String, String> users, Set<String> admins, int port) throws IOException {
-    this.port = port;
     File credentialsPath = new File(dir, "credentials.json");
     // Kept on a restart in the same folder, as a real one does: hashed again, every password would
     // have a new salt, which ends the sessions.
@@ -87,20 +91,37 @@ class TestServer implements AutoCloseable {
       Files.writeString(credentialsPath.toPath(), new Gson().toJson(credentialsFile));
     }
 
-    Configuration config = new Configuration();
-    config.setHttpPort(port);
-    config.setAddress("127.0.0.1");
-    config.setMaxNoteSizeMb(1);
-    // Plain HTTP: the client's CookieManager wouldn't send a secure cookie back.
-    config.setSecureCookie(false);
-    services = new ServiceProvider(new SettingsService(config, credentialsPath, new File(dir, "data")), new SessionService(),
-        new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new WebServerService());
-    try {
-      services.init();
-    } catch (RuntimeException e) {
-      services.destroy();
-      throw e;
+    services = start(dir, credentialsPath, port);
+    this.port = services.getSettingsService().getConfig().getHttpPort();
+  }
+
+  /** @param port 0 to pick a free one, retried if another test's server takes it first. */
+  private static ServiceProvider start(File dir, File credentialsPath, int port) throws IOException {
+    for (int attempt = 1; ; attempt++) {
+      Configuration config = new Configuration();
+      config.setHttpPort(port == 0 ? freePort() : port);
+      config.setAddress("127.0.0.1");
+      config.setMaxNoteSizeMb(1);
+      // Plain HTTP: the client's CookieManager wouldn't send a secure cookie back.
+      config.setSecureCookie(false);
+      ServiceProvider services = new ServiceProvider(new SettingsService(config, credentialsPath, new File(dir, "data")), new SessionService(),
+          new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new WebServerService());
+      try {
+        services.init();
+        return services;
+      } catch (RuntimeException e) {
+        services.destroy();
+        // Found free, then taken by another test's server before this one bound it: try another.
+        if (port != 0 || attempt == PORT_ATTEMPTS || !causedByBindException(e)) throw e;
+      }
     }
+  }
+
+  private static boolean causedByBindException(Throwable e) {
+    for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+      if (cause instanceof BindException) return true;
+    }
+    return false;
   }
 
   private static int freePort() throws IOException {

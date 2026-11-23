@@ -38,6 +38,13 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - run: mvn -B package
+      # Which test failed, and why, without the log.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: src/notes-core/target/surefire-reports
+          if-no-files-found: ignore
 
       - name: Create the GitHub Release
         env:
