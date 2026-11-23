@@ -271,8 +271,8 @@ public class ImportServiceTest {
     List<String> info = messages(Level.INFO);
     assertTrue(info.toString(), info.contains("Import for \"alice\": imported " + A));
     assertTrue(info.toString(), info.contains("Import for \"alice\": imported " + C + ", to the trash"));
-    assertTrue(info.toString(), info.stream().anyMatch(m -> m.startsWith("Import for \"alice\": from 127.0.0.1, \"notes.zip\", 2 notes")));
-    assertTrue(info.toString(), info.contains("Import for \"alice\": done, 2 imported (1 to the trash), 0 already there, 0 too large"));
+    assertTrue(info.toString(), info.contains("Import for \"alice\": from 127.0.0.1, \"notes.zip\""));
+    assertTrue(info.toString(), info.contains("Import for \"alice\": done, 2 notes, 2 imported (1 to the trash), 0 already there, 0 too large"));
   }
 
   @Test
@@ -420,6 +420,105 @@ public class ImportServiceTest {
     assertEquals("notes.zip", ImportService.cleanFileName("C:\\Users\\me\\notes.zip"));
     assertEquals("evil.zip", ImportService.cleanFileName("../evil\n\".zip"));
     assertEquals("(no name)", ImportService.cleanFileName(null));
+  }
+
+  @Test
+  public void oneFileAtATimePerUser() throws Exception {
+    java.util.concurrent.CountDownLatch uploading = new java.util.concurrent.CountDownLatch(1);
+    java.util.concurrent.CountDownLatch finish = new java.util.concurrent.CountDownLatch(1);
+    byte[] file = json(note(A, "Slow upload"));
+    // An upload still coming in.
+    java.io.InputStream slow = new java.io.InputStream() {
+      private int at;
+
+      @Override
+      public int read() throws IOException {
+        if (at == 0) {
+          uploading.countDown();
+          try {
+            finish.await();
+          } catch (InterruptedException e) {
+            throw new IOException(e);
+          }
+        }
+        return at < file.length ? file[at++] & 0xff : -1;
+      }
+    };
+    java.util.concurrent.CompletableFuture<ImportSummary> first = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+      try {
+        return imports.check("alice", "127.0.0.1", "slow.json", slow);
+      } catch (IOException e) {
+        throw new java.io.UncheckedIOException(e);
+      }
+    });
+    uploading.await();
+
+    try {
+      check("alice", json(note(B, "Meanwhile")));
+      fail("Checked");
+    } catch (net.pieroxy.notes.api.metadata.TooManyRequestsException e) {
+      assertTrue(e.getMessage(), e.getMessage().contains("previous file is still being checked"));
+    }
+    assertEquals(1, check("bob", json(note(B, "Someone else's"))).imported());
+
+    finish.countDown();
+    assertEquals(1, first.get().imported());
+    assertEquals(1, check("alice", json(note(B, "Afterwards"))).imported());
+  }
+
+  @Test
+  public void atMostSoManyFilesAtOnceServerWide() throws Exception {
+    ImportSummary waiting = check("alice", json(note(A, "Checked before")));
+    imports.parsing.acquire(ImportService.MAX_CONCURRENT_IMPORTS);
+    try {
+      for (Runnable attempt : List.<Runnable>of(
+          () -> uncheckedCheck("bob", json(note(B, "Too many"))),
+          () -> uncheckedRun("alice", waiting.token()))) {
+        try {
+          attempt.run();
+          fail("Went through");
+        } catch (net.pieroxy.notes.api.metadata.TooManyRequestsException e) {
+          assertTrue(e.getMessage(), e.getMessage().contains("busy with other imports"));
+        }
+      }
+      // Refused: bob's file not kept, alice's still waiting.
+      assertEquals(1, uploadsLeft());
+    } finally {
+      imports.parsing.release(ImportService.MAX_CONCURRENT_IMPORTS);
+    }
+    assertEquals(1, imports.run("alice", "127.0.0.1", waiting.token()).imported());
+    assertEquals(0, uploadsLeft());
+  }
+
+  @Test
+  public void aSlotIsFreedWhateverHappens() throws Exception {
+    for (int i = 0; i < 3 * ImportService.MAX_CONCURRENT_IMPORTS; i++) {
+      try {
+        check("alice", "not an export".getBytes(StandardCharsets.UTF_8));
+        fail("Accepted");
+      } catch (InvalidInputException expected) {
+        // refused, and the slot back
+      }
+    }
+    assertEquals(ImportService.MAX_CONCURRENT_IMPORTS, imports.parsing.availablePermits());
+    assertEquals(1, importNow("alice", json(note(A, "Still works"))).imported());
+    assertEquals(ImportService.MAX_CONCURRENT_IMPORTS, imports.parsing.availablePermits());
+  }
+
+  private void uncheckedCheck(String username, byte[] file) {
+    try {
+      check(username, file);
+    } catch (IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+  }
+
+  private void uncheckedRun(String username, String token) {
+    try {
+      imports.run(username, "127.0.0.1", token);
+    } catch (IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
   }
 
   private void assertRunRefused(String username, String token) throws IOException {

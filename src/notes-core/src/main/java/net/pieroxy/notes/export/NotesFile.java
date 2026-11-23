@@ -53,22 +53,44 @@ public final class NotesFile {
 
   private NotesFile() {}
 
-  /** @throws InvalidInputException if it's not an export, or too big: the message says why, for the user. */
-  public static List<Note> read(Path file, long maxJsonBytes, int maxNotes) throws IOException, InvalidInputException {
+  /** Takes the file's notes one at a time, in its order. */
+  @FunctionalInterface
+  public interface NoteHandler {
+    void accept(Note note) throws IOException;
+  }
+
+  /**
+   * Hands {@code file}'s notes to {@code handler} as they're read: only one is in memory at a time.
+   * A file that turns out not to be an export, or too big, fails after the notes before the problem
+   * were handed over.
+   *
+   * @throws InvalidInputException if it's not an export, or too big: the message says why, for the user.
+   */
+  public static void read(Path file, long maxJsonBytes, int maxNotes, NoteHandler handler) throws IOException, InvalidInputException {
     try (InputStream in = new BufferedInputStream(Files.newInputStream(file))) {
       in.mark(4);
       byte[] start = in.readNBytes(4);
       in.reset();
-      if (start.length == 4 && start[0] == 'P' && start[1] == 'K' && start[2] == 3 && start[3] == 4) return readZip(in, maxJsonBytes, maxNotes);
-      return readJson(in, maxJsonBytes, maxNotes);
+      if (start.length == 4 && start[0] == 'P' && start[1] == 'K' && start[2] == 3 && start[3] == 4) readZip(in, maxJsonBytes, maxNotes, handler);
+      else readJson(in, maxJsonBytes, maxNotes, handler);
     }
   }
 
-  private static List<Note> readZip(InputStream in, long maxJsonBytes, int maxNotes) throws IOException {
+  /** Every note, in memory: for tests. */
+  static List<Note> read(Path file, long maxJsonBytes, int maxNotes) throws IOException, InvalidInputException {
+    List<Note> notes = new ArrayList<>();
+    read(file, maxJsonBytes, maxNotes, notes::add);
+    return notes;
+  }
+
+  private static void readZip(InputStream in, long maxJsonBytes, int maxNotes, NoteHandler handler) throws IOException {
     ZipInputStream zip = new ZipInputStream(in, StandardCharsets.UTF_8);
     try {
       for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
-        if (isNotesJson(entry.getName())) return readJson(zip, maxJsonBytes, maxNotes);
+        if (isNotesJson(entry.getName())) {
+          readJson(zip, maxJsonBytes, maxNotes, handler);
+          return;
+        }
       }
     } catch (ZipException e) {
       throw new InvalidInputException("This .zip file is damaged: " + e.getMessage());
@@ -81,9 +103,9 @@ public final class NotesFile {
     return name.equals("source/" + NOTES_JSON) || name.equals(NOTES_JSON) || name.matches("[^/]+/source/" + NOTES_JSON);
   }
 
-  private static List<Note> readJson(InputStream in, long maxJsonBytes, int maxNotes) throws IOException {
+  private static void readJson(InputStream in, long maxJsonBytes, int maxNotes, NoteHandler handler) throws IOException {
     JsonReader json = new JsonReader(new InputStreamReader(new Capped(in, maxJsonBytes), StandardCharsets.UTF_8));
-    List<Note> notes = new ArrayList<>();
+    int count = 0;
     boolean found = false;
     try {
       if (json.peek() != JsonToken.BEGIN_OBJECT) throw notAnExport();
@@ -94,8 +116,13 @@ public final class NotesFile {
           found = true;
           json.beginArray();
           while (json.hasNext()) {
-            if (notes.size() >= maxNotes) throw new InvalidInputException("The file has more than " + maxNotes + " notes, the most one import takes.");
-            notes.add(readNote(json, name.equals("trashedNotes")));
+            if (count++ >= maxNotes) throw new InvalidInputException("The file has more than " + maxNotes + " notes, the most one import takes.");
+            Note note = readNote(json, name.equals("trashedNotes"));
+            try {
+              handler.accept(note);
+            } catch (IOException | RuntimeException e) {
+              throw new HandlerFailed(e);
+            }
           }
           json.endArray();
         } else {
@@ -103,6 +130,10 @@ public final class NotesFile {
         }
       }
       json.endObject();
+    } catch (HandlerFailed e) {
+      // The handler's own failure (a note it couldn't write...), not the file's.
+      if (e.getCause() instanceof IOException io) throw io;
+      throw (RuntimeException) e.getCause();
     } catch (JsonParseException | IllegalStateException | NumberFormatException e) {
       throw notAnExport();
     } catch (IOException e) {
@@ -113,7 +144,6 @@ public final class NotesFile {
       throw e;
     }
     if (!found) throw notAnExport();
-    return notes;
   }
 
   private static InvalidInputException notAnExport() {
@@ -192,6 +222,13 @@ public final class NotesFile {
       return Instant.parse(value).toEpochMilli();
     } catch (DateTimeParseException e) {
       return null;
+    }
+  }
+
+  /** Carries the handler's exception past the parsing errors' handling. */
+  private static class HandlerFailed extends RuntimeException {
+    HandlerFailed(Exception cause) {
+      super(cause);
     }
   }
 

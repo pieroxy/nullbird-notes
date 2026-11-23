@@ -1,6 +1,7 @@
 package net.pieroxy.notes.services;
 
 import net.pieroxy.notes.api.metadata.InvalidInputException;
+import net.pieroxy.notes.api.metadata.TooManyRequestsException;
 import net.pieroxy.notes.export.ImportSummary;
 import net.pieroxy.notes.export.NotesFile;
 import net.pieroxy.notes.storage.NoteMeta;
@@ -28,6 +29,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -48,7 +51,10 @@ import java.util.logging.Logger;
 public class ImportService implements Service {
   private final static Logger LOGGER = Logger.getLogger(ImportService.class.getName());
   public static final long MAX_UPLOAD_BYTES = 64L * 1024 * 1024;
-  public static final long MAX_JSON_BYTES = 128L * 1024 * 1024;
+  /** Unzipped: as much as a zip of {@link #MAX_UPLOAD_BYTES} may hold, and parsed one note at a time. */
+  public static final long MAX_JSON_BYTES = 64L * 1024 * 1024;
+  /** Files checked or imported at once, server-wide: each takes memory and disk time. */
+  public static final int MAX_CONCURRENT_IMPORTS = 2;
   public static final int MAX_NOTES = 100_000;
   public static final Duration PENDING_FOR = Duration.ofMinutes(15);
   private static final String DEVICE_ID = "import";
@@ -67,6 +73,10 @@ public class ImportService implements Service {
 
   private final Clock clock;
   private final Map<String, Pending> pending = new HashMap<>();
+  /** Users with a file being checked or imported: one at a time each. */
+  private final Set<String> busyUsers = ConcurrentHashMap.newKeySet();
+  /** Package-visible for tests: taking its permits stands for imports in progress. */
+  final Semaphore parsing = new Semaphore(MAX_CONCURRENT_IMPORTS);
   private SettingsService settings;
   private NoteStoreService noteStores;
   private Path folder;
@@ -108,18 +118,25 @@ public class ImportService implements Service {
    * says what running it would do.
    *
    * @throws InvalidInputException if it's too large, or not an export: nothing is kept then.
+   * @throws TooManyRequestsException while another of the user's files is checked or imported, or
+   * {@link #MAX_CONCURRENT_IMPORTS} are: nothing is kept then.
    */
   public ImportSummary check(String username, String clientAddress, String fileName, InputStream upload) throws IOException {
     String name = cleanFileName(fileName);
-    Files.createDirectories(folder);
-    Path file = folder.resolve(UUID.randomUUID() + ".upload");
+    startUserWork(username);
+    Path file = null;
     try {
+      Files.createDirectories(folder);
+      file = folder.resolve(UUID.randomUUID() + ".upload");
+      // Written to disk before taking a slot: a slow upload mustn't hold one.
       copyCapped(upload, file);
-      List<NotesFile.Note> notes = NotesFile.read(file, MAX_JSON_BYTES, MAX_NOTES);
-      UserNoteStore store = noteStores.getStore(username);
-      List<Decision> plan;
-      synchronized (store) {
-        plan = plan(store, notes);
+      Planner planner;
+      startParsing();
+      try {
+        planner = new Planner(noteStores.getStore(username));
+        NotesFile.read(file, MAX_JSON_BYTES, MAX_NOTES, planner::decide);
+      } finally {
+        parsing.release();
       }
       String token = UUID.randomUUID().toString();
       Pending previous;
@@ -128,41 +145,68 @@ public class ImportService implements Service {
         previous = pending.put(username, new Pending(token, file, name, clock.millis() + PENDING_FOR.toMillis()));
       }
       if (previous != null) delete(previous.file());
-      LOGGER.info("User \"" + username + "\" from " + clientAddress + " uploaded \"" + name + "\" to import: " + notes.size() + " notes");
-      return summary(token, name, notes.size(), plan);
+      LOGGER.info("User \"" + username + "\" from " + clientAddress + " uploaded \"" + name + "\" to import: " + planner.notes + " notes");
+      return planner.summary(token, name);
     } catch (IOException | RuntimeException e) {
-      delete(file);
+      if (file != null) delete(file);
       if (e instanceof InvalidInputException) {
         LOGGER.info("User \"" + username + "\" from " + clientAddress + " uploaded \"" + name + "\" to import, refused: " + e.getMessage());
       }
       throw e;
+    } finally {
+      busyUsers.remove(username);
     }
   }
 
   /**
    * Imports {@code username}'s pending import, as {@link #check} worked out but against their notes
-   * as they are now, logging what happens to each note.
+   * as they are now, logging what happens to each note. Each note is written as it's read: the
+   * check read the whole file already.
    *
    * @throws InvalidInputException if there's no such pending import (expired, or replaced).
+   * @throws TooManyRequestsException as {@link #check}: the import still waits then.
    */
   public ImportSummary run(String username, String clientAddress, String token) throws IOException {
-    Pending upload = take(username, token);
+    startUserWork(username);
     try {
-      List<NotesFile.Note> notes = NotesFile.read(upload.file(), MAX_JSON_BYTES, MAX_NOTES);
-      String who = "Import for \"" + username + "\": ";
-      LOGGER.info(who + "from " + clientAddress + ", \"" + upload.fileName() + "\", " + notes.size() + " notes");
-      UserNoteStore store = noteStores.getStore(username);
-      List<Decision> plan;
-      synchronized (store) {
-        plan = plan(store, notes);
-        for (Decision decision : plan) apply(store, who, decision);
+      startParsing();
+      try {
+        Pending upload = take(username, token);
+        try {
+          String who = "Import for \"" + username + "\": ";
+          LOGGER.info(who + "from " + clientAddress + ", \"" + upload.fileName() + "\"");
+          UserNoteStore store = noteStores.getStore(username);
+          Planner planner;
+          synchronized (store) {
+            planner = new Planner(store);
+            NotesFile.read(upload.file(), MAX_JSON_BYTES, MAX_NOTES, note -> apply(store, who, planner.decide(note)));
+          }
+          ImportSummary summary = planner.summary(null, upload.fileName());
+          LOGGER.info(who + "done, " + summary.notesInFile() + " notes, " + summary.imported() + " imported (" + summary.trashed()
+              + " to the trash), " + summary.alreadyThere() + " already there, " + summary.tooLarge().size() + " too large");
+          return summary;
+        } finally {
+          delete(upload.file());
+        }
+      } finally {
+        parsing.release();
       }
-      ImportSummary summary = summary(null, upload.fileName(), notes.size(), plan);
-      LOGGER.info(who + "done, " + summary.imported() + " imported (" + summary.trashed() + " to the trash), "
-          + summary.alreadyThere() + " already there, " + summary.tooLarge().size() + " too large");
-      return summary;
     } finally {
-      delete(upload.file());
+      busyUsers.remove(username);
+    }
+  }
+
+  /** @throws TooManyRequestsException if another of {@code username}'s files is being checked or imported. */
+  private void startUserWork(String username) {
+    if (!busyUsers.add(username)) {
+      throw new TooManyRequestsException("Your previous file is still being checked or imported: wait for it to finish.", 5);
+    }
+  }
+
+  /** @throws TooManyRequestsException if {@link #MAX_CONCURRENT_IMPORTS} files are being checked or imported. */
+  private void startParsing() {
+    if (!parsing.tryAcquire()) {
+      throw new TooManyRequestsException("The server is busy with other imports: retry in a moment.", 10);
     }
   }
 
@@ -199,29 +243,45 @@ public class ImportService implements Service {
     });
   }
 
-  /** What happens to each note, in the file's order. The caller holds the store's lock. */
-  private List<Decision> plan(UserNoteStore store, List<NotesFile.Note> notes) {
-    Set<String> ids = new HashSet<>();
-    Map<String, String> byHash = new HashMap<>();
-    for (NoteMeta note : store.list()) {
-      ids.add(note.id());
-      byHash.putIfAbsent(note.contentHash(), note.id());
+  /**
+   * What happens to each note, decided one at a time, in the file's order, and the summary of it
+   * all. Only the user's IDs and content hashes are kept, not the notes.
+   */
+  private final class Planner {
+    private final Set<String> ids = new HashSet<>();
+    private final Map<String, String> byHash = new HashMap<>();
+    private final long maxSize = settings.getMaxNoteSize();
+    private int notes;
+    private int imported;
+    private int trashed;
+    private int alreadyThere;
+    /** Over the largest note size each: no more of them than the file's size allows. */
+    private final List<ImportSummary.TooLargeNote> tooLarge = new ArrayList<>();
+
+    /** The user's notes as they are now: a moment's lock, not one for the whole file. */
+    Planner(UserNoteStore store) {
+      synchronized (store) {
+        for (NoteMeta note : store.list()) {
+          ids.add(note.id());
+          byHash.putIfAbsent(note.contentHash(), note.id());
+        }
+      }
     }
-    long maxSize = settings.getMaxNoteSize();
-    List<Decision> plan = new ArrayList<>();
-    for (NotesFile.Note note : notes) {
+
+    Decision decide(NotesFile.Note note) {
+      notes++;
       String text = NoteService.normalize(note.content());
       byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
       String hash = Hashes.sha256(bytes);
       String fileId = note.id() == null ? null : note.id().toLowerCase(Locale.ROOT);
       String existing = fileId != null && ids.contains(fileId) ? fileId : byHash.get(hash);
       if (existing != null) {
-        plan.add(new Decision(note, Outcome.ALREADY_THERE, existing, null, bytes.length, null, null, 0, 0));
-        continue;
+        alreadyThere++;
+        return new Decision(note, Outcome.ALREADY_THERE, existing, null, bytes.length, null, null, 0, 0);
       }
       if (bytes.length > maxSize) {
-        plan.add(new Decision(note, Outcome.TOO_LARGE, null, text, bytes.length, null, null, 0, 0));
-        continue;
+        tooLarge.add(new ImportSummary.TooLargeNote(UserNoteStore.title(text), bytes.length));
+        return new Decision(note, Outcome.TOO_LARGE, null, null, bytes.length, null, null, 0, 0);
       }
       String id = fileId != null && UserNoteStore.NOTE_ID_PATTERN.matcher(fileId).matches() ? fileId : UUID.randomUUID().toString();
       List<String> tags = new ArrayList<>(new LinkedHashSet<>(note.tags().stream().filter(NoteService::isValidTag).toList()));
@@ -232,12 +292,17 @@ public class ImportService implements Service {
           options.put(option.getKey(), option.getValue());
         }
       }
-      plan.add(new Decision(note, Outcome.IMPORT, id, text, bytes.length, tags, options, note.tags().size() - tags.size(),
-          note.options().size() - options.size()));
       ids.add(id);
       byHash.putIfAbsent(hash, id);
+      imported++;
+      if (note.deleted()) trashed++;
+      return new Decision(note, Outcome.IMPORT, id, text, bytes.length, tags, options, note.tags().size() - tags.size(),
+          note.options().size() - options.size());
     }
-    return plan;
+
+    ImportSummary summary(String token, String fileName) {
+      return new ImportSummary(token, fileName, notes, imported, trashed, alreadyThere, List.copyOf(tooLarge), maxSize);
+    }
   }
 
   private void apply(UserNoteStore store, String who, Decision decision) throws IOException {
@@ -265,24 +330,6 @@ public class ImportService implements Service {
         LOGGER.info(line.toString());
       }
     }
-  }
-
-  private ImportSummary summary(String token, String fileName, int notesInFile, List<Decision> plan) {
-    int imported = 0;
-    int trashed = 0;
-    int alreadyThere = 0;
-    List<ImportSummary.TooLargeNote> tooLarge = new ArrayList<>();
-    for (Decision decision : plan) {
-      switch (decision.outcome()) {
-        case IMPORT -> {
-          imported++;
-          if (decision.note().deleted()) trashed++;
-        }
-        case ALREADY_THERE -> alreadyThere++;
-        case TOO_LARGE -> tooLarge.add(new ImportSummary.TooLargeNote(UserNoteStore.title(decision.text()), decision.size()));
-      }
-    }
-    return new ImportSummary(token, fileName, notesInFile, imported, trashed, alreadyThere, tooLarge, settings.getMaxNoteSize());
   }
 
   /** The file's ID as a log can show it: anything can be in there. */

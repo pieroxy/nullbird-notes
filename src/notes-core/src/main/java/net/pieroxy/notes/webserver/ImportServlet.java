@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import net.pieroxy.notes.api.ApiServlet;
 import net.pieroxy.notes.api.metadata.InvalidInputException;
 import net.pieroxy.notes.api.metadata.ServletApiContext;
+import net.pieroxy.notes.api.metadata.TooManyRequestsException;
 import net.pieroxy.notes.api.model.ApiResponse;
 import net.pieroxy.notes.services.IServiceProvider;
 import net.pieroxy.notes.services.ImportService;
@@ -58,6 +59,9 @@ public class ImportServlet extends HttpServlet {
           .check(session.getUsername(), req.getRemoteAddr(), req.getParameter("name"), req.getInputStream())));
     } catch (InvalidInputException e) {
       answer(res, HttpServletResponse.SC_BAD_REQUEST, ApiResponse.buildErrResult(e.getMessage()));
+    } catch (TooManyRequestsException e) {
+      res.setHeader("Retry-After", String.valueOf(e.getRetryAfterSeconds()));
+      answer(res, 429, ApiResponse.buildErrResult(e.getMessage()));
     } catch (IOException e) {
       // Usually the upload cut short.
       LOGGER.log(Level.WARNING, "Import upload for \"" + session.getUsername() + "\" failed: " + e.getMessage());

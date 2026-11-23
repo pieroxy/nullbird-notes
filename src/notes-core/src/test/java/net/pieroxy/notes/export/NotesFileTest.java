@@ -119,6 +119,34 @@ public class NotesFileTest {
     assertFalse(NotesFile.isNotesJson("source/other.json"));
   }
 
+  @Test
+  public void notesComeOneAtATimeAndTheHandlersFailureIsItsOwn() throws Exception {
+    Path file = file("{\"activeNotes\": [{\"content\": \"one\"}, {\"content\": \"two\"}, {\"content\": \"three\"}]}");
+    List<String> seen = new java.util.ArrayList<>();
+    try {
+      NotesFile.read(file, 1 << 20, 10, note -> {
+        seen.add(note.content());
+        if (seen.size() == 2) throw new IllegalStateException("disk full");
+      });
+      fail("Read");
+    } catch (IllegalStateException e) {
+      // Not mistaken for a file that isn't an export.
+      assertEquals("disk full", e.getMessage());
+    }
+    assertEquals(List.of("one", "two"), seen);
+
+    try {
+      NotesFile.read(file, 1 << 20, 10, note -> {
+        throw new java.io.IOException("no space left");
+      });
+      fail("Read");
+    } catch (InvalidInputException e) {
+      fail("Taken for the file's fault: " + e.getMessage());
+    } catch (java.io.IOException e) {
+      assertEquals("no space left", e.getMessage());
+    }
+  }
+
   private static void assertRefused(Path file, long maxBytes, int maxNotes, String expected) throws Exception {
     try {
       NotesFile.read(file, maxBytes, maxNotes);
