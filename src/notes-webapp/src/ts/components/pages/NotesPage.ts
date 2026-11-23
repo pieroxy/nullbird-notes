@@ -130,7 +130,7 @@ export class NotesPage extends AbstractPage {
         ]),
         m(".listside", [
           this.selectedId ? iconButton("chevron-left", "Back to the notes", () => this.select(undefined), "back") : null,
-          engine && !this.selectedId ? iconButton("panel-left", (filtering ? "Tags, filtering" : "Tags") + " (" + TAGS_SHORTCUT + ")", () => {
+          engine ? iconButton("panel-left", (filtering ? "Tags, filtering" : "Tags") + " (" + TAGS_SHORTCUT + ")", () => {
             if (matchMedia(NARROW).matches) this.showTags = true;
             else this.setLayout(toggleTags(layout));
           }, "tagsbutton" + (filtering ? ".active" : "")) : null,
