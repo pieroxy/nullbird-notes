@@ -9,9 +9,17 @@ export interface ViewFind {
   jump: number;
 }
 
+/** A source offset shown at {@code offset} pixels below the top (negative: partly scrolled off). */
+export interface ScrollAnchor {
+  pos: number;
+  offset: number;
+}
+
 export interface MarkdownViewAttrs {
   text: string;
   find?: ViewFind;
+  /** Where to scroll to when it shows: what the editor had at its top. */
+  anchor?: ScrollAnchor;
   /** A task's box clicked: {@code marker} is the offset of its "[ ]" or "[x]". */
   onToggleTask: (marker: number) => void;
   /** Double-clicked: the source offset nearest to where. */
@@ -36,7 +44,12 @@ export class MarkdownView implements m.ClassComponent<MarkdownViewAttrs> {
   private blocks: Block[] = [];
   private lastJump?: number;
 
+  /** At the editor's place, rather than on the current match, during a search too. */
   oncreate({ attrs, dom }: m.VnodeDOM<MarkdownViewAttrs>) {
+    if (attrs.anchor) {
+      scrollToAnchor(dom as HTMLElement, attrs.anchor);
+      this.lastJump = attrs.find?.jump;
+    }
     this.showCurrent(attrs, dom as HTMLElement);
   }
 
@@ -68,6 +81,40 @@ export class MarkdownView implements m.ClassComponent<MarkdownViewAttrs> {
     return m(".mdview", { ondblclick: (e: MouseEvent) => editAt(e, attrs) },
       this.blocks.length ? this.blocks.map((block) => renderBlock(block, ctx)) : m("p.muted", "Empty note."));
   }
+}
+
+const POSITIONED = "[data-pos], [data-text-pos]";
+
+function posOf(element: HTMLElement): number {
+  return Number(element.dataset.textPos ?? element.dataset.pos);
+}
+
+/** The innermost element at the top of the view in {@code editor} (its .mdview), if it shows. */
+export function viewTop(editor: HTMLElement): ScrollAnchor | undefined {
+  const view = editor.querySelector<HTMLElement>(".mdview");
+  if (!view) return undefined;
+  const top = view.getBoundingClientRect().top;
+  let best: HTMLElement | undefined;
+  let bestTop = 0;
+  // In document order, an element's descendants come right after it.
+  for (const element of view.querySelectorAll<HTMLElement>(POSITIONED)) {
+    const rect = element.getBoundingClientRect();
+    if (rect.bottom <= top) continue;
+    if (best && !best.contains(element)) break;
+    best = element;
+    bestTop = rect.top;
+  }
+  return best ? { pos: posOf(best), offset: bestTop - top } : undefined;
+}
+
+/** The last element starting at or before the anchor's offset (offsets grow in document order), placed as it was. */
+function scrollToAnchor(view: HTMLElement, anchor: ScrollAnchor) {
+  let target: HTMLElement | undefined;
+  for (const element of view.querySelectorAll<HTMLElement>(POSITIONED)) {
+    if (posOf(element) > anchor.pos) break;
+    target = element;
+  }
+  if (target) view.scrollTop += target.getBoundingClientRect().top - view.getBoundingClientRect().top - anchor.offset;
 }
 
 /** Below the last block, or in an empty note: at the end. */

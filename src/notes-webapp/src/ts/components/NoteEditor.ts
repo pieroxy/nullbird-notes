@@ -9,7 +9,7 @@ import { MAX_MATCHES, Range } from "../utils/Search";
 import { iconButton } from "./Icons";
 import { markdownStyle } from "./MarkdownStyle";
 import { toggledTask } from "./MarkdownTree";
-import { MarkdownView } from "./MarkdownView";
+import { MarkdownView, ScrollAnchor, viewTop } from "./MarkdownView";
 import { TagEditor } from "./TagEditor";
 
 /** While a search is active. */
@@ -129,8 +129,12 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   private wasViewing = false;
   /** Where the caret goes once the editor shows: where the view was double-clicked. */
   private caretOnShow?: number;
+  /** Switching between editor and view: what the one left showed at its top, for the other to show there too. */
+  private anchor?: ScrollAnchor;
+  private dom?: HTMLElement;
 
   oncreate({ attrs, dom }: m.VnodeDOM<NoteEditorAttrs>) {
+    this.dom = dom as HTMLElement;
     this.onEdit = attrs.onEdit;
     this.text = attrs.note.text;
     this.optionsKey = optionsKey(attrs);
@@ -162,6 +166,12 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
     this.wasViewing = attrs.viewing;
     if (attrs.note.text === "" && !attrs.viewing) this.editor.focus();
     this.showFind(attrs);
+  }
+
+  /** Before the side being left is gone. */
+  onbeforeupdate({ attrs }: m.Vnode<NoteEditorAttrs>): boolean {
+    if (attrs.viewing !== this.wasViewing) this.anchor = this.wasViewing ? viewTop(this.dom!) : editorTop(this.editor!);
+    return true;
   }
 
   onupdate({ attrs }: m.VnodeDOM<NoteEditorAttrs>) {
@@ -210,9 +220,10 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
     this.caretOnShow = undefined;
     if (caret !== undefined && caret <= view.state.doc.length) {
       view.dispatch({ selection: { anchor: caret }, effects: EditorView.scrollIntoView(caret, { y: "center" }) });
-    } else if (attrs.find) {
-      return;
+    } else if (this.anchor && this.anchor.pos <= view.state.doc.length) {
+      view.dispatch({ effects: EditorView.scrollIntoView(this.anchor.pos, { y: "start", yMargin: Math.max(0, this.anchor.offset) }) });
     }
+    if (caret === undefined && attrs.find) return;
     view.focus();
   }
 
@@ -251,6 +262,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
       attrs.viewing ? m(MarkdownView, {
         text: note.text,
         find: attrs.find,
+        anchor: this.anchor,
         onToggleTask: (marker: number) => this.toggleTask(marker),
         onEditAt: (pos: number) => {
           this.caretOnShow = pos;
@@ -260,6 +272,14 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
       m(TagEditor, { tags: attrs.tags, onAdd: attrs.onAddTag, onRemove: attrs.onRemoveTag }),
     ]);
   }
+}
+
+/** The line at the top of the editor, and how far below the top it starts (negative: partly scrolled off). */
+function editorTop(view: EditorView): ScrollAnchor {
+  const rect = view.scrollDOM.getBoundingClientRect();
+  const pos = view.posAtCoords({ x: rect.left + rect.width / 2, y: rect.top + 1 }, false);
+  const line = view.lineBlockAt(pos);
+  return { pos: line.from, offset: view.documentTop + line.top - rect.top };
 }
 
 function optionsKey(attrs: NoteEditorAttrs): string {
