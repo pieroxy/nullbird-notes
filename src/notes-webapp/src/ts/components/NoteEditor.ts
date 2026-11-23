@@ -1,10 +1,11 @@
-import { history, historyKeymap, indentWithTab, insertNewline, standardKeymap } from "@codemirror/commands";
-import { Annotation, Compartment, EditorState, Extension, RangeSetBuilder, StateEffect, StateField, Transaction } from "@codemirror/state";
+import { history, historyKeymap, indentWithTab, insertNewline, isolateHistory, standardKeymap } from "@codemirror/commands";
+import { Annotation, ChangeSet, Compartment, EditorState, Extension, RangeSetBuilder, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, keymap, placeholder } from "@codemirror/view";
 import m from "mithril";
 import { LocalNote } from "../sync/LocalNote";
 import { computeSplice } from "../sync/Splice";
 import { continueList } from "../utils/ListContinuation";
+import { formatList, ListKind, taskShorthand } from "../utils/ListFormat";
 import { MAX_MATCHES, Range } from "../utils/Search";
 import { iconButton } from "./Icons";
 import { markdownStyle } from "./MarkdownStyle";
@@ -42,6 +43,8 @@ export interface NoteEditorAttrs {
   onAddTag: (tag: string) => boolean;
   onRemoveTag: (tag: string) => void;
   find?: FindAttrs;
+  /** Changed to make the lines at the caret or the selection a list (see {@link formatList}). */
+  listCommand?: { kind: ListKind; seq: number };
 }
 
 /** On changes synced from elsewhere: not the user's to undo, nor to report back as an edit. */
@@ -89,7 +92,39 @@ const listKeymap = keymap.of([{
     return true;
   },
   shift: insertNewline,
-}]);
+},
+{ key: "Mod-Shift-8", run: (view) => makeList(view, "bullet") },
+{ key: "Mod-Shift-7", run: (view) => makeList(view, "number") },
+{ key: "Mod-Shift-9", run: (view) => makeList(view, "task") },
+]);
+
+/** One undoable edit; the caret stays after a marker inserted at it. */
+function makeList(view: EditorView, kind: ListKind): boolean {
+  const { state } = view;
+  const { main } = state.selection;
+  const edits = formatList(state.doc.toString(), main.from, main.to, kind);
+  if (edits.length === 0) return true;
+  const changes = ChangeSet.of(edits, state.doc.length);
+  view.dispatch({ changes, selection: state.selection.map(changes, 1), scrollIntoView: true, userEvent: "input" });
+  return true;
+}
+
+/** "[]" then a space at the start of a line becomes an unchecked task; undo brings the "[] " back. */
+const taskShorthandInput = EditorView.inputHandler.of((view, from, to, text) => {
+  if (text !== " " || from !== to || view.state.selection.ranges.length > 1) return false;
+  const line = view.state.doc.lineAt(from);
+  const indent = taskShorthand(view.state.sliceDoc(line.from, from));
+  if (indent === null) return false;
+  view.dispatch({ changes: { from, insert: " " }, selection: { anchor: from + 1 }, userEvent: "input.type" });
+  const start = line.from + indent.length;
+  view.dispatch({
+    changes: { from: start, to: from + 1, insert: "- [ ] " },
+    selection: { anchor: start + 6 },
+    annotations: isolateHistory.of("before"),
+    userEvent: "input",
+  });
+  return true;
+});
 
 /**
  * Styles inside the editor's shadow root, where the page's stylesheet doesn't apply: CSS variables
@@ -129,6 +164,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   private lastJump?: number;
   private lastMatches?: Range[];
   private lastCurrent?: number;
+  private lastListSeq?: number;
   private wasViewing = false;
   /** Where the caret goes once the editor shows: where the view was double-clicked. */
   private caretOnShow?: number;
@@ -141,6 +177,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
     this.onEdit = attrs.onEdit;
     this.text = attrs.note.text;
     this.optionsKey = optionsKey(attrs);
+    this.lastListSeq = attrs.listCommand?.seq;
     const host = dom.querySelector(".cmhost")!;
     const root = host.attachShadow({ mode: "open" });
     this.editor = new EditorView({
@@ -187,6 +224,13 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
     }
     this.showFind(attrs);
     this.showOrHide(attrs);
+    if (attrs.listCommand && attrs.listCommand.seq !== this.lastListSeq) {
+      this.lastListSeq = attrs.listCommand.seq;
+      if (!attrs.viewing) {
+        makeList(view, attrs.listCommand.kind);
+        view.focus();
+      }
+    }
   }
 
   onremove() {
@@ -295,7 +339,7 @@ function options(attrs: NoteEditorAttrs): Extension {
   return [
     attrs.nowrap ? [] : EditorView.lineWrapping,
     EditorView.editorAttributes.of({ class: attrs.monospace ? "monospace" : "" }),
-    attrs.markdown ? markdownStyle : [],
+    attrs.markdown ? [markdownStyle, taskShorthandInput] : [],
   ];
 }
 

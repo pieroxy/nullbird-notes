@@ -10,6 +10,7 @@ import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { loadLayout, PaneLayout, resetWidth, saveLayout, SidePane, tagsShown, toggleList, toggleTags, withWidth } from "../../utils/PaneLayout";
 import { findMatches, fold, matches as searchMatches, MAX_MATCHES, parseQuery, Range, SearchIndex, snippet } from "../../utils/Search";
+import { ListKind } from "../../utils/ListFormat";
 import { loadViewing, saveViewing } from "../../utils/ViewMode";
 import { inOrder, isActive, loadFilter, matches, NO_FILTER, saveFilter, TagCount, TagFilter, tagCounts, toggle, visibleTags } from "../../utils/TagFilter";
 import { Dropdown } from "../Dropdown";
@@ -51,6 +52,7 @@ export class NotesPage extends AbstractPage {
   private layout: PaneLayout = loadLayout();
   /** The open note's publish panel shown. */
   private publishing = false;
+  private listCommand?: { kind: ListKind; seq: number };
   /** The notes shown rendered, kept on this device (see ViewMode). */
   private viewing = new Set<string>();
   /** By physical key: [ and ] move around on other keyboard layouts. Cmd too, for macOS webviews: browsers keep Cmd+Shift+[ for tabs. */
@@ -158,6 +160,13 @@ export class NotesPage extends AbstractPage {
               checkItem("Markdown", isOn(selected, MARKDOWN), (on) => engine.setOption(selected.id, MARKDOWN, on)),
               checkItem("Fixed-width font", isOn(selected, MONOSPACE), (on) => engine.setOption(selected.id, MONOSPACE, on)),
               checkItem("Wrap long lines", !isOn(selected, NOWRAP), (on) => engine.setOption(selected.id, NOWRAP, !on)),
+              this.viewing.has(selected.id) && this.canView(selected) ? null : [
+                m(".menuseparator"),
+                m("button.menuitem", { type: "button", onclick: () => this.makeList("bullet") }, "Bullet list"),
+                m("button.menuitem", { type: "button", onclick: () => this.makeList("number") }, "Numbered list"),
+                m("button.menuitem", { type: "button", onclick: () => this.makeList("task") }, "Task list"),
+                m(".menuseparator"),
+              ],
               m("button.menuitem", { type: "button", onclick: () => (this.publishing = true) },
                 publishedToken(selected) ? "Published link…" : "Publish…"),
               m(".menuseparator"),
@@ -248,6 +257,7 @@ export class NotesPage extends AbstractPage {
           onAddTag: (tag: string) => engine.addTag(selected.id, tag),
           onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),
           find,
+          listCommand: this.listCommand,
         })
         : m("section.editor.none", { key: "none" }, m(".empty", "Select a note or create one.")),
     ]);
@@ -292,6 +302,11 @@ export class NotesPage extends AbstractPage {
 
   private canView(note: LocalNote): boolean {
     return isOn(note, MARKDOWN);
+  }
+
+  /** Applied by the editor, which keeps its selection while the menu has the focus. */
+  private makeList(kind: ListKind) {
+    this.listCommand = { kind, seq: (this.listCommand?.seq ?? 0) + 1 };
   }
 
   private setViewing(id: string, viewing: boolean) {
