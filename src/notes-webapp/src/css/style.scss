@@ -646,33 +646,6 @@ button {
     }
   }
 
-  .generatedpassword {
-    align-self: stretch;
-
-    .passwordrow {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      max-width: 360px;
-      padding: 4px 4px 4px 12px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: var(--bg);
-    }
-
-    code.password {
-      flex: 1;
-      font-size: 16px;
-      letter-spacing: .04em;
-      user-select: all;
-      overflow-wrap: anywhere;
-    }
-
-    .muted {
-      margin: 6px 0 0;
-    }
-  }
-
   .errormessage {
     color: var(--error);
     font-size: 14px;
@@ -1241,7 +1214,8 @@ body.resizing {
     gap: 8px;
   }
 
-  .pinned {
+  // Pinned, published.
+  .flag {
     display: inline-flex;
     color: var(--text-muted);
 
@@ -1392,6 +1366,11 @@ body.resizing {
   line-height: 1.5;
   overflow-wrap: break-word;
 
+  &.monospace {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: var(--editor-mono-font-size);
+  }
+
   > :first-child {
     margin-top: 0;
   }
@@ -1445,6 +1424,10 @@ body.resizing {
       accent-color: var(--accent);
       cursor: pointer;
       transform: translateY(.15em);
+
+      &.readonly {
+        cursor: default;
+      }
     }
 
     .taskbody {
@@ -1545,6 +1528,76 @@ body.resizing {
       background: var(--match-current-bg);
       color: var(--text-on-accent);
     }
+  }
+}
+
+// Publishing the open note, its link (see PublishPanel): over the note, as the find bar.
+.publishpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-pane);
+  font-size: 14px;
+
+  .publishhead {
+    display: flex;
+    align-items: center;
+
+    .spacer {
+      flex: 1;
+    }
+  }
+
+  p {
+    margin: 0;
+  }
+
+  .publishactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .errormessage {
+    color: var(--error);
+  }
+}
+
+// A text to pass on, with its copy button (see CopyableText).
+.copyable {
+  align-self: stretch;
+
+  .copyrow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 360px;
+    padding: 4px 4px 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+  }
+
+  code.copytext {
+    flex: 1;
+    min-width: 0;
+    user-select: all;
+    overflow-wrap: anywhere;
+  }
+
+  &.password code.copytext {
+    font-size: 16px;
+    letter-spacing: .04em;
+  }
+
+  &.link code.copytext {
+    font-size: 13px;
+  }
+
+  .muted {
+    margin: 6px 0 0;
   }
 }
 

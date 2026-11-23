@@ -1,6 +1,6 @@
 import m from "mithril";
 import { LocalNote } from "../sync/LocalNote";
-import { isOn, PINNED } from "../sync/Metadata";
+import { isOn, PINNED, publishedToken } from "../sync/Metadata";
 import { sortKey } from "../sync/Outcomes";
 import { shortDate, titleAndExcerpt } from "../utils/format";
 import { Snippet } from "../utils/Search";
@@ -77,7 +77,8 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
     }, [
       m(".itemhead", [
         m("span.title" + (title ? "" : ".untitled"), title || "New note"),
-        isOn(note, PINNED) ? m("span.pinned", { title: "Pinned", "aria-label": "Pinned" }, icon("pin")) : null,
+        publishedToken(note) ? m("span.flag", { title: "Published", "aria-label": "Published" }, icon("globe")) : null,
+        isOn(note, PINNED) ? m("span.flag", { title: "Pinned", "aria-label": "Pinned" }, icon("pin")) : null,
         m("span.date", shortDate(sortKey(note))),
       ]),
       m(".itemfoot", [

@@ -161,7 +161,8 @@ public final class NotesFile {
           json.beginObject();
           while (json.hasNext()) {
             String key = json.nextName();
-            if (json.peek() == JsonToken.STRING) options.put(key, json.nextString());
+            // An imported note isn't published: its link would be another instance's, or a copy of one still in use.
+            if (json.peek() == JsonToken.STRING && !NoteOptions.PUBLISHED.equals(key)) options.put(key, json.nextString());
             else json.skipValue();
           }
           json.endObject();

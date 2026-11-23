@@ -44,12 +44,17 @@ public class SecurityHeadersFilter extends HttpFilter {
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
     res.setHeader("Cache-Control", cacheControl(req.getRequestURI()));
+    // A published note's link, if it leaks, isn't to be found through a search engine.
+    if (req.getRequestURI().startsWith("/p/")) res.setHeader("X-Robots-Tag", "noindex, nofollow");
     chain.doFilter(req, res);
   }
 
-  /** The user's notes are never kept by a cache; anything that isn't immutable is revalidated. */
+  /**
+   * The user's notes are never kept by a cache, published ones included (unpublished, they're gone);
+   * anything that isn't immutable is revalidated.
+   */
   static String cacheControl(String path) {
-    if (path.startsWith("/api/")) return "no-store";
+    if (path.startsWith("/api/") || path.startsWith("/p/")) return "no-store";
     if (IMMUTABLE.matcher(path).matches()) return "public, max-age=31536000, immutable";
     return "no-cache";
   }

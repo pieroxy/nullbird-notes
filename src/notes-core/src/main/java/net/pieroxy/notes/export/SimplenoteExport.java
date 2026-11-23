@@ -105,6 +105,7 @@ public final class SimplenoteExport {
       Map<String, String> others = new TreeMap<>(note.options());
       // Written as fields above when on; any other value stays an option.
       for (String key : NoteOptions.BOOLEANS) others.remove(key, NoteOptions.ON);
+      others.remove(NoteOptions.PUBLISHED);
       if (!others.isEmpty()) {
         json.name("options").beginObject();
         for (Map.Entry<String, String> option : others.entrySet()) json.name(option.getKey()).value(option.getValue());

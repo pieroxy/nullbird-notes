@@ -12,6 +12,8 @@ public class SecurityHeadersFilterTest {
     assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/"));
     assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/index.html"));
     assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/icons/icon-192.png"));
+    // A published note: unpublished, it's gone.
+    assertEquals("no-store", SecurityHeadersFilter.cacheControl("/p/AAAAAAAAAAAAAAAAAAAAAA"));
     // The browser must see a new service worker at once.
     assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/sw.js"));
     assertEquals("no-cache", SecurityHeadersFilter.cacheControl("/bundle-xyz.js"));

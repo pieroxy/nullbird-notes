@@ -16,3 +16,14 @@ export function titleAndExcerpt(text: string): { title: string; excerpt: string 
   const lines = text.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
   return { title: (lines[0] ?? "").slice(0, 100), excerpt: (lines[1] ?? "").slice(0, 120) };
 }
+
+/** A plain-text note's title, its first non-blank line, and what comes after it, blank lines before aside. */
+export function titleAndRest(text: string): { title: string; rest: string } {
+  const first = /\S/.exec(text);
+  if (!first) return { title: "", rest: "" };
+  const nl = text.indexOf("\n", first.index);
+  return {
+    title: text.slice(first.index, nl < 0 ? text.length : nl).trim(),
+    rest: nl < 0 ? "" : text.slice(nl + 1).replace(/^(?:[ \t]*\n)+/, ""),
+  };
+}

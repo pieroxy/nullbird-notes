@@ -1,0 +1,55 @@
+@use "style";
+
+// A published note (see published.ts): a page of its own, scrolled as a whole.
+.publishedpage {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: max(24px, var(--safe-top)) max(16px, var(--safe-right)) max(24px, var(--safe-bottom)) max(16px, var(--safe-left));
+
+  .mdview {
+    flex: none;
+    overflow: visible;
+    padding: 0;
+  }
+
+  // As the view's heading and text (see .mdview).
+  .plainnote {
+    font-size: var(--editor-font-size);
+    line-height: 1.5;
+
+    h1 {
+      margin: 0 0 .5em;
+      font-size: 1.45em;
+      line-height: 1.25;
+    }
+
+    .plaintext {
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+    }
+
+    &.nowrap .plaintext {
+      white-space: pre;
+      overflow-x: auto;
+    }
+
+    &.monospace {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: var(--editor-mono-font-size);
+    }
+  }
+
+  footer {
+    margin-top: auto;
+    padding-top: 32px;
+    color: var(--text-muted);
+    font-size: 13px;
+
+    a {
+      color: inherit;
+    }
+  }
+}

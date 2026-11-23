@@ -13,6 +13,8 @@ export const PINNED = "pinned";
 export const MARKDOWN = "markdown";
 export const MONOSPACE = "monospace";
 export const NOWRAP = "nowrap";
+/** Not a boolean: the token of the note's public link. Set by the server only (see PublishPanel). */
+export const PUBLISHED = "published";
 export const MAX_TAG_LENGTH = 64;
 
 /** As the server: 1 to {@link MAX_TAG_LENGTH} characters, no whitespace. */
@@ -42,6 +44,11 @@ export function optionsOf(note: LocalNote): { [key: string]: string } {
 /** A boolean option: on when set to "true". */
 export function isOn(note: LocalNote, key: string): boolean {
   return optionsOf(note)[key] === "true";
+}
+
+/** The token of its public link, if it's published. */
+export function publishedToken(note: LocalNote): string | undefined {
+  return optionsOf(note)[PUBLISHED];
 }
 
 function opsOf(note: LocalNote): MetaOps[] {

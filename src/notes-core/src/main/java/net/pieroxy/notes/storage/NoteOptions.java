@@ -18,6 +18,11 @@ public final class NoteOptions {
   public static final String MARKDOWN = "markdown";
   public static final String MONOSPACE = "monospace";
   public static final String NOWRAP = "nowrap";
+  /**
+   * Not a boolean: the token of the note's public link (see NoteService#publish). Set and unset by
+   * the server only, and left out of exports: an imported note isn't published.
+   */
+  public static final String PUBLISHED = "published";
   /** In the order the export writes them. */
   public static final List<String> BOOLEANS = List.of(PINNED, MARKDOWN, MONOSPACE, NOWRAP);
   public static final String ON = "true";

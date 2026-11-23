@@ -20,10 +20,11 @@ export interface MarkdownViewAttrs {
   find?: ViewFind;
   /** Where to scroll to when it shows: what the editor had at its top. */
   anchor?: ScrollAnchor;
-  /** A task's box clicked: {@code marker} is the offset of its "[ ]" or "[x]". */
-  onToggleTask: (marker: number) => void;
+  monospace: boolean;
+  /** A task's box clicked: {@code marker} is the offset of its "[ ]" or "[x]". None: read-only, the boxes don't change. */
+  onToggleTask?: (marker: number) => void;
   /** Double-clicked: the source offset nearest to where. */
-  onEditAt: (pos: number) => void;
+  onEditAt?: (pos: number) => void;
 }
 
 interface Context {
@@ -78,7 +79,8 @@ export class MarkdownView implements m.ClassComponent<MarkdownViewAttrs> {
       this.blocks = parseMarkdown(attrs.text);
     }
     const ctx: Context = { attrs, matches: attrs.find?.matches.slice(0, MAX_MATCHES) ?? [], current: attrs.find?.current ?? -1 };
-    return m(".mdview", { ondblclick: (e: MouseEvent) => editAt(e, attrs) },
+    const onEditAt = attrs.onEditAt;
+    return m(".mdview" + (attrs.monospace ? ".monospace" : ""), { ondblclick: onEditAt ? (e: MouseEvent) => editAt(e, attrs.text, onEditAt) : undefined },
       this.blocks.length ? this.blocks.map((block) => renderBlock(block, ctx)) : m("p.muted", "Empty note."));
   }
 }
@@ -118,7 +120,7 @@ function scrollToAnchor(view: HTMLElement, anchor: ScrollAnchor) {
 }
 
 /** Below the last block, or in an empty note: at the end. */
-function editAt(e: MouseEvent, { text, onEditAt }: MarkdownViewAttrs) {
+function editAt(e: MouseEvent, text: string, onEditAt: (pos: number) => void) {
   const target = e.target as Element;
   if (target.closest("a, input")) return;
   const selection = window.getSelection();
@@ -167,8 +169,12 @@ function renderItem(item: ListItem, ctx: Context): m.Children {
   const children = item.children.map((child) => renderBlock(child, ctx));
   if (!item.task) return m("li", { "data-pos": item.pos }, children);
   const task = item.task;
+  const toggle = ctx.attrs.onToggleTask;
   return m("li.task" + (task.done ? ".done" : ""), { "data-pos": item.pos }, [
-    m("input", { type: "checkbox", checked: task.done, onchange: () => ctx.attrs.onToggleTask(task.marker), "aria-label": task.done ? "Done" : "To do" }),
+    toggle
+      ? m("input", { type: "checkbox", checked: task.done, onchange: () => toggle(task.marker), "aria-label": task.done ? "Done" : "To do" })
+      // Read-only, at full contrast: a disabled box would be greyed out.
+      : m("input.readonly", { type: "checkbox", checked: task.done, tabindex: -1, "aria-readonly": "true", onclick: (e: Event) => e.preventDefault(), "aria-label": task.done ? "Done" : "To do" }),
     m(".taskbody", children),
   ]);
 }

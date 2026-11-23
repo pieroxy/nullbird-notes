@@ -4,6 +4,7 @@ import net.pieroxy.notes.api.metadata.InvalidInputException;
 import net.pieroxy.notes.storage.ChangeRecord;
 import net.pieroxy.notes.storage.MetaWrite;
 import net.pieroxy.notes.storage.NoteMeta;
+import net.pieroxy.notes.storage.NoteOptions;
 import net.pieroxy.notes.storage.NoteWrite;
 import net.pieroxy.notes.storage.Revision;
 import net.pieroxy.notes.storage.StaleRevisionException;
@@ -29,8 +30,11 @@ import net.pieroxy.notes.utils.Hashes;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -49,6 +53,9 @@ import java.util.regex.Pattern;
  * (see {@link Merge3}). Edits beat deletes, both ways. Nothing is ever dropped.
  * <p>
  * Tags and options change on their own (see {@link MetaChange}), never conflicting with the text.
+ * <p>
+ * A published note has a public link: a random token, kept as its {@link NoteOptions#PUBLISHED}
+ * option, which only {@link #publish} and {@link #unpublish} change.
  */
 public class NoteService implements Service {
   private final static Logger LOGGER = Logger.getLogger(NoteService.class.getName());
@@ -62,11 +69,26 @@ public class NoteService implements Service {
   static final int MAX_OPTIONS = 32;
   static final int MAX_OPTION_VALUE_LENGTH = 256;
   private static final Pattern OPTION_KEY_PATTERN = Pattern.compile("[A-Za-z0-9-]{1,64}");
+  /** 128 random bits, base64url. */
+  private static final String PUBLISHED_BY_SERVER = "The " + NoteOptions.PUBLISHED + " option changes by publishing the note.";
+  public static final Pattern TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9_-]{22}");
+  private static final SecureRandom RANDOM = new SecureRandom();
 
   private final int changesPageSize;
   private SettingsService settings;
   private NoteStoreService noteStores;
   private ScheduledExecutorService timer;
+  /**
+   * Where each published note is, by token; built on the first lookup (see {@link #findPublished}).
+   * Its own lock, never held while taking a store's: building it takes them.
+   */
+  private final Object publishedLock = new Object();
+  private Map<String, PublishedRef> published;
+
+  private record PublishedRef(String username, String noteId) {}
+
+  /** A published note, as it is now. */
+  public record PublishedNote(String username, NoteMeta meta, String content) {}
 
   public NoteService() {
     this(CHANGES_PAGE_SIZE);
@@ -108,6 +130,93 @@ public class NoteService implements Service {
       String ancestor = ancestor(store, change, head);
       return change.deleted() ? delete(store, deviceId, change, head, ancestor) : edit(store, username, deviceId, change, head, ancestor);
     }
+  }
+
+  /**
+   * Gives the note a public link, or a new one replacing it with {@code newLink}.
+   *
+   * @return its token; null if there's no such note, or it's deleted.
+   */
+  public String publish(String username, String noteId, boolean newLink) throws IOException {
+    UserNoteStore store = noteStores.getStore(username);
+    String old;
+    String token;
+    synchronized (store) {
+      NoteMeta head = store.get(noteId);
+      if (head == null || head.deleted()) return null;
+      old = head.options().get(NoteOptions.PUBLISHED);
+      if (old != null && !newLink) return old;
+      token = newToken();
+      store.commitMeta(noteId, new MetaWrite(null, null, null, null, Map.of(NoteOptions.PUBLISHED, token), null));
+    }
+    synchronized (publishedLock) {
+      if (published != null) {
+        if (old != null) published.remove(old);
+        published.put(token, new PublishedRef(username, noteId));
+      }
+    }
+    return token;
+  }
+
+  /** Its link stops working. @return false if there's no such note. */
+  public boolean unpublish(String username, String noteId) throws IOException {
+    UserNoteStore store = noteStores.getStore(username);
+    String old;
+    synchronized (store) {
+      NoteMeta head = store.get(noteId);
+      if (head == null) return false;
+      old = head.options().get(NoteOptions.PUBLISHED);
+      if (old == null) return true;
+      store.commitMeta(noteId, new MetaWrite(null, null, null, null, null, List.of(NoteOptions.PUBLISHED)));
+    }
+    synchronized (publishedLock) {
+      if (published != null) published.remove(old);
+    }
+    return true;
+  }
+
+  /**
+   * The note published under {@code token}, checked against the note as it is now: the index may
+   * still have a deleted note. Whether its user still exists is the caller's to check.
+   *
+   * @return null if there's none.
+   */
+  public PublishedNote findPublished(String token) throws IOException {
+    if (token == null || !TOKEN_PATTERN.matcher(token).matches()) return null;
+    PublishedRef ref;
+    synchronized (publishedLock) {
+      if (published == null) published = indexPublished();
+      ref = published.get(token);
+    }
+    if (ref == null) return null;
+    UserNoteStore store = noteStores.getStore(ref.username());
+    synchronized (store) {
+      NoteMeta meta = store.get(ref.noteId());
+      if (meta == null || meta.deleted() || !token.equals(meta.options().get(NoteOptions.PUBLISHED))) return null;
+      return new PublishedNote(ref.username(), meta, store.readContent(meta.id()));
+    }
+  }
+
+  /** Every user's published notes. A user whose notes can't be read is skipped, logged. */
+  private Map<String, PublishedRef> indexPublished() {
+    Map<String, PublishedRef> index = new HashMap<>();
+    for (String username : noteStores.usernamesWithData()) {
+      try {
+        for (NoteMeta meta : noteStores.getStore(username).list()) {
+          String token = meta.options().get(NoteOptions.PUBLISHED);
+          if (token != null && !meta.deleted()) index.put(token, new PublishedRef(username, meta.id()));
+        }
+      } catch (IOException | RuntimeException e) {
+        LOGGER.warning("Could not list the published notes of " + username + ": " + e.getMessage());
+      }
+    }
+    return index;
+  }
+
+  private static String newToken() {
+    byte[] bytes = new byte[16];
+    RANDOM.nextBytes(bytes);
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
   }
 
   /** A metadata change to a deleted note is accepted, and ignored. */
@@ -255,6 +364,7 @@ public class NoteService implements Service {
       if (change.setOptions().size() > MAX_OPTIONS) return "At most " + MAX_OPTIONS + " options.";
       for (Map.Entry<String, String> option : change.setOptions().entrySet()) {
         if (!isValidOptionKey(option.getKey())) return "Invalid option name.";
+        if (NoteOptions.PUBLISHED.equals(option.getKey())) return PUBLISHED_BY_SERVER;
         if (option.getValue() == null || option.getValue().length() > MAX_OPTION_VALUE_LENGTH) return "Invalid value for option " + option.getKey() + ".";
       }
     }
@@ -262,6 +372,7 @@ public class NoteService implements Service {
       if (change.unsetOptions().size() > MAX_OPTIONS) return "At most " + MAX_OPTIONS + " options.";
       for (String key : change.unsetOptions()) {
         if (!isValidOptionKey(key)) return "Invalid option name.";
+        if (NoteOptions.PUBLISHED.equals(key)) return PUBLISHED_BY_SERVER;
       }
     }
     return null;

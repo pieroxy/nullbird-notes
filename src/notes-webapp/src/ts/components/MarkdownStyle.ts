@@ -2,29 +2,17 @@ import { defineLanguageFacet, ensureSyntaxTree, Language, languageDataProp, synt
 import { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { SyntaxNodeRef } from "@lezer/common";
-import { Autolink, parser, Strikethrough, TaskList } from "@lezer/markdown";
+import { markdownGrammar } from "./MarkdownGrammar";
 
 /**
- * Markdown, colored in the editor: the text stays as typed, markers included (muted, never
- * hidden: the caret would jump around them). A note's rendered view is another matter.
- * <p>
- * CommonMark with GFM's strikethrough, task lists and bare URLs, minus what plain-text notes
- * would trip on: a line underlined with "---" or "===" (a separator under a line would make it a
- * heading), a block indented by 4 spaces (indented lines would become code), and HTML. Tables
- * aren't parsed: they need the rendered view.
+ * Markdown (see MarkdownGrammar), colored in the editor: the text stays as typed, markers included
+ * (muted, never hidden: the caret would jump around them). Tables aren't parsed: they need the
+ * rendered view (see MarkdownView).
  */
 
 const data = defineLanguageFacet();
 
-export const markdownParser = parser.configure([
-  Strikethrough,
-  TaskList,
-  Autolink,
-  {
-    remove: ["SetextHeading", "IndentedCode", "HTMLBlock", "HTMLTag"],
-    props: [languageDataProp.add({ Document: data })],
-  },
-]);
+const markdownParser = markdownGrammar.configure({ props: [languageDataProp.add({ Document: data })] });
 
 export const markdownLanguage = new Language(data, markdownParser, [], "markdown");
 

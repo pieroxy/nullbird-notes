@@ -125,6 +125,8 @@ public abstract class BaseApiEndpoint<I, O> implements ApiEndpoint {
       res.setStatus(HttpServletResponse.SC_FORBIDDEN);
     } else if (error instanceof InvalidInputException) {
       res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+    } else if (error instanceof NotFoundException) {
+      res.setStatus(HttpServletResponse.SC_NOT_FOUND);
     } else if (error instanceof RequestTooLargeException) {
       res.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
     } else if (error instanceof TooManyRequestsException tooMany) {

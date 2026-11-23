@@ -3,7 +3,7 @@ import { ApiEndpoints } from "../auto/ApiEndpoints";
 import { AdminUser } from "../auto/api-types";
 import { Auth } from "../utils/Auth";
 import { Endpoints } from "../utils/navigation/Endpoints";
-import { GeneratedPassword } from "./GeneratedPassword";
+import { CopyableText } from "./CopyableText";
 import { icon } from "./Icons";
 
 /** The users, as the server last said. */
@@ -98,7 +98,7 @@ class AddUserForm implements m.ClassComponent<AddUserFormAttrs> {
     if (this.added) {
       return m(".adduser", [
         m("p", ["User ", m("strong", this.added.username), " added. Their password:"]),
-        m(GeneratedPassword, { password: this.added.password }),
+        generatedPassword(this.added.password),
         m("button", { type: "button", onclick: attrs.onClose }, "Done"),
       ]);
     }
@@ -190,7 +190,7 @@ export class UserDetail implements m.ClassComponent<UserDetailAttrs> {
           m("span", "Admin: can manage users"),
         ]),
         m("h3", "Password"),
-        this.password ? m(GeneratedPassword, { password: this.password }) : [
+        this.password ? generatedPassword(this.password) : [
           m("p.muted", "Gives them a new password, which you then pass on to them. They're logged out everywhere."),
           m("button.secondary", { type: "button", disabled: this.busy, onclick: () => this.resetPassword(user) }, "Reset password"),
         ],
@@ -222,4 +222,14 @@ export class UserDetail implements m.ClassComponent<UserDetailAttrs> {
       .catch((err: Error) => (this.error = err.message))
       .finally(() => (this.busy = false));
   }
+}
+
+/** A password the server picked, for the admin to pass on. */
+function generatedPassword(password: string): m.Children {
+  return m(CopyableText, {
+    text: password,
+    kind: "password",
+    hint: "Pass it on to them now: it won't be shown again.",
+    selectedHint: "Selected: press Ctrl+C (⌘C on a Mac) to copy it. It won't be shown again.",
+  });
 }

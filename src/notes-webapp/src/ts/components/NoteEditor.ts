@@ -10,6 +10,7 @@ import { iconButton } from "./Icons";
 import { markdownStyle } from "./MarkdownStyle";
 import { toggledTask } from "./MarkdownTree";
 import { MarkdownView, ScrollAnchor, viewTop } from "./MarkdownView";
+import { PublishPanel } from "./PublishPanel";
 import { TagEditor } from "./TagEditor";
 
 /** While a search is active. */
@@ -35,6 +36,8 @@ export interface NoteEditorAttrs {
   /** Its Markdown rendered instead of the editor. */
   viewing: boolean;
   onView: (viewing: boolean) => void;
+  /** The publish panel shown, with the note's link if it's published. */
+  publishing?: { token: string | undefined; onClose: () => void };
   onEdit: (text: string) => void;
   onAddTag: (tag: string) => boolean;
   onRemoveTag: (tag: string) => void;
@@ -258,9 +261,11 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
       note.error ? m(".banner.error", "Not saved on the server: " + note.error.message + " Your text is kept on this device.") : null,
       note.metaError ? m(".banner.error", "A change to the tags or options was refused by the server: " + note.metaError.message) : null,
       attrs.find ? findBar(attrs.find) : null,
+      attrs.publishing ? m(PublishPanel, { noteId: note.id, token: attrs.publishing.token, onClose: attrs.publishing.onClose }) : null,
       m(".cmhost" + (attrs.viewing ? ".hidden" : "")),
       attrs.viewing ? m(MarkdownView, {
         text: note.text,
+        monospace: attrs.monospace,
         find: attrs.find,
         anchor: this.anchor,
         onToggleTask: (marker: number) => this.toggleTask(marker),

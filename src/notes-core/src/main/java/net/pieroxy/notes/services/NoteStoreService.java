@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,21 +69,29 @@ public class NoteStoreService implements Service {
 
   /** Every user's notes; one failing doesn't stop the others. */
   void thinAll() {
-    if (!Files.isDirectory(usersDir)) return;
+    for (String username : usernamesWithData()) {
+      try {
+        int deleted = getStore(username).thin(clock.millis());
+        if (deleted > 0) LOGGER.info("Thinned out " + deleted + " old revision(s) of " + username);
+      } catch (IOException | RuntimeException e) {
+        LOGGER.log(Level.SEVERE, "Could not thin out the revisions of " + username, e);
+      }
+    }
+  }
+
+  /** The users with a data folder, removed ones included; none if it can't be listed. */
+  public List<String> usernamesWithData() {
+    List<String> usernames = new ArrayList<>();
+    if (!Files.isDirectory(usersDir)) return usernames;
     try (DirectoryStream<Path> dirs = Files.newDirectoryStream(usersDir, Files::isDirectory)) {
       for (Path dir : dirs) {
         String username = dir.getFileName().toString();
-        if (!SettingsService.USERNAME_PATTERN.matcher(username).matches()) continue;
-        try {
-          int deleted = getStore(username).thin(clock.millis());
-          if (deleted > 0) LOGGER.info("Thinned out " + deleted + " old revision(s) of " + username);
-        } catch (IOException | RuntimeException e) {
-          LOGGER.log(Level.SEVERE, "Could not thin out the revisions of " + username, e);
-        }
+        if (SettingsService.USERNAME_PATTERN.matcher(username).matches()) usernames.add(username);
       }
     } catch (IOException e) {
       LOGGER.log(Level.SEVERE, "Could not list " + usersDir, e);
     }
+    return usernames;
   }
 
   /**

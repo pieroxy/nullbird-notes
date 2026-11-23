@@ -1,6 +1,6 @@
 import { SyntaxNode } from "@lezer/common";
 import { Table } from "@lezer/markdown";
-import { markdownParser } from "./MarkdownStyle";
+import { markdownGrammar } from "./MarkdownGrammar";
 
 /**
  * A note's Markdown as blocks and inline content, for its rendered view: plain data, which the view
@@ -34,16 +34,45 @@ export interface ListItem {
 }
 
 /** The coloring's grammar, plus tables. */
-const viewParser = markdownParser.configure([Table]);
+const viewParser = markdownGrammar.configure([Table]);
 
 /** Children that only delimit their parent: nothing of theirs shows. */
 const MARKS = new Set(["EmphasisMark", "StrikethroughMark", "CodeMark", "LinkMark", "HeaderMark", "QuoteMark", "ListMark", "TaskMarker", "LinkTitle", "LinkLabel"]);
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " " };
 
+/**
+ * The note's title, its first non-blank line, is a heading: as if "# " came first, unless it's a
+ * heading already. A list item's, a quote's or a task's marker in front of it goes, as in the note
+ * list.
+ */
 export function parseMarkdown(text: string): Block[] {
+  const title = /[^\s]/.exec(text);
+  if (!title) return [];
+  const lineStart = text.lastIndexOf("\n", title.index) + 1;
+  const nl = text.indexOf("\n", title.index);
+  const lineEnd = nl < 0 ? text.length : nl;
+  const line = text.slice(lineStart, lineEnd);
+  if (/^ {0,3}#{1,6}(\s|$)/.test(line)) return parse(text);
+  const contentStart = lineStart + /^\s*(?:>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1,9}[.)]\s+)*/.exec(line)![0].length;
+  // Blanked out as spaces, what isn't parsed keeps every offset where it was.
+  const body = blank(text.slice(0, lineEnd)) + text.slice(lineEnd);
+  const bodyTop = viewParser.parse(body).topNode;
+  const refs = references(body, bodyTop);
+  const titleText = blank(text.slice(0, contentStart)) + text.slice(contentStart, lineEnd);
+  const titleTop = viewParser.parse(titleText).topNode;
+  const parsed = titleTop.firstChild?.name === "Paragraph" ? new Builder(titleText, refs).block(titleTop.firstChild) : undefined;
+  const children: Inline[] = parsed?.t === "p" ? parsed.children : [{ t: "text", text: text.slice(contentStart, lineEnd).trim(), pos: undefined }];
+  return [{ t: "h", pos: lineStart, level: 1, children }, ...new Builder(body, refs).blocks(bodyTop)];
+}
+
+function parse(text: string): Block[] {
   const top = viewParser.parse(text).topNode;
   return new Builder(text, references(text, top)).blocks(top);
+}
+
+function blank(text: string): string {
+  return text.replace(/[^\n]/g, " ");
 }
 
 /** A task's marker toggled, or undefined if {@code marker} isn't one (the text changed since). */
@@ -108,7 +137,7 @@ class Builder {
     return blocks;
   }
 
-  private block(node: SyntaxNode): Block | undefined {
+  block(node: SyntaxNode): Block | undefined {
     const name = node.name;
     const heading = /^ATXHeading(\d)$/.exec(name);
     if (heading) return { t: "h", pos: node.from, level: Number(heading[1]), children: this.inline(node) };

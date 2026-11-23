@@ -6,7 +6,11 @@ const CopyPlugin = require('copy-webpack-plugin');
 module.exports = (env, argv) => {
   const devMode = argv.mode !== 'production';
   return {
-    entry: './src/ts/index.ts',
+    entry: {
+      app: './src/ts/index.ts',
+      // /p/{token}: a published note, without the app (see PublishedPageServlet).
+      published: './src/ts/published.ts',
+    },
     devtool: devMode ? 'inline-source-map' : 'source-map',
     module: {
       rules: [
@@ -34,11 +38,19 @@ module.exports = (env, argv) => {
     output: {
       filename: 'bundle-[contenthash:6].js',
       path: path.resolve(__dirname, 'dist'),
+      // Absolute: published.html is served at /p/{token}.
+      publicPath: '/',
       clean: true,
     },
     plugins: [
       new HtmlWebpackPlugin({
         template: './src/html/index.html',
+        chunks: ['app'],
+      }),
+      new HtmlWebpackPlugin({
+        template: './src/html/published.html',
+        filename: 'published.html',
+        chunks: ['published'],
       }),
       new MiniCssExtractPlugin({
         filename: 'bundle-[contenthash:6].css',

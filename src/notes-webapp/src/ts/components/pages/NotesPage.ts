@@ -1,6 +1,6 @@
 import m from "mithril";
 import { LocalNote } from "../../sync/LocalNote";
-import { isOn, MARKDOWN, MONOSPACE, NOWRAP, PINNED, tagsOf } from "../../sync/Metadata";
+import { isOn, MARKDOWN, MONOSPACE, NOWRAP, PINNED, publishedToken, tagsOf } from "../../sync/Metadata";
 import { moveTo } from "../../sync/TagOrder";
 import { session } from "../../sync/Session";
 import { SyncEngine } from "../../sync/SyncEngine";
@@ -49,6 +49,8 @@ export class NotesPage extends AbstractPage {
   /** Narrow screens: the tags shown instead of the list. */
   private showTags = false;
   private layout: PaneLayout = loadLayout();
+  /** The open note's publish panel shown. */
+  private publishing = false;
   /** The notes shown rendered, kept on this device (see ViewMode). */
   private viewing = new Set<string>();
   /** By physical key: [ and ] move around on other keyboard layouts. Cmd too, for macOS webviews: browsers keep Cmd+Shift+[ for tabs. */
@@ -156,6 +158,8 @@ export class NotesPage extends AbstractPage {
               checkItem("Markdown", isOn(selected, MARKDOWN), (on) => engine.setOption(selected.id, MARKDOWN, on)),
               checkItem("Fixed-width font", isOn(selected, MONOSPACE), (on) => engine.setOption(selected.id, MONOSPACE, on)),
               checkItem("Wrap long lines", !isOn(selected, NOWRAP), (on) => engine.setOption(selected.id, NOWRAP, !on)),
+              m("button.menuitem", { type: "button", onclick: () => (this.publishing = true) },
+                publishedToken(selected) ? "Published link…" : "Publish…"),
               m(".menuseparator"),
             ] : null,
             m("button.menuitem", { type: "button", onclick: () => Routing.goToScreen(Endpoints.ACCOUNT) }, "My Account"),
@@ -239,6 +243,7 @@ export class NotesPage extends AbstractPage {
           markdown: isOn(selected, MARKDOWN),
           viewing: this.viewing.has(selected.id) && this.canView(selected),
           onView: (viewing: boolean) => this.setViewing(selected.id, viewing),
+          publishing: this.publishing ? { token: publishedToken(selected), onClose: () => (this.publishing = false) } : undefined,
           onEdit: (text: string) => engine.edit(selected.id, text),
           onAddTag: (tag: string) => engine.addTag(selected.id, tag),
           onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),
@@ -384,6 +389,7 @@ export class NotesPage extends AbstractPage {
     if (id !== this.selectedId) {
       this.matchIndex = id && this.search.trim() ? 0 : -1;
       this.jump++;
+      this.publishing = false;
     }
     this.selectedId = id;
   }

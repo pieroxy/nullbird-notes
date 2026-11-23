@@ -15,8 +15,15 @@ function inline(nodes: Inline[]): string {
   }).join("");
 }
 
+/** After a heading line: the first line is the title otherwise (see the title tests). Offsets shift by 4. */
+const HEAD = "# t\n";
+
+function body(text: string): Block[] {
+  return parseMarkdown(HEAD + text).slice(1);
+}
+
 function only(text: string): Block {
-  const blocks = parseMarkdown(text);
+  const blocks = body(text);
   expect(blocks).toHaveLength(1);
   return blocks[0];
 }
@@ -58,7 +65,7 @@ describe("MarkdownTree", () => {
   });
 
   test("lists: bullets, numbered from their first number, nested", () => {
-    const blocks = parseMarkdown("- a\n  - b\n- c\n\n3. x\n4. y");
+    const blocks = body("- a\n  - b\n- c\n\n3. x\n4. y");
     expect(blocks).toHaveLength(2);
     const [bullets, numbered] = blocks;
     if (bullets.t !== "list" || numbered.t !== "list") throw new Error("not lists");
@@ -71,7 +78,7 @@ describe("MarkdownTree", () => {
     const text = "- [ ] todo\n- [x] done\n  more";
     const list = only(text);
     if (list.t !== "list") throw new Error("not a list");
-    expect(list.items.map((item) => item.task)).toEqual([{ done: false, marker: 2 }, { done: true, marker: 13 }]);
+    expect(list.items.map((item) => item.task)).toEqual([{ done: false, marker: 6 }, { done: true, marker: 17 }]);
     const body = list.items[1].children[0];
     expect(body.t === "p" && inline(body.children)).toBe("done/more");
   });
@@ -83,8 +90,8 @@ describe("MarkdownTree", () => {
   });
 
   test("code blocks: between the fences, without the quote marks or the item's indentation", () => {
-    const [quote, list] = parseMarkdown("> ```\n> a\n>   b\n> ```\n\n- item\n  ```\n  c\n    d\n  ```");
-    expect(quote.t === "quote" && quote.children[0]).toEqual({ t: "code", pos: 2, text: "a\n  b" });
+    const [quote, list] = body("> ```\n> a\n>   b\n> ```\n\n- item\n  ```\n  c\n    d\n  ```");
+    expect(quote.t === "quote" && quote.children[0]).toEqual({ t: "code", pos: 6, text: "a\n  b" });
     const item = list.t === "list" ? list.items[0] : undefined;
     expect(item?.children[1]).toMatchObject({ t: "code", text: "c\n  d" });
   });
@@ -129,5 +136,41 @@ describe("MarkdownTree", () => {
   test("an empty note has no blocks", () => {
     expect(parseMarkdown("")).toEqual([]);
     expect(parseMarkdown("\n\n")).toEqual([]);
+  });
+
+  describe("the title, the first non-blank line, is a heading", () => {
+    function titleOf(text: string): string {
+      const first = parseMarkdown(text)[0];
+      if (first.t !== "h" || first.level !== 1) throw new Error("no title: " + JSON.stringify(first));
+      return inline(first.children);
+    }
+
+    test("a plain line, cut from the paragraph it starts", () => {
+      const blocks = parseMarkdown("\n\nMy *list*\nmilk\neggs");
+      expect(titleOf("\n\nMy *list*\nmilk\neggs")).toBe("My *list*");
+      expect(blocks.map((b) => b.t)).toEqual(["h", "p"]);
+      expect(blocks[1].t === "p" && inline(blocks[1].children)).toBe("milk/eggs");
+    });
+
+    test("a heading stays as it is, its level too", () => {
+      expect(parseMarkdown("## Sub\ntext")[0]).toMatchObject({ t: "h", level: 2 });
+    });
+
+    test("a list item's, quote's or task's marker goes; the rest of the list stays", () => {
+      expect(titleOf("- [ ] first\n- second")).toBe("first");
+      expect(titleOf("> quoted")).toBe("quoted");
+      expect(titleOf("3. third")).toBe("third");
+      const list = parseMarkdown("- first\n- second")[1];
+      expect(list.t === "list" && list.items.length).toBe(1);
+    });
+
+    test("its texts keep their offsets", () => {
+      const text = "\n  - Hello *you*";
+      const first = parseMarkdown(text)[0];
+      if (first.t !== "h") throw new Error("no title");
+      const hello = first.children[0];
+      expect(hello).toEqual({ t: "text", text: "Hello ", pos: 5 });
+      expect(text.slice(5, 11)).toBe("Hello ");
+    });
   });
 });

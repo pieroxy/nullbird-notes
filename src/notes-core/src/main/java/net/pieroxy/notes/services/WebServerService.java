@@ -5,6 +5,7 @@ import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.webserver.AccessValve;
 import net.pieroxy.notes.webserver.ExportServlet;
 import net.pieroxy.notes.webserver.ImportServlet;
+import net.pieroxy.notes.webserver.PublishedPageServlet;
 import net.pieroxy.notes.webserver.SecurityHeadersFilter;
 import net.pieroxy.notes.webserver.WebappResourceExtractor;
 import org.apache.catalina.LifecycleException;
@@ -80,6 +81,8 @@ public class WebServerService implements Service {
       ctx.addServletMappingDecoded(ExportServlet.PATH, "export");
       tomcat.addServlet("", "import", new ImportServlet(endpointServiceProvider()));
       ctx.addServletMappingDecoded(ImportServlet.PATH, "import");
+      tomcat.addServlet("", "published", new PublishedPageServlet());
+      ctx.addServletMappingDecoded(PublishedPageServlet.PATH, "published");
       addSecurityHeaders(ctx);
       addMimeTypes(ctx);
 
