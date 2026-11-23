@@ -285,9 +285,8 @@ export class NotesPage extends AbstractPage {
     handle.addEventListener("pointercancel", end);
   }
 
-  /** Markdown notes, while no search is on: its matches are shown in the editor. */
   private canView(note: LocalNote): boolean {
-    return isOn(note, MARKDOWN) && parseQuery(this.search).length === 0;
+    return isOn(note, MARKDOWN);
   }
 
   private setViewing(id: string, viewing: boolean) {

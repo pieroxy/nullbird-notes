@@ -1534,6 +1534,18 @@ body.resizing {
   .muted {
     color: var(--text-muted);
   }
+
+  // As the editor's .cm-match.
+  mark {
+    color: inherit;
+    background: var(--match-bg);
+    border-radius: 2px;
+
+    &.current {
+      background: var(--match-current-bg);
+      color: var(--text-on-accent);
+    }
+  }
 }
 
 // A tag chip: under a note, and in the filter strip.

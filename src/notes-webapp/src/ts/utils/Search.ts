@@ -131,3 +131,33 @@ export class SearchIndex {
     for (const id of this.folded.keys()) if (!ids.has(id)) this.folded.delete(id);
   }
 }
+
+/** A piece of a text at {@code pos} in the note; {@code match}: the index of the match it's in, or -1. */
+export interface Piece {
+  text: string;
+  pos: number;
+  match: number;
+}
+
+/** {@code text}, at {@code pos} in the note, cut where {@code matches} (in text order) start and end. */
+export function cutAtMatches(text: string, pos: number, matches: Range[]): Piece[] {
+  const end = pos + text.length;
+  let lo = 0;
+  let hi = matches.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (matches[mid].end <= pos) lo = mid + 1;
+    else hi = mid;
+  }
+  const pieces: Piece[] = [];
+  let at = pos;
+  for (let i = lo; i < matches.length && matches[i].start < end; i++) {
+    const from = Math.max(matches[i].start, pos);
+    const to = Math.min(matches[i].end, end);
+    if (from > at) pieces.push({ text: text.slice(at - pos, from - pos), pos: at, match: -1 });
+    pieces.push({ text: text.slice(from - pos, to - pos), pos: from, match: i });
+    at = to;
+  }
+  if (at < end) pieces.push({ text: text.slice(at - pos), pos: at, match: -1 });
+  return pieces;
+}

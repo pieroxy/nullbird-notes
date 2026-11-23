@@ -194,8 +194,8 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   }
 
   /**
-   * Shown by the user, it gets the focus; not when a search shows it: the search field keeps it,
-   * and a phone keeps its keyboard down.
+   * Shown, it gets the focus, unless a search is on and the view wasn't double-clicked: the search
+   * field keeps it, and a phone keeps its keyboard down.
    */
   private showOrHide(attrs: NoteEditorAttrs) {
     if (attrs.viewing === this.wasViewing) return;
@@ -208,9 +208,10 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
     view.requestMeasure();
     const caret = this.caretOnShow;
     this.caretOnShow = undefined;
-    if (attrs.find) return;
     if (caret !== undefined && caret <= view.state.doc.length) {
       view.dispatch({ selection: { anchor: caret }, effects: EditorView.scrollIntoView(caret, { y: "center" }) });
+    } else if (attrs.find) {
+      return;
     }
     view.focus();
   }
@@ -249,6 +250,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
       m(".cmhost" + (attrs.viewing ? ".hidden" : "")),
       attrs.viewing ? m(MarkdownView, {
         text: note.text,
+        find: attrs.find,
         onToggleTask: (marker: number) => this.toggleTask(marker),
         onEditAt: (pos: number) => {
           this.caretOnShow = pos;
