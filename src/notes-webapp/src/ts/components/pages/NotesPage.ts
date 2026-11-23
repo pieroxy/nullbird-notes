@@ -119,6 +119,7 @@ export class NotesPage extends AbstractPage {
       // Its sides line up with the panes. The status is on the widest one: it must never be cut.
       m("header.topbar", [
         m(".tagside", [
+          iconButton("panel-left-close", "Hide the tags (" + TAGS_SHORTCUT + ")", () => this.setLayout(toggleTags(layout)), "tagsclose"),
           engine ? tagSearch({
             search: this.tagSearch,
             onSearch: (search) => (this.tagSearch = search),
@@ -128,20 +129,19 @@ export class NotesPage extends AbstractPage {
             },
           }) : m("span.spacer"),
           m("button.plain.done", { type: "button", onclick: () => (this.showTags = false) }, "Done"),
-          iconButton("x", "Hide the tags (" + TAGS_SHORTCUT + ")", () => this.setLayout(toggleTags(layout)), "tagsclose"),
         ]),
         m(".listside", [
           this.selectedId ? iconButton("chevron-left", "Back to the notes", () => this.select(undefined), "back") : null,
-          engine ? iconButton("panel-left", (filtering ? "Tags, filtering" : "Tags") + " (" + TAGS_SHORTCUT + ")", () => {
+          engine ? iconButton("panel-left-open", (filtering ? "Tags, filtering" : "Tags") + " (" + TAGS_SHORTCUT + ")", () => {
             if (matchMedia(NARROW).matches) this.showTags = true;
             else this.setLayout(toggleTags(layout));
           }, "tagsbutton" + (filtering ? ".active" : "")) : null,
-          engine ? iconButton("plus", "New note", () => this.newNote(engine), "new") : null,
+          iconButton("panel-left-close", "Hide the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listclose"),
           engine ? noteSearch(this.searchAttrs()) : m("span.spacer"),
-          iconButton("x", "Hide the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listclose"),
+          engine ? iconButton("plus", "New note", () => this.newNote(engine), "new") : null,
         ]),
         m(".noteside", [
-          iconButton("list", "Show the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listopen"),
+          iconButton("panel-left-open", "Show the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listopen"),
           this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : m("span.spacer"),
           engine && selected && !selected.deleted && this.canView(selected)
             ? (this.viewing.has(selected.id)
