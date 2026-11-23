@@ -16,7 +16,7 @@ import { Autolink, parser, Strikethrough, TaskList } from "@lezer/markdown";
 
 const data = defineLanguageFacet();
 
-const markdownParser = parser.configure([
+export const markdownParser = parser.configure([
   Strikethrough,
   TaskList,
   Autolink,

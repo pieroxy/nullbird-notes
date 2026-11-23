@@ -10,6 +10,7 @@ import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { loadLayout, PaneLayout, resetWidth, saveLayout, SidePane, tagsShown, toggleList, toggleTags, withWidth } from "../../utils/PaneLayout";
 import { findMatches, fold, matches as searchMatches, MAX_MATCHES, parseQuery, Range, SearchIndex, snippet } from "../../utils/Search";
+import { loadViewing, saveViewing } from "../../utils/ViewMode";
 import { inOrder, isActive, loadFilter, matches, NO_FILTER, saveFilter, TagCount, TagFilter, tagCounts, toggle, visibleTags } from "../../utils/TagFilter";
 import { Dropdown } from "../Dropdown";
 import { icon, iconButton } from "../Icons";
@@ -24,6 +25,7 @@ import { AbstractPage } from "./AbstractPage";
 const NARROW = "(max-width: 700px)";
 const TAGS_SHORTCUT = "Ctrl+Shift+[";
 const LIST_SHORTCUT = "Ctrl+Shift+]";
+const VIEW_SHORTCUT = "Ctrl+Shift+E";
 
 /**
  * The tags, the note list filtered on them and the search, then the selected note. On wide screens,
@@ -47,11 +49,22 @@ export class NotesPage extends AbstractPage {
   /** Narrow screens: the tags shown instead of the list. */
   private showTags = false;
   private layout: PaneLayout = loadLayout();
+  /** The notes shown rendered, kept on this device (see ViewMode). */
+  private viewing = new Set<string>();
   /** By physical key: [ and ] move around on other keyboard layouts. Cmd too, for macOS webviews: browsers keep Cmd+Shift+[ for tabs. */
   private readonly onKeyDown = (e: KeyboardEvent) => {
     if (this.onSearchKey(e)) {
       e.preventDefault();
       m.redraw();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "KeyE") {
+      const selected = this.selectedId ? this.engine?.get(this.selectedId) : undefined;
+      if (selected && this.canView(selected)) {
+        this.setViewing(selected.id, !this.viewing.has(selected.id));
+        e.preventDefault();
+        m.redraw();
+      }
       return;
     }
     if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || matchMedia(NARROW).matches) return;
@@ -67,6 +80,7 @@ export class NotesPage extends AbstractPage {
     const username = Auth.getUsername();
     if (username) {
       this.filter = loadFilter(username);
+      this.viewing = loadViewing(username);
       void session.open(username);
     }
   }
@@ -125,6 +139,11 @@ export class NotesPage extends AbstractPage {
         m(".noteside", [
           iconButton("list", "Show the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listopen"),
           this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : m("span.spacer"),
+          engine && selected && !selected.deleted && this.canView(selected)
+            ? (this.viewing.has(selected.id)
+              ? iconButton("pencil", "Edit (" + VIEW_SHORTCUT + ")", () => this.setViewing(selected.id, false), "viewtoggle")
+              : iconButton("eye", "View (" + VIEW_SHORTCUT + ")", () => this.setViewing(selected.id, true), "viewtoggle"))
+            : null,
           engine && selected && !selected.deleted ? iconButton("trash-2", "Delete note", () => {
             if (!confirm("Delete this note?")) return;
             engine.delete(selected.id);
@@ -218,6 +237,8 @@ export class NotesPage extends AbstractPage {
           monospace: isOn(selected, MONOSPACE),
           nowrap: isOn(selected, NOWRAP),
           markdown: isOn(selected, MARKDOWN),
+          viewing: this.viewing.has(selected.id) && this.canView(selected),
+          onView: (viewing: boolean) => this.setViewing(selected.id, viewing),
           onEdit: (text: string) => engine.edit(selected.id, text),
           onAddTag: (tag: string) => engine.addTag(selected.id, tag),
           onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),
@@ -262,6 +283,18 @@ export class NotesPage extends AbstractPage {
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", end);
     handle.addEventListener("pointercancel", end);
+  }
+
+  /** Markdown notes, while no search is on: its matches are shown in the editor. */
+  private canView(note: LocalNote): boolean {
+    return isOn(note, MARKDOWN) && parseQuery(this.search).length === 0;
+  }
+
+  private setViewing(id: string, viewing: boolean) {
+    if (viewing) this.viewing.add(id);
+    else this.viewing.delete(id);
+    const username = Auth.getUsername();
+    if (username && this.engine) saveViewing(username, this.viewing, new Set(this.engine.list().map((note) => note.id)));
   }
 
   private setLayout(layout: PaneLayout) {

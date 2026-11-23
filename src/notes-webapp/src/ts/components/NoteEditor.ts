@@ -8,6 +8,8 @@ import { continueList } from "../utils/ListContinuation";
 import { MAX_MATCHES, Range } from "../utils/Search";
 import { iconButton } from "./Icons";
 import { markdownStyle } from "./MarkdownStyle";
+import { toggledTask } from "./MarkdownTree";
+import { MarkdownView } from "./MarkdownView";
 import { TagEditor } from "./TagEditor";
 
 /** While a search is active. */
@@ -30,6 +32,9 @@ export interface NoteEditorAttrs {
   monospace: boolean;
   nowrap: boolean;
   markdown: boolean;
+  /** Its Markdown rendered instead of the editor. */
+  viewing: boolean;
+  onView: (viewing: boolean) => void;
   onEdit: (text: string) => void;
   onAddTag: (tag: string) => boolean;
   onRemoveTag: (tag: string) => void;
@@ -107,6 +112,9 @@ const theme = EditorView.theme({
  * <p>
  * Stepping through search matches selects each one without focusing the editor: a phone doesn't
  * bring its keyboard up over the note.
+ * <p>
+ * Viewing, the editor stays, hidden: a task ticked in the view is an edit of its own (undoable, as
+ * typed), and editing again finds the caret and history where they were.
  */
 export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   private editor?: EditorView;
@@ -118,6 +126,9 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   private lastJump?: number;
   private lastMatches?: Range[];
   private lastCurrent?: number;
+  private wasViewing = false;
+  /** Where the caret goes once the editor shows: where the view was double-clicked. */
+  private caretOnShow?: number;
 
   oncreate({ attrs, dom }: m.VnodeDOM<NoteEditorAttrs>) {
     this.onEdit = attrs.onEdit;
@@ -148,7 +159,8 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
         ],
       }),
     });
-    if (attrs.note.text === "") this.editor.focus();
+    this.wasViewing = attrs.viewing;
+    if (attrs.note.text === "" && !attrs.viewing) this.editor.focus();
     this.showFind(attrs);
   }
 
@@ -161,6 +173,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
       view.dispatch({ effects: this.options.reconfigure(options(attrs)) });
     }
     this.showFind(attrs);
+    this.showOrHide(attrs);
   }
 
   onremove() {
@@ -178,6 +191,34 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
       changes: { from: splice.prefixLength, to: current.length - splice.suffixLength, insert: splice.middle },
       annotations: [remote.of(true), Transaction.addToHistory.of(false)],
     });
+  }
+
+  /**
+   * Shown by the user, it gets the focus; not when a search shows it: the search field keeps it,
+   * and a phone keeps its keyboard down.
+   */
+  private showOrHide(attrs: NoteEditorAttrs) {
+    if (attrs.viewing === this.wasViewing) return;
+    this.wasViewing = attrs.viewing;
+    const view = this.editor!;
+    if (attrs.viewing) {
+      view.contentDOM.blur();
+      return;
+    }
+    view.requestMeasure();
+    const caret = this.caretOnShow;
+    this.caretOnShow = undefined;
+    if (attrs.find) return;
+    if (caret !== undefined && caret <= view.state.doc.length) {
+      view.dispatch({ selection: { anchor: caret }, effects: EditorView.scrollIntoView(caret, { y: "center" }) });
+    }
+    view.focus();
+  }
+
+  private toggleTask(marker: number) {
+    const view = this.editor!;
+    const change = toggledTask(view.state.doc.toString(), marker);
+    if (change) view.dispatch({ changes: change, userEvent: "input" });
   }
 
   private showFind(attrs: NoteEditorAttrs) {
@@ -205,7 +246,15 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
       note.error ? m(".banner.error", "Not saved on the server: " + note.error.message + " Your text is kept on this device.") : null,
       note.metaError ? m(".banner.error", "A change to the tags or options was refused by the server: " + note.metaError.message) : null,
       attrs.find ? findBar(attrs.find) : null,
-      m(".cmhost"),
+      m(".cmhost" + (attrs.viewing ? ".hidden" : "")),
+      attrs.viewing ? m(MarkdownView, {
+        text: note.text,
+        onToggleTask: (marker: number) => this.toggleTask(marker),
+        onEditAt: (pos: number) => {
+          this.caretOnShow = pos;
+          attrs.onView(false);
+        },
+      }) : null,
       m(TagEditor, { tags: attrs.tags, onAdd: attrs.onAddTag, onRemove: attrs.onRemoveTag }),
     ]);
   }
