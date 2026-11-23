@@ -5,6 +5,7 @@ import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { NO_FILTER, saveFilter } from "../../utils/TagFilter";
+import { loadTextSize, saveTextSize, TEXT_SIZES } from "../../utils/TextSize";
 import { ChangePasswordForm } from "../ChangePasswordForm";
 import { ImportNotes } from "../ImportNotes";
 import { PageSection, sectionedPage } from "../SectionedPage";
@@ -26,8 +27,9 @@ let version: string | undefined;
 export class AccountPage extends AbstractPage<AccountPageAttrs> {
   private loggingOut = false;
   private readonly sections: PageSection[] = [
-    { id: "security", title: "Security", render: () => this.security() },
+    { id: "appearance", title: "Appearance", render: () => this.appearance() },
     { id: "data", title: "Your notes", render: () => this.data() },
+    { id: "security", title: "Security", render: () => this.security() },
   ];
 
   oninit() {
@@ -58,6 +60,21 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
       ],
       navFooter: version ? m("p.accountversion", "Version " + version) : null,
     });
+  }
+
+  private appearance(): m.Children {
+    const chosen = loadTextSize();
+    return [
+      m("h2", "Text size"),
+      m("p.muted", "For this device only: each of yours keeps its own."),
+      m(".choices", { role: "radiogroup", "aria-label": "Text size" }, TEXT_SIZES.map((size) =>
+        m("label.choice", { key: size.id, class: size.id === chosen ? "chosen" : "" }, [
+          m("input", { type: "radio", name: "textsize", value: size.id, checked: size.id === chosen, onchange: () => saveTextSize(size.id) }),
+          // Each at its own size, whatever the one chosen; enlarged alike, to be told apart.
+          m("span.sample", { style: { fontSize: size.pixels * 1.5 + "px" } }, "Aa"),
+          m("span", size.label),
+        ]))),
+    ];
   }
 
   private security(): m.Children {

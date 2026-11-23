@@ -7,6 +7,7 @@ import { NotesPage } from "./components/pages/NotesPage";
 import { AuthenticatedPageResolver } from "./utils/AuthenticatedPageResolver";
 import { Endpoints } from "./utils/navigation/Endpoints";
 import { registerServiceWorker } from "./utils/ServiceWorker";
+import { initTextSize } from "./utils/TextSize";
 
 const routes: m.RouteDefs = {
   [Endpoints.LOGIN]: LoginPage,
@@ -21,6 +22,7 @@ const routes: m.RouteDefs = {
 // Gone when compat.js found the browser too old, and replaced it with a message.
 const root = document.getElementById("app");
 if (root) {
+  initTextSize(() => m.redraw());
   m.route(root, Endpoints.HOME, routes);
   registerServiceWorker();
 }
