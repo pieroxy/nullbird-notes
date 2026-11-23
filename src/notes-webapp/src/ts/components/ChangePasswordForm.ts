@@ -59,9 +59,6 @@ export class ChangePasswordForm implements m.ClassComponent<ChangePasswordFormAt
         }
       })
       .catch((err: Error) => (this.error = err.message))
-      .finally(() => {
-        this.submitting = false;
-        m.redraw();
-      });
+      .finally(() => (this.submitting = false));
   }
 }

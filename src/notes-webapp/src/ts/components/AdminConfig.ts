@@ -83,8 +83,7 @@ export class ConfigSection implements m.ClassComponent {
         this.fields = fieldsOf(config.saved);
         this.loadError = undefined;
       })
-      .catch((err: Error) => (this.loadError = err.message))
-      .finally(() => m.redraw());
+      .catch((err: Error) => (this.loadError = err.message));
   }
 
   view(): m.Children {
@@ -236,9 +235,6 @@ export class ConfigSection implements m.ClassComponent {
         }
       })
       .catch((err: Error) => (this.error = err.message))
-      .finally(() => {
-        this.saving = false;
-        m.redraw();
-      });
+      .finally(() => (this.saving = false));
   }
 }

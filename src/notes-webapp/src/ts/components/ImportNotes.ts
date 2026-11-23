@@ -106,7 +106,6 @@ export class ImportNotes implements m.ClassComponent {
       this.error = (e as Error).message;
       this.step = { kind: "idle" };
     }
-    m.redraw();
   }
 
   private cancel(summary: ImportSummary) {

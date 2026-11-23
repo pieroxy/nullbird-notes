@@ -17,8 +17,7 @@ class Users {
         this.list = output.users;
         this.error = undefined;
       })
-      .catch((err: Error) => (this.error = err.message))
-      .finally(() => m.redraw());
+      .catch((err: Error) => (this.error = err.message));
   }
 }
 
@@ -147,10 +146,7 @@ class AddUserForm implements m.ClassComponent<AddUserFormAttrs> {
         }
       })
       .catch((err: Error) => (this.error = err.message))
-      .finally(() => {
-        this.submitting = false;
-        m.redraw();
-      });
+      .finally(() => (this.submitting = false));
   }
 }
 
@@ -224,9 +220,6 @@ export class UserDetail implements m.ClassComponent<UserDetailAttrs> {
         else this.error = result.error ?? "That didn't work.";
       })
       .catch((err: Error) => (this.error = err.message))
-      .finally(() => {
-        this.busy = false;
-        m.redraw();
-      });
+      .finally(() => (this.busy = false));
   }
 }

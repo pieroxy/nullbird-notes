@@ -74,10 +74,7 @@ export class LoginPage extends AbstractPage {
       .catch((err: Error) => {
         this.error = err.message;
       })
-      .finally(() => {
-        this.submitting = false;
-        m.redraw();
-      });
+      .finally(() => (this.submitting = false));
   }
 }
 

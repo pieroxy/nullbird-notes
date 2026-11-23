@@ -91,9 +91,7 @@ export class LogsSection implements m.ClassComponent {
         if (request === this.request) this.error = err.message;
       })
       .finally(() => {
-        if (request !== this.request) return;
-        this.loading = false;
-        m.redraw();
+        if (request === this.request) this.loading = false;
       });
   }
 

@@ -141,7 +141,6 @@ export class Auth {
       .finally(() => {
         clearTimeout(timer);
         Auth.checkInProgress = false;
-        m.redraw();
       });
   }
 }
