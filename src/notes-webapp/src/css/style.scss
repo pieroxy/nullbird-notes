@@ -130,6 +130,13 @@ button {
     color: var(--error);
     text-align: center;
   }
+
+  .loginversion {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+  }
 }
 
 .notespage {

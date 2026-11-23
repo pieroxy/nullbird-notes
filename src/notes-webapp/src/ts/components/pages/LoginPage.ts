@@ -5,11 +5,22 @@ import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { AbstractPage } from "./AbstractPage";
 
+/** Fetched once: logging out recreates the page. */
+let version: string | undefined;
+
 export class LoginPage extends AbstractPage {
   private login = "";
   private password = "";
   private submitting = false;
   private error: string | undefined;
+
+  oninit() {
+    if (version === undefined) {
+      ApiEndpoints.Version.call({})
+        .then((output) => (version = output.version + " (" + output.revision + ")"))
+        .catch(() => undefined);
+    }
+  }
 
   getPageTitle(): string {
     return "Notes - Login";
@@ -38,6 +49,7 @@ export class LoginPage extends AbstractPage {
         }),
         m("button", { type: "submit", disabled: this.submitting }, "Log in"),
         this.error ? m(".errormessage", this.error) : null,
+        version ? m("p.loginversion", "Version " + version) : null,
       ]));
   }
 
