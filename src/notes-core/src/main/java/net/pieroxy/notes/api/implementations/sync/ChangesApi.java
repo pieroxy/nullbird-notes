@@ -15,8 +15,9 @@ import java.util.concurrent.CompletableFuture;
  * The notes changed after a cursor. With {@code wait}, a long poll: answers as soon as there's
  * something to report, or after {@link #LONG_POLL_MILLIS} with nothing new, under the 60 s read
  * timeout reverse proxies commonly default to.
+ * No redraw: the sync engine redraws when there are changes, not every time a long poll ends.
  */
-@Endpoint(method = ApiMethod.GET)
+@Endpoint(method = ApiMethod.GET, redraw = false)
 public class ChangesApi extends AbstractAsyncAuthenticatedEndpoint<ChangesApiInput, ChangesPage> {
   static final long LONG_POLL_MILLIS = 25_000;
 

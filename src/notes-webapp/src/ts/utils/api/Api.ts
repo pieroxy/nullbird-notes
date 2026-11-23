@@ -18,6 +18,8 @@ export interface ApiCallOptions<I> extends CallOptions {
   method: "GET" | "POST";
   endpoint: string;
   body: I;
+  /** Redraw once the call answers or fails (see the Java @Endpoint). */
+  redraw: boolean;
 }
 
 export enum ApiErrorKind {
@@ -49,6 +51,15 @@ export class Api {
 
   /** @throws ApiError. A 401 also drops the client-side session (see Auth). */
   static async call<I, O>(options: ApiCallOptions<I>): Promise<O> {
+    try {
+      return await Api.send<I, O>(options);
+    } finally {
+      // Asynchronous: the caller's then/catch runs first.
+      if (options.redraw) m.redraw();
+    }
+  }
+
+  private static async send<I, O>(options: ApiCallOptions<I>): Promise<O> {
     const url = "/api/" + options.endpoint;
     // The session travels as an HttpOnly cookie, sent by the browser on these same-origin calls.
     let response: Response;

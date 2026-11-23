@@ -72,6 +72,7 @@ public class GenerateTsStubs {
         writeLater("                    method:\"" + endpoint.method() + "\",");
         writeLater("                    body:input,");
         writeLater("                    endpoint:\"" + name + "\",");
+        writeLater("                    redraw:" + endpoint.redraw() + ",");
         writeLater("                    signal:options?.signal");
         writeLater("            });");
         writeLater("        }");

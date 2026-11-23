@@ -9,4 +9,7 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE)
 public @interface Endpoint {
   ApiMethod method();
+
+  /** Whether the webapp redraws once a call answers, as Mithril's m.request does. */
+  boolean redraw() default true;
 }
