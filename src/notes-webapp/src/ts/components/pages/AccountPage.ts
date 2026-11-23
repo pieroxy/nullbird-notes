@@ -5,7 +5,7 @@ import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { NO_FILTER, saveFilter } from "../../utils/TagFilter";
-import { loadTextSize, saveTextSize, TEXT_SIZES } from "../../utils/TextSize";
+import { loadChoice, saveChoice, Setting, SPACING, TEXT_PIXELS, TEXT_SIZE } from "../../utils/Appearance";
 import { ChangePasswordForm } from "../ChangePasswordForm";
 import { ImportNotes } from "../ImportNotes";
 import { PageSection, sectionedPage } from "../SectionedPage";
@@ -63,17 +63,15 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
   }
 
   private appearance(): m.Children {
-    const chosen = loadTextSize();
     return [
       m("h2", "Text size"),
-      m("p.muted", "For this device only: each of yours keeps its own."),
-      m(".choices", { role: "radiogroup", "aria-label": "Text size" }, TEXT_SIZES.map((size) =>
-        m("label.choice", { key: size.id, class: size.id === chosen ? "chosen" : "" }, [
-          m("input", { type: "radio", name: "textsize", value: size.id, checked: size.id === chosen, onchange: () => saveTextSize(size.id) }),
-          // Each at its own size, whatever the one chosen; enlarged alike, to be told apart.
-          m("span.sample", { style: { fontSize: size.pixels * 1.5 + "px" } }, "Aa"),
-          m("span", size.label),
-        ]))),
+      // Each sample at its own size, whatever the one chosen; enlarged alike, to be told apart.
+      choices(TEXT_SIZE, "textsize", "Text size", (id) => m("span.sample", { style: { fontSize: TEXT_PIXELS[id] * 1.5 + "px" } }, "Aa")),
+      m("h2", "Spacing"),
+      m("p.muted", "How close together the notes, tags and menu items are."),
+      // Three rows, as far apart as rows are at that spacing.
+      choices(SPACING, "spacing", "Spacing", (id) => m("span.sample.rows." + id, [m("i"), m("i"), m("i")])),
+      m("p.muted.devicenote", "Both are for this device only: each of yours keeps its own."),
     ];
   }
 
@@ -117,4 +115,15 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
     await Auth.logout();
     Routing.goToScreen(Endpoints.LOGIN);
   }
+}
+
+/** Radio buttons drawn as tiles, each with a sample of what it does. */
+function choices(setting: Setting, name: string, label: string, sample: (id: string) => m.Children): m.Children {
+  const chosen = loadChoice(setting);
+  return m(".choices", { role: "radiogroup", "aria-label": label }, setting.choices.map((c) =>
+    m("label.choice", { key: c.id, class: c.id === chosen ? "chosen" : "" }, [
+      m("input", { type: "radio", name, value: c.id, checked: c.id === chosen, onchange: () => saveChoice(setting, c.id) }),
+      sample(c.id),
+      m("span", c.label),
+    ])));
 }
