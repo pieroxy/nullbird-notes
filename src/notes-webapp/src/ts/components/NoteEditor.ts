@@ -8,6 +8,9 @@ import { computeSplice } from "../sync/Splice";
 import { continueList } from "../utils/ListContinuation";
 import { formatList, ListKind, taskShorthand } from "../utils/ListFormat";
 import { isMergeMark, removedMergeMark } from "../utils/MergeMarks";
+import { htmlToMarkdown } from "../utils/PasteMarkdown";
+import { syntaxTree } from "@codemirror/language";
+import { SyntaxNode } from "@lezer/common";
 import { MAX_MATCHES, Range } from "../utils/Search";
 import { iconButton } from "./Icons";
 import { markdownStyle } from "./MarkdownStyle";
@@ -213,6 +216,30 @@ const mergeMarks = ViewPlugin.fromClass(class {
     if (update.docChanged || update.viewportChanged) this.decorations = mergeDecorations(update.view);
   }
 }, { decorations: (plugin) => plugin.decorations });
+
+/** Inside code, where Markdown is just text: a paste stays as copied. */
+function inCode(view: EditorView, pos: number): boolean {
+  for (let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(pos, -1); node; node = node.parent) {
+    if (node.name === "FencedCode" || node.name === "InlineCode" || node.name === "CodeBlock") return true;
+  }
+  return false;
+}
+
+/**
+ * In a Markdown note, pasted formatted text keeps what Markdown can hold (see PasteMarkdown):
+ * bold, italic, links, lists… Ctrl+Shift+V pastes plain text: browsers give only that, then.
+ */
+const markdownPaste = EditorView.domEventHandlers({
+  paste(event, view) {
+    const html = event.clipboardData?.getData("text/html");
+    if (!html || inCode(view, view.state.selection.main.from)) return false;
+    const markdown = htmlToMarkdown(html);
+    if (markdown === undefined) return false;
+    event.preventDefault();
+    view.dispatch(view.state.replaceSelection(markdown), { scrollIntoView: true, userEvent: "input.paste" });
+    return true;
+  },
+});
 
 /**
  * Styles inside the editor's shadow root, where the page's stylesheet doesn't apply: CSS variables
@@ -454,7 +481,7 @@ function options(attrs: NoteEditorAttrs): Extension {
   return [
     attrs.nowrap ? [] : EditorView.lineWrapping,
     EditorView.editorAttributes.of({ class: attrs.monospace ? "monospace" : "" }),
-    attrs.markdown ? [markdownStyle, taskShorthandInput] : [],
+    attrs.markdown ? [markdownStyle, taskShorthandInput, markdownPaste] : [],
   ];
 }
 

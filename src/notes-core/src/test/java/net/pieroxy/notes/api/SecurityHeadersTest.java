@@ -39,6 +39,8 @@ public class SecurityHeadersTest {
     for (String path : List.of("/", "/index.html", "/no-such-file", "/api/Session?input=%7B%7D")) {
       HttpResponse<String> response = server.client().raw(path);
       assertTrue(path, header(response, "Content-Security-Policy").startsWith("default-src 'none'; script-src 'self'"));
+      // Two Trusted Types policies, each created once: no 'allow-duplicates'.
+      assertTrue(path, header(response, "Content-Security-Policy").endsWith("require-trusted-types-for 'script'; trusted-types notes-sw notes-paste"));
       assertEquals(path, "nosniff", header(response, "X-Content-Type-Options"));
       assertEquals(path, "no-referrer", header(response, "Referrer-Policy"));
       assertEquals(path, "DENY", header(response, "X-Frame-Options"));

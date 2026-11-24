@@ -33,8 +33,10 @@ public class SecurityHeadersFilter extends HttpFilter {
       "form-action 'none'",
       "frame-ancestors 'none'",
       "require-trusted-types-for 'script'",
-      // Only the policy that registers the service worker, and only for /sw.js (see ServiceWorker.ts).
-      "trusted-types notes-sw");
+      // Only the policy that registers the service worker, and only for /sw.js (see ServiceWorker.ts);
+      // and the one that gives pasted HTML to DOMParser, which builds an inert document (see PasteMarkdown.ts).
+      // Each can be created once: by the code that needs it, first.
+      "trusted-types notes-sw notes-paste");
   /** Named after their content's hash by the webapp's build: a new content is a new name. */
   private static final Pattern IMMUTABLE = Pattern.compile("/bundle-[0-9a-f]+\\.(js|css)(\\.map)?");
   private static final Pattern FONT = Pattern.compile("/fonts/" + FontService.FILE_PATTERN.pattern());
