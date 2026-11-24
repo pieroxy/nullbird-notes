@@ -45,6 +45,8 @@ export interface NoteEditorAttrs {
   find?: FindAttrs;
   /** Changed to make the lines at the caret or the selection a list (see {@link formatList}). */
   listCommand?: { kind: ListKind; seq: number };
+  /** Changed to replace the selection with {@code text} (none: nothing), then take the focus if {@code focus}. */
+  insertCommand?: { text: string; focus: boolean; seq: number };
 }
 
 /** On changes synced from elsewhere: not the user's to undo, nor to report back as an edit. */
@@ -165,6 +167,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   private lastMatches?: Range[];
   private lastCurrent?: number;
   private lastListSeq?: number;
+  private lastInsertSeq?: number;
   private wasViewing = false;
   /** Where the caret goes once the editor shows: where the view was double-clicked. */
   private caretOnShow?: number;
@@ -178,6 +181,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
     this.text = attrs.note.text;
     this.optionsKey = optionsKey(attrs);
     this.lastListSeq = attrs.listCommand?.seq;
+    this.lastInsertSeq = attrs.insertCommand?.seq;
     const host = dom.querySelector(".cmhost")!;
     const root = host.attachShadow({ mode: "open" });
     this.editor = new EditorView({
@@ -229,6 +233,13 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
       if (!attrs.viewing) {
         makeList(view, attrs.listCommand.kind);
         view.focus();
+      }
+    }
+    if (attrs.insertCommand && attrs.insertCommand.seq !== this.lastInsertSeq) {
+      this.lastInsertSeq = attrs.insertCommand.seq;
+      if (!attrs.viewing) {
+        if (attrs.insertCommand.text) view.dispatch(view.state.replaceSelection(attrs.insertCommand.text), { scrollIntoView: true, userEvent: "input" });
+        if (attrs.insertCommand.focus) view.focus();
       }
     }
   }

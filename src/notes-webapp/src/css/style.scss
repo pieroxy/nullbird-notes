@@ -446,6 +446,12 @@ button {
         line-height: 1.2;
       }
 
+      // The emoji button's: what each does, in words.
+      .words {
+        color: var(--text-muted);
+        font-size: scaled(12px);
+      }
+
       // Spacing: three rows, as far apart as at that spacing (see Appearance.ts).
       .rows {
         display: flex;
@@ -1772,6 +1778,128 @@ svg.icon {
   min-width: 0;
 }
 
+// The emoji helper (see EmojiPicker.ts): a panel under its button, as the menus.
+.emojipicker {
+  position: relative;
+
+  .emojibutton.active {
+    color: var(--accent);
+  }
+}
+
+.emojipanel {
+  --emoji-font: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(calc(100vw - 16px), #{scaled(330px)});
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  font-size: scaled(14px);
+
+  .emojisearch {
+    width: 100%;
+  }
+
+  .emojitabs {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .emojitab {
+    padding: 4px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    font-family: var(--emoji-font);
+    font-size: scaled(17px);
+    line-height: 1;
+    opacity: .6;
+
+    &:hover, &.selected {
+      background: var(--bg-selected);
+      opacity: 1;
+    }
+  }
+
+  // Eight columns: the arrow keys go up and down by eight (see EmojiPicker.ts).
+  .emojigrid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    align-content: start;
+    height: scaled(250px);
+    overflow-y: auto;
+  }
+
+  .emoji {
+    padding: 4px 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    font-family: var(--emoji-font);
+    font-size: scaled(22px);
+    line-height: 1.2;
+
+    &:hover, &.active {
+      background: var(--bg-selected);
+    }
+  }
+
+  .emojinone {
+    height: scaled(250px);
+    margin: 0;
+    padding-top: 16px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .emojifooter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: scaled(30px);
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+    font-size: scaled(13px);
+  }
+
+  .emojibig {
+    font-family: var(--emoji-font);
+    font-size: scaled(22px);
+    line-height: 1;
+  }
+
+  .emojiname {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .muted {
+    color: var(--text-muted);
+  }
+}
+
+// One pane at a time: the button isn't at the screen's edge, the panel goes across it, under the bar.
+@media (max-width: 700px) {
+  .emojipanel {
+    position: fixed;
+    top: calc(var(--bar-height) + var(--safe-top) + 4px);
+    right: max(8px, var(--safe-right));
+    left: max(8px, var(--safe-left));
+    width: auto;
+  }
+}
+
 .dropdownpanel {
   position: absolute;
   top: calc(100% + 4px);
@@ -1993,7 +2121,7 @@ button.link {
         order: 3;
       }
 
-      .viewtoggle, .delete {
+      .viewtoggle, .delete, .emojipicker {
         order: 4;
       }
 

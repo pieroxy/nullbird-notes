@@ -35,7 +35,8 @@ describe("Appearance", () => {
   test("four text sizes, three spacings, Normal by default", () => {
     expect(TEXT_SIZE.choices.map((c) => c.id)).toEqual(["small", "normal", "large", "larger"]);
     expect(SPACING.choices.map((c) => c.id)).toEqual(["compact", "normal", "comfortable"]);
-    for (const setting of SETTINGS) expect(loadChoice(setting)).toBe("normal");
+    for (const setting of SETTINGS) expect(loadChoice(setting)).toBe(setting.defaultId);
+    expect([TEXT_SIZE, SPACING].map((s) => s.defaultId)).toEqual(["normal", "normal"]);
   });
 
   test("the defaults are the stylesheet's own", () => {

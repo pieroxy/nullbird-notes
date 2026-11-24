@@ -5,7 +5,7 @@ import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { NO_FILTER, saveFilter } from "../../utils/TagFilter";
-import { loadChoice, saveChoice, Setting, SPACING, TEXT_PIXELS, TEXT_SIZE } from "../../utils/Appearance";
+import { EMOJI_HELPER, loadChoice, saveChoice, Setting, SPACING, TEXT_PIXELS, TEXT_SIZE } from "../../utils/Appearance";
 import { ChangePasswordForm } from "../ChangePasswordForm";
 import { FontChoices } from "../FontChoices";
 import { ImportNotes } from "../ImportNotes";
@@ -73,6 +73,9 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
       // Three rows, as far apart as rows are at that spacing.
       choices(SPACING, "spacing", "Spacing", (id) => m("span.sample.rows." + id, [m("i"), m("i"), m("i")])),
       m(FontChoices),
+      m("h2", "Emoji button"),
+      m("p.muted", "A button by the note's, to insert emojis. Phones and tablets have them on their keyboard already."),
+      choices(EMOJI_HELPER, "emojihelper", "Emoji button", (id) => m("span.sample.words", EMOJI_SAMPLES[id])),
       m("p.muted.devicenote", "All of these are for this device only: each of yours keeps its own."),
     ];
   }
@@ -118,6 +121,8 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
     Routing.goToScreen(Endpoints.LOGIN);
   }
 }
+
+const EMOJI_SAMPLES: Record<string, string> = { auto: "On computers", shown: "Everywhere", hidden: "Nowhere" };
 
 /** Radio buttons drawn as tiles, each with a sample of what it does. */
 function choices(setting: Setting, name: string, label: string, sample: (id: string) => m.Children): m.Children {

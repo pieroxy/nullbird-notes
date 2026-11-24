@@ -49,6 +49,12 @@ const ICONS = {
     ["path", { d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" }],
     ["path", { d: "m15 5 4 4" }],
   ],
+  smile: [
+    ["circle", { cx: 12, cy: 12, r: 10 }],
+    ["path", { d: "M8 14s1.5 2 4 2 4-2 4-2" }],
+    ["line", { x1: 9, x2: 9.01, y1: 9, y2: 9 }],
+    ["line", { x1: 15, x2: 15.01, y1: 9, y2: 9 }],
+  ],
   "panel-left-close": [["rect", { width: 18, height: 18, x: 3, y: 3, rx: 2 }], ["path", { d: "M9 3v18" }], ["path", { d: "m16 15-3-3 3-3" }]],
   "panel-left-open": [["rect", { width: 18, height: 18, x: 3, y: 3, rx: 2 }], ["path", { d: "M9 3v18" }], ["path", { d: "m14 9 3 3-3 3" }]],
 } satisfies Record<string, Shape[]>;

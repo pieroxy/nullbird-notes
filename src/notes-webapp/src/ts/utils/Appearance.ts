@@ -1,6 +1,7 @@
 /**
- * The appearance chosen in My Account: text size and spacing. Each choice sets CSS variables that
- * style.scss multiplies its sizes by (--text-scale, --space-scale, --bar-height). Kept per device,
+ * The appearance chosen in My Account: text size, spacing, the emoji button. Text size and spacing
+ * set CSS variables that style.scss multiplies its sizes by (--text-scale, --space-scale,
+ * --bar-height); the emoji button's setting, the page reads (see Emoji.ts). Kept per device,
  * never synced: a phone and a desktop want their own.
  */
 export interface Choice {
@@ -37,7 +38,14 @@ export const SPACING: Setting = {
   ],
 };
 
-export const SETTINGS = [TEXT_SIZE, SPACING];
+/** Whether the emoji button shows by the note's (see Emoji.ts): nothing to set in the stylesheet. */
+export const EMOJI_HELPER: Setting = {
+  storageKey: "notes.emojihelper",
+  defaultId: "auto",
+  choices: [["auto", "Auto"], ["shown", "Shown"], ["hidden", "Hidden"]].map(([id, label]) => ({ id, label, variables: {} })),
+};
+
+export const SETTINGS = [TEXT_SIZE, SPACING, EMOJI_HELPER];
 
 export function choice(setting: Setting, id: string): Choice {
   return setting.choices.find((c) => c.id === id) ?? choice(setting, setting.defaultId);

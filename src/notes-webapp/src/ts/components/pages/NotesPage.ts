@@ -13,6 +13,9 @@ import { loadLayout, PaneLayout, resetWidth, saveLayout, SidePane, tagsShown, to
 import { findMatches, fold, matches as searchMatches, MAX_MATCHES, parseQuery, Range, SearchIndex, snippet } from "../../utils/Search";
 import { ListKind } from "../../utils/ListFormat";
 import { loadViewing, saveViewing } from "../../utils/ViewMode";
+import { EMOJI_HELPER, loadChoice } from "../../utils/Appearance";
+import { emojiHelperShown, TOUCH } from "../../utils/Emoji";
+import { EmojiPicker } from "../EmojiPicker";
 import { inOrder, isActive, loadFilter, matches, NO_FILTER, saveFilter, TagCount, TagFilter, tagCounts, toggle, visibleTags } from "../../utils/TagFilter";
 import { Dropdown } from "../Dropdown";
 import { icon, iconButton } from "../Icons";
@@ -54,6 +57,7 @@ export class NotesPage extends AbstractPage {
   /** The open note's publish panel shown. */
   private publishing = false;
   private listCommand?: { kind: ListKind; seq: number };
+  private insertCommand?: { text: string; focus: boolean; seq: number };
   /** The notes shown rendered, kept on this device (see ViewMode). */
   private viewing = new Set<string>();
   /** By physical key: [ and ] move around on other keyboard layouts. Cmd too, for macOS webviews: browsers keep Cmd+Shift+[ for tabs. */
@@ -145,6 +149,13 @@ export class NotesPage extends AbstractPage {
         m(".noteside", [
           iconButton("panel-left-open", "Show the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listopen"),
           this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : m("span.spacer"),
+          engine && selected && !selected.deleted && !(this.viewing.has(selected.id) && this.canView(selected))
+            && emojiHelperShown(loadChoice(EMOJI_HELPER), matchMedia(TOUCH).matches)
+            ? m(EmojiPicker, {
+              onPick: (emoji: string, done: boolean) => this.insert(emoji, done),
+              onClose: () => this.insert("", true),
+            })
+            : null,
           engine && selected && !selected.deleted && this.canView(selected)
             ? (this.viewing.has(selected.id)
               ? iconButton("pencil", "Edit (" + VIEW_SHORTCUT + ")", () => this.setViewing(selected.id, false), "viewtoggle")
@@ -260,6 +271,7 @@ export class NotesPage extends AbstractPage {
           onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),
           find,
           listCommand: this.listCommand,
+          insertCommand: this.insertCommand,
         })
         : m("section.editor.none", { key: "none" }, m(".empty", "Select a note or create one.")),
     ]);
@@ -309,6 +321,11 @@ export class NotesPage extends AbstractPage {
   /** Applied by the editor, which keeps its selection while the menu has the focus. */
   private makeList(kind: ListKind) {
     this.listCommand = { kind, seq: (this.listCommand?.seq ?? 0) + 1 };
+  }
+
+  /** Applied by the editor, which keeps its selection while the emoji picker has the focus. */
+  private insert(text: string, focus: boolean) {
+    this.insertCommand = { text, focus, seq: (this.insertCommand?.seq ?? 0) + 1 };
   }
 
   private setViewing(id: string, viewing: boolean) {

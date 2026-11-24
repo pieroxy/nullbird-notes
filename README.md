@@ -200,6 +200,11 @@ dropped from a device the next time it's online: it goes back to the default fon
 
 The files are in `<dataFolder>/fonts`, with their list in `fonts.json`.
 
+The emoji button, by the note's, opens a picker with a search. By default it shows on computers
+only: phones and tablets have emojis on their keyboard. Appearance has it shown or hidden instead.
+Its list comes from Unicode, in `src/notes-webapp/src/ts/utils/EmojiData.ts`; to update it for a
+new Unicode release, see `src/notes-webapp/scripts/emoji-data.mjs`.
+
 ## Browsers
 
 Chrome and Edge 111, Firefox 119, Safari 16.4 (macOS and iOS), or later.
