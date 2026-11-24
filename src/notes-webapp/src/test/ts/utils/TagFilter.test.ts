@@ -1,4 +1,4 @@
-import { inOrder, isActive, matches, NO_FILTER, tagCounts, toggle, toggleMerged, toggleUntagged, visibleTags } from "../../../ts/utils/TagFilter";
+import { inOrder, isActive, matches, visible, NO_FILTER, tagCounts, toggle, toggleMerged, toggleUntagged, visibleTags } from "../../../ts/utils/TagFilter";
 
 const NOTES = [["work", "urgent"], ["work"], ["home"], [], ["work", "home"]];
 
@@ -25,6 +25,34 @@ describe("TagFilter", () => {
     expect(toggleUntagged(filter)).toEqual({ tags: [], untagged: true, merged: false });
     expect(toggle(filter, "home")).toEqual({ tags: ["home"], untagged: false, merged: false });
     expect(toggleMerged(filter)).toEqual(NO_FILTER);
+  });
+
+  test("a note with a hidden tag shows only when one of its hidden tags is selected", () => {
+    const hidden = new Set(["archive", "old"]);
+    expect(visible(["work"], [], hidden)).toBe(true);
+    expect(visible(["work", "archive"], [], hidden)).toBe(false);
+    expect(visible(["work", "archive"], ["work"], hidden)).toBe(false);
+    expect(visible(["work", "archive"], ["archive"], hidden)).toBe(true);
+    expect(visible(["archive", "old"], ["old"], hidden)).toBe(true);
+    expect(matches(toggle(NO_FILTER, "work"), ["work", "archive"], false, hidden)).toBe(false);
+    expect(matches(NO_FILTER, ["archive"], false, hidden)).toBe(false);
+    expect(matches(toggle(NO_FILTER, "archive"), ["archive"], false, hidden)).toBe(true);
+    // The merged view: every note with marks.
+    expect(matches(toggleMerged(NO_FILTER), ["archive"], true, hidden)).toBe(true);
+  });
+
+  test("counts: a hidden tag counts its notes; other tags don't count hidden notes", () => {
+    const notes = [["work", "archive"], ["work"], ["archive"]];
+    const counts = tagCounts(NO_FILTER, notes, new Set(["archive"]));
+    expect(counts).toEqual([
+      { tag: "archive", count: 2, selected: false },
+      { tag: "work", count: 1, selected: false },
+    ]);
+    const inArchive = tagCounts(toggle(NO_FILTER, "archive"), notes, new Set(["archive"]));
+    expect(inArchive).toEqual([
+      { tag: "archive", count: 2, selected: true },
+      { tag: "work", count: 1, selected: false },
+    ]);
   });
 
   test("toggling", () => {

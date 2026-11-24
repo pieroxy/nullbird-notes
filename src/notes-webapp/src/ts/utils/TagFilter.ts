@@ -19,15 +19,30 @@ export interface TagCount {
 
 export const NO_FILTER: TagFilter = { tags: [], untagged: false, merged: false };
 
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * Whether a note with {@code noteTags} shows, as far as hidden tags go: one with any shows only
+ * when one of them is among {@code selected} (an archive shows when selected).
+ */
+export function visible(noteTags: string[], selected: string[], hidden: ReadonlySet<string>): boolean {
+  if (hidden.size === 0) return true;
+  const its = noteTags.filter((tag) => hidden.has(tag));
+  return its.length === 0 || its.some((tag) => selected.includes(tag));
+}
+
 export function isActive(filter: TagFilter): boolean {
   return filter.untagged || filter.merged || filter.tags.length > 0;
 }
 
-/** {@code merged}: whether the note has merge marks. */
-export function matches(filter: TagFilter, noteTags: string[], merged = false): boolean {
+/**
+ * {@code merged}: whether the note has merge marks; {@code hidden}: the hidden tags (see visible).
+ * The merged view shows notes with marks whatever their tags: they need a look.
+ */
+export function matches(filter: TagFilter, noteTags: string[], merged = false, hidden: ReadonlySet<string> = NONE): boolean {
   if (filter.untagged) return noteTags.length === 0;
   if (filter.merged) return merged;
-  return filter.tags.every((tag) => noteTags.includes(tag));
+  return filter.tags.every((tag) => noteTags.includes(tag)) && visible(noteTags, filter.tags, hidden);
 }
 
 /** Selecting a tag leaves the untagged or merged view. */
@@ -48,11 +63,15 @@ export function toggleMerged(filter: TagFilter): TagFilter {
  * Every tag of {@code notes} (each a note's tags), plus the selected ones even if no note has
  * them any more, so they can be unselected. Sorted case-insensitively.
  */
-export function tagCounts(filter: TagFilter, notes: string[][]): TagCount[] {
+export function tagCounts(filter: TagFilter, notes: string[][], hidden: ReadonlySet<string> = NONE): TagCount[] {
   const counts = new Map<string, number>(filter.tags.map((tag) => [tag, 0]));
   for (const noteTags of notes) {
     const shown = matches(filter, noteTags);
-    for (const tag of noteTags) counts.set(tag, (counts.get(tag) ?? 0) + (shown ? 1 : 0));
+    for (const tag of noteTags) {
+      // As the list would show it with this tag selected too: a hidden one counts its notes.
+      const counted = shown && visible(noteTags, filter.tags.includes(tag) ? filter.tags : [...filter.tags, tag], hidden);
+      counts.set(tag, (counts.get(tag) ?? 0) + (counted ? 1 : 0));
+    }
   }
   return [...counts].map(([tag, count]) => ({ tag, count, selected: filter.tags.includes(tag) }))
     .sort((a, b) => a.tag.localeCompare(b.tag, undefined, { sensitivity: "base" }) || (a.tag < b.tag ? -1 : 1));

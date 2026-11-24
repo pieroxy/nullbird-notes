@@ -105,6 +105,14 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
           m(".buttons", m("button", { type: "submit", disabled: this.busy }, "Rename")),
         ]),
         this.error ? m("p.errormessage", this.error) : null,
+        m("label.checkfield.hiddenfield", [
+          m("input", {
+            type: "checkbox",
+            checked: attrs.options?.hidden === true,
+            onchange: (e: Event) => attrs.onOptions({ hidden: (e.target as HTMLInputElement).checked ? true : undefined }),
+          }),
+          m("span", [m("strong", "Hidden"), ": its notes show only when it's selected. For an archive."]),
+        ]),
         this.colors(attrs),
         m(".dangerzone", [
           m("button.danger", { type: "button", disabled: this.busy || count === 0, onclick: () => void this.remove() },

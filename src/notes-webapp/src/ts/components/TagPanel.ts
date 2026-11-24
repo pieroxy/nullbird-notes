@@ -121,6 +121,7 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
           onpointerdown: (e: PointerEvent) => this.startDrag(e, tag, index, attrs),
         }, icon("grip-vertical")),
         m("span.tagname" + tagClasses(attrs.tagOptions[tag]), [tagDot(attrs.tagOptions[tag]), tag]),
+        hiddenMark(attrs.tagOptions[tag]),
       ]), iconButton("settings", "Settings of " + tag, () => attrs.onSettings(tag), "tagsettings")])));
   }
 
@@ -235,6 +236,12 @@ function tagItem(label: string, count: number, selected: boolean, onclick: () =>
   }, [
     m("span.checkmark", selected ? icon("check") : null),
     m("span.tagname" + tagClasses(options), [tagDot(options), label]),
+    hiddenMark(options),
     m("span.count", count),
   ]);
+}
+
+/** A hidden tag's mark: its notes show only when it's selected. */
+function hiddenMark(options: TagOptions | undefined): m.Children {
+  return options?.hidden ? m("span.hiddenmark", { title: "Hidden: its notes show only when it's selected" }, icon("eye-off")) : null;
 }

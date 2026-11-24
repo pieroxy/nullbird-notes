@@ -691,7 +691,7 @@ function hasWork(note: LocalNote): boolean {
   return isPushable(note) || note.pending !== undefined || hasMetaToPush(note) || note.pendingMeta !== undefined;
 }
 
-/** Any color set: one with none is the same as no options. */
+/** Anything set: one with nothing is the same as no options. */
 export function hasOptions(options: TagOptions): boolean {
-  return [options.dot, options.stripe, options.background, options.text, options.notes].some((color) => color !== undefined && color !== null);
+  return options.hidden === true || [options.dot, options.stripe, options.background, options.text, options.notes].some((color) => color !== undefined && color !== null);
 }

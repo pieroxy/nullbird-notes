@@ -26,6 +26,9 @@ export interface NoteListAttrs extends NoteSearchAttrs {
   tagOptions: { [tag: string]: TagOptions };
   /** The colors of each note's stripe (see noteStripes). */
   stripesOf: (note: LocalNote) => string[];
+  /** Searching: notes of hidden tags that match too, not listed. */
+  hiddenMatches: number;
+  onShowHidden: () => void;
 }
 
 export class NoteList implements m.ClassComponent<NoteListAttrs> {
@@ -48,6 +51,10 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
         m("button", { type: "button", onclick: () => attrs.onFilter(NO_FILTER) }, "Clear filter"),
       ]) : null,
       (filtered || searching) && attrs.notes.length > 0 ? m(".filtercount", attrs.notes.length + " of " + attrs.total + " notes") : null,
+      attrs.hiddenMatches > 0 ? m(".hiddenmatches", [
+        m("span", (attrs.hiddenMatches === 1 ? "1 more" : attrs.hiddenMatches + " more") + " in hidden tags. "),
+        m("button.link", { type: "button", onclick: attrs.onShowHidden }, "Show"),
+      ]) : null,
     ]);
   }
 

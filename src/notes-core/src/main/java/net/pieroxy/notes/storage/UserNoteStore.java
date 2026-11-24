@@ -719,7 +719,7 @@ public class UserNoteStore {
     Map<String, TagOptions> tags = new TreeMap<>(tagOptions == null ? Map.of() : tagOptions.tags());
     for (TagOptionsChange change : changes) {
       if (change.options() == null || change.options().isEmpty()) tags.remove(change.tag());
-      else tags.put(change.tag(), change.options());
+      else tags.put(change.tag(), change.options().normalized());
     }
     if (tags.equals(tagOptions == null ? Map.of() : tagOptions.tags())) return tagOptions;
     writeTagOptions(tags);

@@ -2731,3 +2731,39 @@ $tag-colors: red, orange, yellow, green, teal, blue, purple, pink;
     }
   }
 }
+
+// A hidden tag (see TagFilter.visible): its mark in the tags panel, its setting.
+.hiddenmark {
+  display: inline-flex;
+  margin: 0 4px;
+  color: var(--text-muted);
+
+  svg.icon {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.dialog .hiddenfield {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+
+  input {
+    margin-top: 3px;
+  }
+}
+
+// Searching: the notes of hidden tags that match too.
+.notelist .hiddenmatches {
+  padding: 6px 14px;
+  color: var(--text-muted);
+  font-size: scaled(12px);
+  text-align: center;
+
+  button.link {
+    font-size: inherit;
+  }
+}

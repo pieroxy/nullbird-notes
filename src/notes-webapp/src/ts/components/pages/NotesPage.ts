@@ -48,6 +48,8 @@ export class NotesPage extends AbstractPage {
   private tagSearch = "";
   /** Not kept across reloads, unlike the tag filter: a search is a quick lookup. */
   private search = "";
+  /** The search shows the notes of hidden tags too, as asked: until it's cleared. */
+  private searchHidden = false;
   private readonly searchIndex = new SearchIndex();
   /** The selected match in the open note, -1 before stepping to any. */
   private matchIndex = -1;
@@ -293,6 +295,7 @@ export class NotesPage extends AbstractPage {
     // Each tag's place in the user's order, for the notes' stripes.
     const rank = new Map(this.tagCounts(engine).map((count, i) => [count.tag, i]));
     const merged = (note: LocalNote) => noteHasMergeMark(note.id, note.text);
+    const hidden = hiddenTags(engine);
     const onFilter = (filter: TagFilter) => this.setFilter(filter);
     const terms = parseQuery(this.search);
     const folded = (note: LocalNote) => this.searchIndex.get(note.id, note.text);
@@ -326,7 +329,13 @@ export class NotesPage extends AbstractPage {
       this.resizer("tags"),
       m(NoteList, {
         key: "list",
-        notes: notes.filter((note) => matches(this.filter, tags.get(note.id)!, merged(note)) && (terms.length === 0 || found(note))),
+        notes: notes.filter((note) => matches(this.filter, tags.get(note.id)!, merged(note), this.searchHidden && terms.length > 0 ? undefined : hidden)
+          && (terms.length === 0 || found(note))),
+        // Searching, those of hidden tags that would match: said, and shown on request.
+        hiddenMatches: terms.length > 0 && !this.searchHidden && hidden.size > 0
+          ? notes.filter((note) => !matches(this.filter, tags.get(note.id)!, merged(note), hidden)
+            && matches(this.filter, tags.get(note.id)!, merged(note)) && found(note)).length : 0,
+        onShowHidden: () => (this.searchHidden = true),
         total: notes.length,
         filter: this.filter,
         onFilter,
@@ -426,7 +435,7 @@ export class NotesPage extends AbstractPage {
 
   /** In the user's order, once they gave one; alphabetical until then. */
   private tagCounts(engine: SyncEngine): TagCount[] {
-    const counts = tagCounts(this.filter, engine.list().map(tagsOf));
+    const counts = tagCounts(this.filter, engine.list().map(tagsOf), hiddenTags(engine));
     return inOrder(counts, engine.tagOrder(counts.map((count) => count.tag)));
   }
 
@@ -436,6 +445,7 @@ export class NotesPage extends AbstractPage {
       onSearch: (search: string) => {
         this.search = search;
         this.matchIndex = -1;
+        if (!search.trim()) this.searchHidden = false;
       },
       onStep: (direction: 1 | -1) => this.step(direction),
     };
@@ -462,6 +472,7 @@ export class NotesPage extends AbstractPage {
   private clearSearch() {
     this.search = "";
     this.matchIndex = -1;
+    this.searchHidden = false;
   }
 
   /**
@@ -519,4 +530,9 @@ function checkItem(label: string, on: boolean, onToggle: (on: boolean) => void):
     m("span.checkmark", on ? icon("check") : null),
     label,
   ]);
+}
+
+/** The tags whose notes show only when they're selected (see TagFilter.visible). */
+function hiddenTags(engine: SyncEngine): Set<string> {
+  return new Set(Object.entries(engine.allTagOptions()).filter(([, options]) => options.hidden).map(([tag]) => tag));
 }

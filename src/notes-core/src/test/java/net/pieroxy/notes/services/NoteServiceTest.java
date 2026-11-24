@@ -733,7 +733,7 @@ public class NoteServiceTest {
   // ---- Tag options ----
 
   private static TagOptions colors(String dot, String notes) {
-    return new TagOptions(dot, null, null, null, notes);
+    return new TagOptions(dot, null, null, null, notes, null);
   }
 
   @Test
@@ -749,7 +749,7 @@ public class NoteServiceTest {
 
     // Back to none; an unknown color or an invalid tag skipped, the rest applied.
     now = service.pushTagOptions("alice", List.of(new TagOptionsChange("home", null), new TagOptionsChange("art", colors("mauve", null)),
-        new TagOptionsChange("has space", colors("red", null)), new TagOptionsChange("art", new TagOptions(null, null, null, null, null))), null);
+        new TagOptionsChange("has space", colors("red", null)), new TagOptionsChange("art", new TagOptions(null, null, null, null, null, false))), null);
     assertEquals(Map.of("work", colors("red", "red")), now);
   }
 
@@ -779,6 +779,14 @@ public class NoteServiceTest {
     Map<String, TagOptions> now = service.pushTagOptions("alice",
         List.of(new TagOptionsChange("work", colors("red", null)), new TagOptionsChange("drafts", colors("blue", null))), cursor);
     assertEquals(Map.of("job", colors("red", null)), now);
+  }
+
+  @Test
+  public void aHiddenTagIsAnOptionOfItsOwn() throws Exception {
+    TagOptions hidden = new TagOptions(null, null, null, null, null, true);
+    Map<String, TagOptions> now = service.pushTagOptions("alice", List.of(new TagOptionsChange("archive", hidden),
+        new TagOptionsChange("work", new TagOptions("red", null, null, null, null, false))), null);
+    assertEquals(Map.of("archive", hidden, "work", colors("red", null)), now);
   }
 
   @Test
