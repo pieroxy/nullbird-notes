@@ -14,6 +14,9 @@ import net.pieroxy.notes.sync.PushResult;
 import net.pieroxy.notes.sync.PushStatus;
 import net.pieroxy.notes.sync.RejectReason;
 import net.pieroxy.notes.sync.Splice;
+import net.pieroxy.notes.sync.TagEvent;
+import net.pieroxy.notes.sync.TagOrderChange;
+import net.pieroxy.notes.storage.UserNoteStore;
 import net.pieroxy.notes.utils.Hashes;
 import org.junit.After;
 import org.junit.Before;
@@ -613,5 +616,115 @@ public class NoteServiceTest {
     assertEquals(PushStatus.APPLIED, replay.status());
     assertEquals(4, replay.note().revision());
     assertEquals(BASE + "3", replay.content().apply(""));
+  }
+
+  // ---- Renaming, merging and removing tags ----
+
+  private List<String> tags(String noteId) throws IOException {
+    return stores.getStore("alice").get(noteId).tags();
+  }
+
+  private static final String C = id(3);
+
+  @Test
+  public void renamingATagChangesItOnEveryNoteDeletedOnesIncludedAndKeepsItsPlace() throws Exception {
+    push(A, 0, "a");
+    push(B, 0, "b");
+    push(C, 0, "c");
+    pushMeta(A, List.of("work", "home"), null, null, null);
+    pushMeta(B, List.of("work"), null, null, null);
+    pushMeta(C, List.of("home"), null, null, null);
+    delete(B, 1);
+    service.pushTagOrder("alice", new TagOrderChange(0, List.of("work", "home")));
+
+    assertEquals(List.of(A, B), service.renameTag("alice", "device-1", "work", "job"));
+    assertEquals(List.of("home", "job"), tags(A));
+    assertEquals(List.of("job"), tags(B));
+    assertEquals(List.of("home"), tags(C));
+    assertEquals(List.of("job", "home"), stores.getStore("alice").getTagOrder().tags());
+  }
+
+  @Test
+  public void renamingToATagInUseMergesThemTheTargetKeepingItsPlace() throws Exception {
+    push(A, 0, "a");
+    push(B, 0, "b");
+    pushMeta(A, List.of("Work", "work"), null, null, null);
+    pushMeta(B, List.of("Work"), null, null, null);
+    service.pushTagOrder("alice", new TagOrderChange(0, List.of("work", "other", "Work")));
+    pushMeta(B, List.of("other"), null, null, null);
+
+    assertEquals(List.of(A, B), service.renameTag("alice", "device-1", "Work", "work"));
+    assertEquals(List.of("work"), tags(A));
+    assertEquals(List.of("other", "work"), tags(B));
+    assertEquals(List.of("work", "other"), stores.getStore("alice").getTagOrder().tags());
+  }
+
+  @Test
+  public void removingATagTakesItOffEveryNote() throws Exception {
+    push(A, 0, "a");
+    push(B, 0, "b");
+    pushMeta(A, List.of("drafts", "work"), null, null, null);
+    pushMeta(B, List.of("drafts"), null, null, null);
+
+    assertEquals(List.of(A, B), service.deleteTag("alice", "device-1", "drafts"));
+    assertEquals(List.of("work"), tags(A));
+    assertEquals(List.of(), tags(B));
+    assertEquals(List.of(), service.deleteTag("alice", "device-1", "drafts"));
+    assertThrows(InvalidInputException.class, () -> service.renameTag("alice", "device-1", "work", "has space"));
+    assertEquals(List.of(), service.renameTag("alice", "device-1", "work", "work"));
+  }
+
+  @Test
+  public void clientsGetTheEventsWithTheChanges() throws Exception {
+    push(A, 0, "a");
+    pushMeta(A, List.of("work"), null, null, null);
+    long cursor = service.changes("alice", 0).seq();
+    service.renameTag("alice", "device-1", "work", "job");
+    service.deleteTag("alice", "device-1", "job");
+    ChangesPage page = service.changes("alice", cursor);
+    assertEquals(List.of(new TagEvent("work", "job"), new TagEvent("job", null)), page.tagEvents());
+    assertNull(service.changes("alice", page.seq()).tagEvents());
+  }
+
+  @Test
+  public void aChangeMadeBeforeTheClientKnewOfARenameFollowsIt() throws Exception {
+    push(A, 0, "a");
+    push(B, 0, "b");
+    pushMeta(A, List.of("work"), null, null, null);
+    long cursor = service.changes("alice", 0).seq();
+    service.renameTag("alice", "device-1", "work", "job");
+
+    // An offline device adds the old name to another note, and removes it from the first.
+    service.pushMeta("alice", "phone", new MetaChange(nextChangeId(), B, List.of("work", "home"), null, null, null), cursor);
+    assertEquals(List.of("job", "home"), tags(B));
+    service.pushMeta("alice", "phone", new MetaChange(nextChangeId(), A, null, List.of("work"), null, null), cursor);
+    assertEquals(List.of(), tags(A));
+
+    // One that knew: a new tag of that name.
+    long now = service.changes("alice", 0).seq();
+    service.pushMeta("alice", "phone", new MetaChange(nextChangeId(), A, List.of("work"), null, null, null), now);
+    assertEquals(List.of("work"), tags(A));
+  }
+
+  @Test
+  public void aChangeMadeBeforeARemovalDoesntBringTheTagBack() throws Exception {
+    push(A, 0, "a");
+    pushMeta(A, List.of("drafts"), null, null, null);
+    long cursor = service.changes("alice", 0).seq();
+    service.deleteTag("alice", "device-1", "drafts");
+    service.pushMeta("alice", "phone", new MetaChange(nextChangeId(), A, List.of("drafts", "home"), null, null, null), cursor);
+    assertEquals(List.of("home"), tags(A));
+  }
+
+  @Test
+  public void theEventsSurviveARestart() throws Exception {
+    push(A, 0, "a");
+    pushMeta(A, List.of("work"), null, null, null);
+    long cursor = service.changes("alice", 0).seq();
+    service.renameTag("alice", "device-1", "work", "job");
+    long seq = stores.getStore("alice").getLastSeq();
+    UserNoteStore reopened = UserNoteStore.open(tmp.getRoot().toPath().resolve("users").resolve("alice"), java.time.Clock.systemUTC());
+    assertEquals(seq, reopened.getLastSeq());
+    assertEquals(1, reopened.tagEventsAfter(cursor).size());
   }
 }

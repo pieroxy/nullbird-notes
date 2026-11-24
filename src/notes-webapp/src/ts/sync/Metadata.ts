@@ -76,6 +76,35 @@ export function setOption(ops: MetaOps, key: string, value: string | undefined):
   return { ...ops, setOptions: { ...setOptions, [key]: value }, unsetOptions };
 }
 
+/** {@code tags} with {@code from} renamed to {@code to} (undefined: removed), each once. */
+export function retagged(tags: string[], from: string, to: string | undefined): string[] {
+  if (!tags.includes(from)) return tags;
+  const result: string[] = [];
+  for (const tag of tags) {
+    const now = tag === from ? to : tag;
+    if (now !== undefined && !result.includes(now)) result.push(now);
+  }
+  return result;
+}
+
+/** {@code ops} once {@code from} is renamed to {@code to} (undefined: removed) on every note (see TagEvent). */
+export function retaggedOps(ops: MetaOps, from: string, to: string | undefined): MetaOps {
+  return { ...ops, addTags: retagged(ops.addTags, from, to), removeTags: retagged(ops.removeTags, from, to) };
+}
+
+/**
+ * {@code note} once {@code from} is renamed to {@code to} (undefined: removed) on every note: its
+ * changes not confirmed yet, and the server's tags as known, which the server changed too.
+ */
+export function retaggedNote(note: LocalNote, from: string, to: string | undefined): LocalNote {
+  const mentions = (ops?: MetaOps) => !!ops && (ops.addTags.includes(from) || ops.removeTags.includes(from));
+  if (!note.info?.tags.includes(from) && !mentions(note.metaOps) && !mentions(note.pendingMeta?.ops)) return note;
+  const info = note.info && note.info.tags.includes(from) ? { ...note.info, tags: retagged(note.info.tags, from, to) } : note.info;
+  const metaOps = note.metaOps && retaggedOps(note.metaOps, from, to);
+  const pendingMeta = note.pendingMeta && { ...note.pendingMeta, ops: retaggedOps(note.pendingMeta.ops, from, to) };
+  return { ...note, info, metaOps, pendingMeta };
+}
+
 /** {@code later} applied after {@code earlier}, as one set of operations. */
 export function mergeOps(earlier: MetaOps, later: MetaOps): MetaOps {
   let ops = earlier;

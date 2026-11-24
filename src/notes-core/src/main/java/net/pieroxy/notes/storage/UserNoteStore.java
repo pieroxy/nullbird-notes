@@ -6,6 +6,7 @@ import net.jpountz.lz4.LZ4FrameInputStream;
 import net.jpountz.lz4.LZ4FrameOutputStream;
 import net.pieroxy.notes.sync.Merge3;
 import net.pieroxy.notes.sync.Splice;
+import net.pieroxy.notes.sync.TagEvent;
 import net.pieroxy.notes.utils.AtomicFiles;
 import net.pieroxy.notes.utils.Hashes;
 
@@ -43,6 +44,7 @@ import java.util.stream.Collectors;
  * notes/&lt;id&gt;/revisions/NNNNNN.json.lz4   every {@link Revision}
  * notes/&lt;id&gt;/meta/NNNNNN.json  every {@link MetaRevision}
  * tag-order.json                 {@link StoredTagOrder}: absent until the user first reorders their tags
+ * tag-events.json                the last {@link StoredTagEvent}s: tags renamed or removed from every note
  * </pre>
  * The head revision's file holds its text; an older one's, a splice turning the next revision's
  * text back into its own (a reverse delta), except every {@link #FULL_REVISION_INTERVAL}th one
@@ -96,6 +98,16 @@ public class UserNoteStore {
    */
   public record StoredTagOrder(int revision, long seq, List<String> tags) {}
 
+  /** A {@link TagEvent}, and when it happened, from the same sequence as the notes. */
+  public record StoredTagEvent(long seq, String from, String to) {
+    public TagEvent event() {
+      return new TagEvent(from, to);
+    }
+  }
+
+  /** Enough for a device offline a long time, renames being rare: beyond, its old changes aren't rewritten. */
+  static final int MAX_TAG_EVENTS = 1000;
+
   /** A tag order sent with another base revision than the current one. */
   public static class StaleTagOrderException extends Exception {
     public StaleTagOrderException(int expected, int actual) {
@@ -132,6 +144,7 @@ public class UserNoteStore {
   /** Null until the user first reorders their tags. */
   private StoredTagOrder tagOrder;
   private final List<Runnable> seqWaiters = new ArrayList<>();
+  private List<StoredTagEvent> tagEvents = List.of();
   CommitHook commitHook = step -> {};
   /** Visible for tests. */
   int fullRevisionInterval = FULL_REVISION_INTERVAL;
@@ -496,6 +509,45 @@ public class UserNoteStore {
     if (changed) writeTagOrder(new StoredTagOrder(tagOrder.revision() + 1, seq, List.copyOf(order)));
   }
 
+  /**
+   * Records that {@code from} was renamed to {@code to} (null: removed) on every note, once their
+   * metadata commits are done. The tag order, if there's one, is {@code before} (as it was before
+   * those commits) with {@code from} in place of {@code to}; merged, {@code to} keeps its own place.
+   */
+  public synchronized void recordTagEvent(String from, String to, StoredTagOrder before) throws IOException {
+    long seq = lastSeq + 1;
+    if (before != null) {
+      List<String> order = new ArrayList<>();
+      for (String tag : before.tags()) {
+        if (!tag.equals(from)) order.add(tag);
+        else if (to != null && !before.tags().contains(to)) order.add(to);
+      }
+      LinkedHashSet<String> complete = new LinkedHashSet<>(order);
+      Set<String> used = usedTags();
+      complete.removeIf(tag -> !used.contains(tag));
+      used.stream().filter(tag -> !complete.contains(tag)).sorted(ALPHABETICAL).forEach(complete::add);
+      int revision = Math.max(before.revision(), tagOrder == null ? 0 : tagOrder.revision()) + 1;
+      writeTagOrder(new StoredTagOrder(revision, seq, List.copyOf(complete)));
+    }
+    List<StoredTagEvent> events = new ArrayList<>(tagEvents);
+    events.add(new StoredTagEvent(seq, from, to));
+    if (events.size() > MAX_TAG_EVENTS) events = events.subList(events.size() - MAX_TAG_EVENTS, events.size());
+    AtomicFiles.write(root.resolve("tag-events.json"), PRETTY_GSON.toJson(events).getBytes(StandardCharsets.UTF_8));
+    tagEvents = List.copyOf(events);
+    lastSeq = seq;
+    wakeSeqWaiters();
+    try {
+      writeUserState();
+    } catch (IOException e) {
+      LOGGER.log(Level.SEVERE, "Could not write user.json of " + root.getFileName() + " (recovered from tag-events.json on next load)", e);
+    }
+  }
+
+  /** @return the tag events after {@code seq}, oldest first. */
+  public synchronized List<StoredTagEvent> tagEventsAfter(long seq) {
+    return tagEvents.stream().filter(event -> event.seq() > seq).toList();
+  }
+
   /** Every tag of every note, deleted ones included: they come back with their tags if restored. */
   private Set<String> usedTags() {
     Set<String> used = new HashSet<>();
@@ -587,6 +639,7 @@ public class UserNoteStore {
     }
     loadNotes();
     loadTagOrder();
+    loadTagEvents();
     if (storeId == null) {
       storeId = UUID.randomUUID().toString();
       writeUserState();
@@ -612,6 +665,15 @@ public class UserNoteStore {
     // Without a storeId yet, load() writes user.json next.
     if (storeId != null) writeUserState();
     LOGGER.warning("Tag order of " + root.getFileName() + " completed with " + missing.size() + " tag(s) missing from it");
+  }
+
+  private void loadTagEvents() throws IOException {
+    Path file = root.resolve("tag-events.json");
+    if (!Files.isRegularFile(file)) return;
+    StoredTagEvent[] stored = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8), StoredTagEvent[].class);
+    if (stored == null) return;
+    tagEvents = List.of(stored);
+    for (StoredTagEvent event : tagEvents) lastSeq = Math.max(lastSeq, event.seq());
   }
 
   private void writeUserState() throws IOException {

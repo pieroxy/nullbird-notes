@@ -2,7 +2,7 @@ import { NoteInfo, PushStatus, RejectReason } from "../../../ts/auto/api-types";
 import { LocalNote } from "../../../ts/sync/LocalNote";
 import {
   addTag, applyMetaResult, hasMetaToPush, isOn, isValidTag, mergeOps, metaChangeOf, noOps, optionsOf, prepareMeta, removeTag,
-  setOption, tagsOf,
+  retagged, retaggedNote, setOption, tagsOf,
 } from "../../../ts/sync/Metadata";
 import { applyRemote, forResync } from "../../../ts/sync/Outcomes";
 
@@ -100,5 +100,29 @@ describe("Metadata", () => {
 
     expect(resynced.pendingMeta).toBeUndefined();
     expect(resynced.metaOps).toEqual({ addTags: ["x"], removeTags: [], setOptions: { nowrap: "true" }, unsetOptions: [] });
+  });
+});
+
+describe("tags renamed or removed on every note", () => {
+  test("renamed in place, each once; removed; others left alone", () => {
+    expect(retagged(["a", "work", "b"], "work", "job")).toEqual(["a", "job", "b"]);
+    expect(retagged(["Work", "work"], "Work", "work")).toEqual(["work"]);
+    expect(retagged(["a", "drafts"], "drafts", undefined)).toEqual(["a"]);
+    const tags = ["a"];
+    expect(retagged(tags, "work", "job")).toBe(tags);
+  });
+
+  test("a note: its server tags and its changes not confirmed, the same note when nothing mentions it", () => {
+    const note: LocalNote = {
+      id: "n", baseRevision: 1, baseText: "", text: "", deleted: false, dirty: false, editedAt: 0,
+      info: { tags: ["work"] } as LocalNote["info"],
+      metaOps: { addTags: ["work"], removeTags: [], setOptions: {}, unsetOptions: [] },
+      pendingMeta: { changeId: "c", ops: { addTags: [], removeTags: ["work"], setOptions: {}, unsetOptions: [] } },
+    };
+    const after = retaggedNote(note, "work", "job");
+    expect(after.info!.tags).toEqual(["job"]);
+    expect(after.metaOps!.addTags).toEqual(["job"]);
+    expect(after.pendingMeta!.ops.removeTags).toEqual(["job"]);
+    expect(retaggedNote(note, "other", "x")).toBe(note);
   });
 });

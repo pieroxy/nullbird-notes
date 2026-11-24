@@ -1,6 +1,6 @@
 import m from "mithril";
 import { isActive, NO_FILTER, TagCount, TagFilter, toggle, toggleMerged, toggleUntagged, visibleTags } from "../utils/TagFilter";
-import { icon } from "./Icons";
+import { icon, iconButton } from "./Icons";
 
 export interface TagPanelAttrs {
   filter: TagFilter;
@@ -16,6 +16,8 @@ export interface TagPanelAttrs {
   onMove: (tag: string, index: number) => void;
   /** Moves {@code tag} {@code by} places (-1: up), from where it is now: keys can repeat faster than redraws. */
   onMoveBy: (tag: string, by: number) => void;
+  /** Opens {@code tag}'s settings: its name, removing it (see TagSettings). */
+  onSettings: (tag: string) => void;
 }
 
 /** A tag being dragged in reorder mode, and where it would go. */
@@ -29,12 +31,14 @@ interface Drag {
 
 /**
  * The tags to filter the list on (see visibleTags: dead ends are left out while tags are selected);
- * or, in reorder mode, every tag, to put in order: by dragging the handle (mouse or touch) or with
- * Alt+Up/Down. Not while the search field narrows them.
+ * or, in edit mode, every tag: to put in order, by dragging the handle (mouse or touch) or with
+ * Alt+Up/Down, and to open each one's settings. Not while the search field narrows them.
  */
 export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
   private reordering = false;
   private drag?: Drag;
+  /** When the last drag ended: the click that follows releasing it mustn't open the tag's settings. */
+  private dragEndedAt = 0;
   /** Keeps the keyboard focus on a tag moved with the keyboard, once the list is redrawn. */
   private focusTag?: string;
   private list?: HTMLElement;
@@ -50,7 +54,7 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
     return m("aside.tagpanel" + (this.reordering ? ".reordering" : ""), [
       this.reordering ? this.reorderList(attrs) : this.filterList(attrs),
       m(".tagpanelfoot", this.reordering ? [
-        m("p.reorderhint", "Drag the handles, or Alt+↑ and Alt+↓."),
+        m("p.reorderhint", "Drag to reorder, or Alt+↑ and Alt+↓. ⚙ for a tag's settings."),
         m("button.plain.reorder", { type: "button", onclick: () => this.stopReordering() }, "Done"),
       ] : [
         attrs.mergedCount > 0 || filter.merged
@@ -58,10 +62,10 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
         tagItem("Untagged notes", attrs.untaggedCount, filter.untagged, () => onChange(toggleUntagged(filter)), "untagged"),
         m(".footactions", [
           isActive(filter) ? m("button.plain.clearfilter", { type: "button", onclick: () => onChange(NO_FILTER) }, "Clear filter") : null,
-          attrs.counts.length > 1 ? m("button.plain.reorder", {
-            type: "button", disabled: searching, title: searching ? "Clear the search to reorder the tags" : "Put the tags in your own order",
+          attrs.counts.length > 0 ? m("button.plain.reorder", {
+            type: "button", disabled: searching, title: searching ? "Clear the search to edit the tags" : "Reorder, rename or remove tags",
             onclick: () => (this.reordering = true),
-          }, "Reorder") : null,
+          }, "Edit") : null,
         ]),
       ]),
     ]);
@@ -92,9 +96,13 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
     // On update too: the filter list's <ul> may be the element reused.
     const keep = (vnode: m.VnodeDOM) => (this.list = vnode.dom as HTMLElement);
     return m("ul.reorderlist", { oncreate: keep, onupdate: keep }, listed.map((tag, index) =>
-      m("li", { key: tag, "data-tag": tag }, m("button.reorderitem" + (drag?.tag === tag ? ".dragging" : ""), {
+      m("li", { key: tag, "data-tag": tag }, [m("button.reorderitem" + (drag?.tag === tag ? ".dragging" : ""), {
         type: "button",
-        "aria-label": tag + ", position " + (index + 1) + " of " + listed.length + ". Alt+Up or Alt+Down to move it.",
+        "aria-label": tag + ", position " + (index + 1) + " of " + listed.length + ". Alt+Up or Alt+Down to move it, Enter for its settings.",
+        onclick: (e: MouseEvent) => {
+          if ((e.target as Element).closest(".grip") || Date.now() - this.dragEndedAt < 500) return;
+          attrs.onSettings(tag);
+        },
         oncreate: (vnode: m.VnodeDOM) => this.keepFocus(vnode, tag),
         onupdate: (vnode: m.VnodeDOM) => this.keepFocus(vnode, tag),
         onkeydown: (e: KeyboardEvent) => {
@@ -109,7 +117,7 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
           onpointerdown: (e: PointerEvent) => this.startDrag(e, tag, index, attrs),
         }, icon("grip-vertical")),
         m("span.tagname", tag),
-      ]))));
+      ]), iconButton("settings", "Settings of " + tag, () => attrs.onSettings(tag), "tagsettings")])));
   }
 
   /**
@@ -167,6 +175,7 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
   private endDrag(attrs: TagPanelAttrs) {
     const drag = this.drag;
     if (!drag) return;
+    this.dragEndedAt = Date.now();
     drag.stop();
     this.drag = undefined;
     const before = attrs.counts.map((count) => count.tag);

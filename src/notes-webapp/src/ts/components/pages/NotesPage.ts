@@ -1,6 +1,6 @@
 import m from "mithril";
 import { LocalNote } from "../../sync/LocalNote";
-import { isOn, MARKDOWN, MONOSPACE, NOWRAP, PINNED, publishedToken, tagsOf } from "../../sync/Metadata";
+import { isOn, MARKDOWN, MONOSPACE, NOWRAP, PINNED, publishedToken, retagged, tagsOf } from "../../sync/Metadata";
 import { moveTo } from "../../sync/TagOrder";
 import { session } from "../../sync/Session";
 import { SyncEngine } from "../../sync/SyncEngine";
@@ -25,6 +25,7 @@ import { NoteList } from "../NoteList";
 import { noteSearch } from "../NoteSearch";
 import { SyncStatusIndicator } from "../SyncStatusIndicator";
 import { TagPanel, tagSearch } from "../TagPanel";
+import { TagSettings } from "../TagSettings";
 import { AbstractPage } from "./AbstractPage";
 
 /** As in style.scss: one pane at a time. */
@@ -57,6 +58,13 @@ export class NotesPage extends AbstractPage {
   private layout: PaneLayout = loadLayout();
   /** The open note's publish panel shown. */
   private publishing = false;
+  /** The tag whose settings are open (see TagSettings). */
+  private tagSettings?: string;
+  /** A message at the bottom of the screen for a few seconds, with what undoes it. */
+  private toast?: { message: string; undo?: () => void };
+  private toastTimer?: ReturnType<typeof setTimeout>;
+  /** The engine whose tag events the filter follows, and how to stop. */
+  private following?: { engine: SyncEngine; stop: () => void };
   private listCommand?: { kind: ListKind; seq: number };
   private insertCommand?: { text: string; focus: boolean; seq: number };
   /** The notes shown rendered, kept on this device (see ViewMode). */
@@ -99,6 +107,8 @@ export class NotesPage extends AbstractPage {
   /** The notes stay open, for the other pages. */
   onremove() {
     document.removeEventListener("keydown", this.onKeyDown);
+    this.following?.stop();
+    clearTimeout(this.toastTimer);
     if (this.selectedId) this.engine?.discardIfEmpty(this.selectedId);
   }
 
@@ -191,7 +201,64 @@ export class NotesPage extends AbstractPage {
         ]),
       ]),
       this.body(),
+      engine && this.tagSettings ? this.tagSettingsDialog(engine, this.tagSettings) : null,
+      this.toast ? m(".toast", { role: "status" }, [
+        m("span", this.toast.message),
+        this.toast.undo ? m("button.plain", { type: "button", onclick: () => { this.toast?.undo?.(); this.hideToast(); } }, "Undo") : null,
+        iconButton("x", "Dismiss", () => this.hideToast()),
+      ]) : null,
     ]);
+  }
+
+  private tagSettingsDialog(engine: SyncEngine, tag: string): m.Children {
+    // Unkeyed, as its siblings: mithril refuses a mix. One tag's settings close before another's open.
+    return m(TagSettings, {
+      tagName: tag,
+      count: engine.tagNoteCount(tag),
+      allTags: engine.allTagNames(),
+      onClose: () => (this.tagSettings = undefined),
+      onRename: async (to: string) => {
+        await engine.renameTag(tag, to);
+        this.tagSettings = undefined;
+      },
+      onRemove: async () => {
+        // Where it was, to put it back there on undo, if the user ordered their tags.
+        const listed = this.tagCounts(engine).map((count) => count.tag);
+        const ordered = engine.tagOrder(listed) !== undefined;
+        const at = listed.indexOf(tag);
+        const ids = await engine.deleteTag(tag);
+        this.tagSettings = undefined;
+        this.showToast("Removed \"" + tag + "\" from " + (ids.length === 1 ? "1 note" : ids.length + " notes") + ".", () => {
+          for (const id of ids) engine.addTag(id, tag);
+          if (ordered) engine.moveTag({ tag, after: at > 0 ? listed[at - 1] : null });
+        });
+      },
+    });
+  }
+
+  private showToast(message: string, undo?: () => void) {
+    clearTimeout(this.toastTimer);
+    this.toast = { message, undo };
+    this.toastTimer = setTimeout(() => this.hideToast(), 10_000);
+  }
+
+  private hideToast() {
+    clearTimeout(this.toastTimer);
+    this.toast = undefined;
+    m.redraw();
+  }
+
+  /** Tags renamed or removed, here or on another device: the filter follows. */
+  private followTagEvents(engine: SyncEngine) {
+    if (this.following?.engine === engine) return;
+    this.following?.stop();
+    const stop = engine.onTagEvents((events) => {
+      let tags = this.filter.tags;
+      for (const event of events) tags = retagged(tags, event.from, event.to);
+      if (tags !== this.filter.tags) this.setFilter({ ...this.filter, tags });
+      if (this.tagSettings && events.some((event) => event.from === this.tagSettings)) this.tagSettings = undefined;
+    });
+    this.following = { engine, stop };
   }
 
   private body(): m.Children {
@@ -212,6 +279,7 @@ export class NotesPage extends AbstractPage {
   }
 
   private panes(engine: SyncEngine): m.Children {
+    this.followTagEvents(engine);
     const selected = this.selectedId ? engine.get(this.selectedId) : undefined;
     if (this.selectedId && (!selected || selected.deleted)) this.selectedId = undefined;
     const notes = engine.list();
@@ -238,6 +306,7 @@ export class NotesPage extends AbstractPage {
           const listed = this.tagCounts(engine).map((count) => count.tag);
           engine.moveTag(moveTo(listed, tag, index));
         },
+        onSettings: (tag: string) => (this.tagSettings = tag),
         onMoveBy: (tag: string, by: number) => {
           // From the order as it is now: the engine has the previous move already, the page may not show it yet.
           const listed = this.tagCounts(engine).map((count) => count.tag);

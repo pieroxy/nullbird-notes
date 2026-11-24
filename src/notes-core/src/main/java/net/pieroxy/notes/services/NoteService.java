@@ -25,6 +25,7 @@ import net.pieroxy.notes.sync.TagOrderStatus;
 import net.pieroxy.notes.sync.PushStatus;
 import net.pieroxy.notes.sync.RejectReason;
 import net.pieroxy.notes.sync.Splice;
+import net.pieroxy.notes.sync.TagEvent;
 import net.pieroxy.notes.utils.Hashes;
 
 import java.io.IOException;
@@ -219,12 +220,22 @@ public class NoteService implements Service {
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
   }
 
-  /** A metadata change to a deleted note is accepted, and ignored. */
   public PushResult pushMeta(String username, String deviceId, MetaChange change) throws IOException {
+    return pushMeta(username, deviceId, change, null);
+  }
+
+  /**
+   * A metadata change to a deleted note is accepted, and ignored.
+   *
+   * @param knownSeq the client's cursor: tags renamed or removed after it (see {@link #renameTag})
+   *                 are so in the change too, made before the client knew. Null: none are.
+   */
+  public PushResult pushMeta(String username, String deviceId, MetaChange change, Long knownSeq) throws IOException {
     String invalid = validate(deviceId, change);
     if (invalid != null) return rejected(change.changeId(), change.noteId(), RejectReason.INVALID, invalid);
     UserNoteStore store = noteStores.getStore(username);
     synchronized (store) {
+      if (knownSeq != null) change = afterTagEvents(change, store.tagEventsAfter(knownSeq));
       NoteMeta head = store.get(change.noteId());
       if (head == null) return rejected(change.changeId(), change.noteId(), RejectReason.UNKNOWN_NOTE, "No such note.");
       if (head.deleted() || change.noteId().equals(store.findMetaChange(change.changeId()))) return applied(change.changeId(), head);
@@ -238,6 +249,72 @@ public class NoteService implements Service {
       }
       if (tags.equals(head.tags()) && options.equals(head.options())) return applied(change.changeId(), head);
       return applied(change.changeId(), store.commitMeta(head.id(), write));
+    }
+  }
+
+  /** {@code change} with each event applied to its tags, in order. */
+  static MetaChange afterTagEvents(MetaChange change, List<UserNoteStore.StoredTagEvent> events) {
+    if (events.isEmpty()) return change;
+    List<String> add = change.addTags() == null ? null : new ArrayList<>(change.addTags());
+    List<String> remove = change.removeTags() == null ? null : new ArrayList<>(change.removeTags());
+    for (UserNoteStore.StoredTagEvent event : events) {
+      add = renamed(add, event.from(), event.to());
+      // Removing a tag that's gone already: nothing to do.
+      remove = renamed(remove, event.from(), event.to());
+    }
+    return new MetaChange(change.changeId(), change.noteId(), add, remove, change.setOptions(), change.unsetOptions());
+  }
+
+  private static List<String> renamed(List<String> tags, String from, String to) {
+    if (tags == null || !tags.contains(from)) return tags;
+    List<String> result = new ArrayList<>();
+    for (String tag : tags) {
+      String now = tag.equals(from) ? to : tag;
+      if (now != null && !result.contains(now)) result.add(now);
+    }
+    return result;
+  }
+
+  /**
+   * Renames {@code from} to {@code to} on every note having it, deleted ones included: they'd come
+   * back with the old name if restored. When {@code to} is in use already, the two merge. The tag
+   * order keeps {@code from}'s place, or {@code to}'s when merged. Recorded as a {@link TagEvent},
+   * which clients get with the changes, so that their changes not sent yet follow.
+   *
+   * @return the IDs of the notes changed.
+   * @throws InvalidInputException if a name isn't a valid tag.
+   */
+  public List<String> renameTag(String username, String deviceId, String from, String to) throws IOException {
+    if (!isValidTag(from) || !isValidTag(to)) {
+      throw new InvalidInputException("Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.");
+    }
+    if (from.equals(to)) return List.of();
+    return retag(username, deviceId, from, to);
+  }
+
+  /**
+   * Removes {@code tag} from every note having it, deleted ones included, likewise recorded.
+   *
+   * @return the IDs of the notes changed.
+   */
+  public List<String> deleteTag(String username, String deviceId, String tag) throws IOException {
+    if (!isValidTag(tag)) throw new InvalidInputException("Invalid tag.");
+    return retag(username, deviceId, tag, null);
+  }
+
+  private List<String> retag(String username, String deviceId, String from, String to) throws IOException {
+    if (deviceId != null && deviceId.length() > MAX_ID_LENGTH) throw new InvalidInputException("Invalid deviceId.");
+    UserNoteStore store = noteStores.getStore(username);
+    synchronized (store) {
+      UserNoteStore.StoredTagOrder before = store.getTagOrder();
+      List<String> ids = store.list().stream().filter(note -> note.tags().contains(from)).map(NoteMeta::id).sorted().toList();
+      if (ids.isEmpty() && (before == null || !before.tags().contains(from))) return ids;
+      MetaWrite write = new MetaWrite(null, deviceId, to == null ? null : List.of(to), List.of(from), null, null);
+      for (String id : ids) store.commitMeta(id, write);
+      store.recordTagEvent(from, to, before);
+      LOGGER.info(username + (to == null ? " removed the tag " + from : " renamed the tag " + from + " to " + to)
+          + " on " + ids.size() + " note(s)");
+      return ids;
     }
   }
 
@@ -282,7 +359,10 @@ public class NoteService implements Service {
       UserNoteStore.StoredTagOrder order = store.getTagOrder();
       // Within this page's range: a later change of the order comes with the page that reaches it.
       TagOrder tagOrder = order != null && order.seq() > since && order.seq() <= seq ? tagOrderOf(order) : null;
-      return new ChangesPage(store.getStoreId(), seq, page.stream().map(NoteService::info).toList(), more, tagOrder);
+      List<TagEvent> events = store.tagEventsAfter(since).stream().filter(event -> event.seq() <= seq)
+          .map(UserNoteStore.StoredTagEvent::event).toList();
+      return new ChangesPage(store.getStoreId(), seq, page.stream().map(NoteService::info).toList(), more, tagOrder,
+          events.isEmpty() ? null : events);
     }
   }
 

@@ -1,9 +1,9 @@
-import { ChangesPage, MetaChange, NoteChange, NoteContent, NoteRequest, PushResult, TagOrderChange, TagOrderResult, TagOrderStatus } from "../auto/api-types";
+import { ChangesPage, MetaChange, NoteChange, NoteContent, NoteRequest, PushResult, TagEvent, TagOrderChange, TagOrderResult, TagOrderStatus } from "../auto/api-types";
 import { ApiError, ApiErrorKind } from "../utils/api/Api";
 import { LocalNote } from "./LocalNote";
 import { LocalStore, SyncMeta } from "./LocalStore";
 import {
-  addTag, applyMetaResult, hasMetaToPush, isValidTag, metaChangeOf, noOps, prepareMeta, removeTag, setOption, tagsOf,
+  addTag, applyMetaResult, hasMetaToPush, isValidTag, metaChangeOf, noOps, prepareMeta, removeTag, retaggedNote, setOption, tagsOf,
 } from "./Metadata";
 import {
   applyPushResult, applyRemote, changeOf, created, deletedLocally, edited, forResync, haveRevision, isPushable, needsFetch,
@@ -69,6 +69,7 @@ export class SyncEngine {
   private running = false;
   private readonly aborts = new Set<AbortController>();
   private readonly listeners = new Set<() => void>();
+  private readonly tagEventListeners = new Set<(events: TagEvent[]) => void>();
 
   private connected = false;
   private signedOut = false;
@@ -215,6 +216,71 @@ export class SyncEngine {
     return tags;
   }
 
+  /** Every tag of every note, deleted ones included: renaming to one of them merges (see renameTag). */
+  allTagNames(): string[] {
+    return [...this.allTags()];
+  }
+
+  /** How many notes have {@code tag}, deleted ones included: as many as renaming or removing it changes. */
+  tagNoteCount(tag: string): number {
+    let count = 0;
+    for (const note of this.notes.values()) if (tagsOf(note).includes(tag)) count++;
+    return count;
+  }
+
+  /**
+   * Renames {@code from} to {@code to} on every note, merging it into {@code to} if in use (see
+   * NoteService#renameTag). Needs the server: thrown its error if it can't be reached.
+   *
+   * @return the IDs of the notes the server changed.
+   */
+  async renameTag(from: string, to: string): Promise<string[]> {
+    if (!isValidTag(to)) throw new Error("A tag is 1 to 64 characters, without spaces.");
+    const output = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.renameTag(this.meta.deviceId, from, to, signal));
+    await this.applyTagEvents([{ from, to }]);
+    return output.noteIds;
+  }
+
+  /** Removes {@code tag} from every note, likewise. */
+  async deleteTag(tag: string): Promise<string[]> {
+    const output = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.deleteTag(this.meta.deviceId, tag, signal));
+    await this.applyTagEvents([{ from: tag }]);
+    return output.noteIds;
+  }
+
+  /** Told of tags renamed or removed, here or on another device: what refers to them by name follows (the tag filter). */
+  onTagEvents(listener: (events: TagEvent[]) => void): () => void {
+    this.tagEventListeners.add(listener);
+    return () => this.tagEventListeners.delete(listener);
+  }
+
+  /**
+   * The server renamed or removed tags on every note: the changes not confirmed yet follow, and the
+   * tags as known, without waiting for the notes' changes to come. Applied twice (here, then with the
+   * changes), the second time finds nothing to do.
+   */
+  private async applyTagEvents(events: TagEvent[]) {
+    const changed: LocalNote[] = [];
+    for (const note of this.notes.values()) {
+      let after = note;
+      for (const event of events) after = retaggedNote(after, event.from, event.to);
+      if (after !== note) changed.push(after);
+    }
+    for (const note of changed) this.notes.set(note.id, note);
+    if (changed.length > 0) await this.store.putNotes(changed);
+    let moves = this.tagMoves();
+    for (const event of events) {
+      moves = moves.filter((move) => event.to !== undefined || move.tag !== event.from)
+        .map((move) => ({ tag: move.tag === event.from ? event.to! : move.tag, after: move.after === event.from ? event.to ?? null : move.after }));
+    }
+    if (JSON.stringify(moves) !== JSON.stringify(this.tagMoves())) {
+      this.meta = { ...this.meta, tagMoves: moves };
+      await this.store.putMeta(this.meta);
+    }
+    for (const listener of this.tagEventListeners) listener(events);
+    this.notify();
+  }
+
   /** A boolean option: off is its default, so it's unset rather than set to "false". */
   setOption(id: string, key: string, on: boolean) {
     const note = this.notes.get(id);
@@ -301,6 +367,7 @@ export class SyncEngine {
     }
     for (const note of updated) this.notes.set(note.id, note);
     await this.store.putNotes(updated);
+    if (page.tagEvents?.length) await this.applyTagEvents(page.tagEvents);
     this.meta = { ...this.meta, storeId: page.storeId, cursor: page.seq };
     if (page.tagOrder && page.tagOrder.revision > (this.meta.tagOrder?.revision ?? 0)) this.meta = { ...this.meta, tagOrder: page.tagOrder };
     await this.store.putMeta(this.meta);
@@ -370,7 +437,7 @@ export class SyncEngine {
         : undefined;
       if (batch.changes.length > 0 || batch.metaChanges.length > 0 || tagOrder) {
         const output = await this.withTimeout(TIMINGS.requestTimeout,
-          (signal) => this.api.push(this.meta.deviceId, batch.changes, batch.metaChanges, tagOrder, signal));
+          (signal) => this.api.push(this.meta.deviceId, batch.changes, batch.metaChanges, tagOrder, this.meta.cursor, signal));
         // Stopped meanwhile: another engine may own the store now. Pending changes get resent, then replayed.
         if (!this.running) return;
         await this.applyPushResults(output.results, output.metaResults);

@@ -106,8 +106,8 @@ describe("SyncEngine", () => {
     // The first answer gets lost: the server applied it, but the engine sees a network error.
     const push = server.push.bind(server);
     let lose = true;
-    server.push = async (deviceId, changes, metaChanges) => {
-      const results = await push(deviceId, changes, metaChanges);
+    server.push = async (deviceId, changes, metaChanges, tagOrder, since) => {
+      const results = await push(deviceId, changes, metaChanges, tagOrder, since);
       if (lose) {
         lose = false;
         throw new (await import("../../../ts/utils/api/Api")).ApiError(0, "Cannot reach the server.");
@@ -399,6 +399,64 @@ describe("SyncEngine", () => {
     await until(() => engine.get(B)?.text === "Theirs");
     expect(engine.get(A)?.text).toBe("Mine, edited during the fetch");
     await until(() => server.text(A) === "Mine, edited during the fetch");
+  });
+
+  describe("renaming and removing tags", () => {
+    async function withTags() {
+      server.write(A, "First");
+      server.write(B, "Second");
+      server.writeMeta(A, ["work", "home"], {});
+      server.writeMeta(B, ["work"], {});
+      await startEngine();
+    }
+
+    test("renamed on every note at once; the filter's listener told", async () => {
+      await withTags();
+      const told: unknown[] = [];
+      engine.onTagEvents((events) => told.push(...events));
+      expect(engine.tagNoteCount("work")).toBe(2);
+      expect(await engine.renameTag("work", "job")).toEqual([A, B]);
+      // At once, before the changes come.
+      expect(tagsOf(engine.get(A)!)).toEqual(["home", "job"]);
+      expect(told).toEqual([{ from: "work", to: "job" }]);
+      await until(() => engine.status().state === "synced");
+      await advance(100);
+      expect(tagsOf(engine.get(B)!)).toEqual(["job"]);
+    });
+
+    test("removed from every note", async () => {
+      await withTags();
+      expect(await engine.deleteTag("work")).toEqual([A, B]);
+      expect(tagsOf(engine.get(A)!)).toEqual(["home"]);
+      expect(tagsOf(engine.get(B)!)).toEqual([]);
+    });
+
+    test("a change not sent yet follows a rename made on another device", async () => {
+      await withTags();
+      server.failNext = 1000;
+      engine.addTag(B, "home");
+      engine.removeTag(A, "work");
+      await until(() => engine.status().state === "offline");
+      // Another device renames the tags meanwhile: this one still waits to retry.
+      server.failNext = 0;
+      await server.renameTag("other", "work", "job");
+      await server.renameTag("other", "home", "house");
+      engine.retryNow();
+      await until(() => engine.status().state === "synced" && !engine.get(B)?.metaOps && !engine.get(B)?.pendingMeta, 5_000);
+      await advance(100);
+      expect(server.notes.get(B)!.info.tags).toEqual(["job", "house"]);
+      expect(server.notes.get(A)!.info.tags).toEqual(["house"]);
+      // Sent with the cursor: a real server could rewrite them too, had they gone first.
+      expect(server.pushCursors.every((c) => typeof c === "number")).toBe(true);
+    });
+
+    test("offline, renaming fails and changes nothing", async () => {
+      await withTags();
+      server.failNext = 1000;
+      await expect(engine.renameTag("work", "job")).rejects.toThrow();
+      expect(tagsOf(engine.get(A)!)).toEqual(["work", "home"]);
+      await expect(engine.renameTag("work", "has space")).rejects.toThrow("without spaces");
+    });
   });
 
   describe("tag order", () => {

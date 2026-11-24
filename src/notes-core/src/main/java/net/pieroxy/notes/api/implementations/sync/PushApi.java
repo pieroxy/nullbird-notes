@@ -45,7 +45,7 @@ public class PushApi extends AbstractAuthenticatedEndpoint<PushApiInput, PushApi
     }
     List<PushResult> metaResults = new ArrayList<>();
     for (MetaChange change : metaChanges) {
-      metaResults.add(notes.pushMeta(input.getUsername(), input.getDeviceId(), change));
+      metaResults.add(notes.pushMeta(input.getUsername(), input.getDeviceId(), change, input.getSince()));
     }
     TagOrderResult tagOrder = input.getTagOrder() == null ? null : notes.pushTagOrder(input.getUsername(), input.getTagOrder());
     return new PushApiOutput(results, metaResults, tagOrder);
@@ -62,6 +62,16 @@ class PushApiInput extends AuthenticatedApiInput {
   private List<MetaChange> metaChanges;
   /** Absent: the order doesn't change. */
   private TagOrderChange tagOrder;
+  /** The client's cursor: its metadata changes follow the tags renamed or removed since (see NoteService#pushMeta). */
+  private Long since;
+
+  public Long getSince() {
+    return since;
+  }
+
+  public void setSince(Long since) {
+    this.since = since;
+  }
 
   public TagOrderChange getTagOrder() {
     return tagOrder;

@@ -1,10 +1,11 @@
 import {
   ChangesPage, MetaChange, NoteChange, NoteInfo, NoteRequest, NotesResult, PushApiOutput, PushResult, PushStatus, RejectReason,
-  TagOrder, TagOrderChange, TagOrderResult, TagOrderStatus,
+  TagEditOutput, TagEvent, TagOrder, TagOrderChange, TagOrderResult, TagOrderStatus,
 } from "../../../ts/auto/api-types";
 import { ApiError, ApiErrorKind } from "../../../ts/utils/api/Api";
 import { sha256Bytes } from "../../../ts/sync/Sha256";
 import { applySplice, computeSplice, fullSplice } from "../../../ts/sync/Splice";
+import { retagged } from "../../../ts/sync/Metadata";
 import { SyncApi } from "../../../ts/sync/SyncApi";
 
 interface ServerNote {
@@ -46,6 +47,10 @@ export class FakeServer implements SyncApi {
   tagOrder?: TagOrder & { seq: number };
   /** Every tag order received, in order. */
   readonly tagOrderPushes: TagOrderChange[] = [];
+  /** The cursor each push came with. */
+  readonly pushCursors: number[] = [];
+  /** Tags renamed or removed (see renameTag), at their seq. */
+  readonly tagEvents: (TagEvent & { seq: number })[] = [];
   private readonly replays = new Map<string, PushResult>();
   private waiters: (() => void)[] = [];
 
@@ -68,7 +73,8 @@ export class FakeServer implements SyncApi {
     }
     const notes = [...this.notes.values()].map((n) => n.info).filter((info) => info.seq > since).sort((a, b) => a.seq - b.seq);
     const order = this.tagOrder && this.tagOrder.seq > since ? { revision: this.tagOrder.revision, tags: this.tagOrder.tags } : undefined;
-    return { storeId: this.storeId, seq: this.seq, notes, more: false, tagOrder: order };
+    const events = this.tagEvents.filter((e) => e.seq > since).map(({ from, to }) => (to === undefined ? { from } : { from, to }));
+    return { storeId: this.storeId, seq: this.seq, notes, more: false, tagOrder: order, tagEvents: events.length ? events : undefined };
   }
 
   async getNotes(requests: NoteRequest[]): Promise<NotesResult> {
@@ -91,15 +97,47 @@ export class FakeServer implements SyncApi {
     return { notes, missing };
   }
 
-  async push(_deviceId: string, changes: NoteChange[], metaChanges: MetaChange[], tagOrder?: TagOrderChange): Promise<PushApiOutput> {
+  async push(_deviceId: string, changes: NoteChange[], metaChanges: MetaChange[], tagOrder: TagOrderChange | undefined, since: number): Promise<PushApiOutput> {
     this.check();
+    this.pushCursors.push(since);
     if (changes.length > 0) this.pushes.push(changes);
     if (metaChanges.length > 0) this.metaPushes.push(metaChanges);
     if (tagOrder) this.tagOrderPushes.push(tagOrder);
     if (this.gate) await this.gate;
     const results = changes.map((change) => this.once(change.changeId, () => this.onPush?.(change) ?? this.fastForward(change)));
-    const metaResults = metaChanges.map((change) => this.once(change.changeId, () => this.applyMeta(change)));
+    // As the real server: made before the client knew of tags renamed or removed, they follow them.
+    const rewritten = metaChanges.map((change) => this.tagEvents.filter((e) => e.seq > since).reduce((c, e) => ({
+      ...c, addTags: retagged(c.addTags ?? [], e.from, e.to), removeTags: retagged(c.removeTags ?? [], e.from, e.to),
+    }), change));
+    const metaResults = rewritten.map((change) => this.once(change.changeId, () => this.applyMeta(change)));
     return { results, metaResults, tagOrder: tagOrder ? this.applyTagOrder(tagOrder) : undefined };
+  }
+
+  /** As the real server: on every note, deleted ones included; then recorded, for the clients. */
+  async renameTag(_deviceId: string, from: string, to: string): Promise<TagEditOutput> {
+    this.check();
+    return this.retag(from, to);
+  }
+
+  async deleteTag(_deviceId: string, tag: string): Promise<TagEditOutput> {
+    this.check();
+    return this.retag(tag, undefined);
+  }
+
+  private retag(from: string, to: string | undefined): TagEditOutput {
+    const noteIds: string[] = [];
+    for (const note of this.notes.values()) {
+      if (!note.info.tags.includes(from)) continue;
+      const tags = note.info.tags.filter((t) => t !== from);
+      if (to !== undefined && !tags.includes(to)) tags.push(to);
+      this.seq++;
+      note.info = { ...note.info, seq: this.seq, tags };
+      noteIds.push(note.info.id);
+    }
+    this.seq++;
+    this.tagEvents.push({ from, to, seq: this.seq });
+    this.wake();
+    return { noteIds };
   }
 
   /** Another device's tag order. */
