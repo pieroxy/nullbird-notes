@@ -7,6 +7,7 @@ import { Routing } from "../../utils/navigation/Routing";
 import { NO_FILTER, saveFilter } from "../../utils/TagFilter";
 import { loadChoice, saveChoice, Setting, SPACING, TEXT_PIXELS, TEXT_SIZE } from "../../utils/Appearance";
 import { ChangePasswordForm } from "../ChangePasswordForm";
+import { FontChoices } from "../FontChoices";
 import { ImportNotes } from "../ImportNotes";
 import { PageSection, sectionedPage } from "../SectionedPage";
 import { AbstractPage } from "./AbstractPage";
@@ -71,7 +72,8 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
       m("p.muted", "How close together the notes, tags and menu items are."),
       // Three rows, as far apart as rows are at that spacing.
       choices(SPACING, "spacing", "Spacing", (id) => m("span.sample.rows." + id, [m("i"), m("i"), m("i")])),
-      m("p.muted.devicenote", "Both are for this device only: each of yours keeps its own."),
+      m(FontChoices),
+      m("p.muted.devicenote", "All of these are for this device only: each of yours keeps its own."),
     ];
   }
 

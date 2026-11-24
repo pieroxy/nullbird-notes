@@ -183,6 +183,23 @@ nothing the second time. The logs get a line per note of the file, with its ID t
 (INFO), skipped as already there along with the existing note's ID (INFO), or skipped as too large
 (WARNING).
 
+## Appearance and fonts
+
+In My Account > Appearance, each user chooses the text size, the spacing, and the fonts: for the
+interface, the notes, and fixed-width text. These are kept per device, not per account: a phone and
+a desktop each have their own.
+
+The fonts to choose from are those an admin installs, in Administration > Fonts: one to four files
+per font (regular, bold, italic, bold italic), WOFF2, WOFF, TTF or OTF, 5 MB each at most. A
+variable font covers every weight in one file, so a regular file and an italic one are enough. The
+browser fakes the styles missing, not as well. Install only fonts whose licence allows it: their
+files are served to every logged-in user.
+
+A font chosen is downloaded to the device at once, to work offline. A font deleted, or changed, is
+dropped from a device the next time it's online: it goes back to the default font.
+
+The files are in `<dataFolder>/fonts`, with their list in `fonts.json`.
+
 ## Browsers
 
 Chrome and Edge 111, Firefox 119, Safari 16.4 (macOS and iOS), or later.

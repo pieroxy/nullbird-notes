@@ -3,6 +3,7 @@ import { session } from "../../sync/Session";
 import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { ConfigSection } from "../AdminConfig";
+import { FontsSection } from "../AdminFonts";
 import { LogsSection } from "../AdminLogs";
 import { UserDetail, UserList } from "../AdminUsers";
 import { PageSection, sectionedPage } from "../SectionedPage";
@@ -24,6 +25,7 @@ export class AdminPage extends AbstractPage<AdminPageAttrs> {
   private readonly sections: PageSection[] = [
     { id: "users", title: "Users", render: () => this.username !== undefined ? m(UserDetail, { key: this.username, username: this.username }) : m(UserList) },
     { id: "config", title: "Config", render: () => m(ConfigSection) },
+    { id: "fonts", title: "Fonts", render: () => m(FontsSection) },
     { id: "logs", title: "Logs", render: () => m(LogsSection), wide: true },
   ];
 

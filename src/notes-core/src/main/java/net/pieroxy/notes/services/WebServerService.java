@@ -4,6 +4,7 @@ import net.pieroxy.notes.api.ApiServlet;
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.webserver.AccessValve;
 import net.pieroxy.notes.webserver.ExportServlet;
+import net.pieroxy.notes.webserver.FontServlet;
 import net.pieroxy.notes.webserver.ImportServlet;
 import net.pieroxy.notes.webserver.PublishedPageServlet;
 import net.pieroxy.notes.webserver.SecurityHeadersFilter;
@@ -30,7 +31,7 @@ public class WebServerService implements Service {
   // Below this, compressing costs more (CPU, framing overhead) than it saves on the wire.
   private final static int COMPRESSION_MIN_SIZE_BYTES = 1024;
   private final static String COMPRESSIBLE_MIME_TYPES =
-      "text/html,text/css,application/javascript,image/svg+xml,application/json";
+      "text/html,text/css,application/javascript,image/svg+xml,application/json,font/ttf,font/otf";
 
   private IServiceProvider serviceProvider;
   private Tomcat tomcat;
@@ -38,7 +39,7 @@ public class WebServerService implements Service {
   @Override
   public List<Class<? extends Service>> getDependencies() {
     return List.of(SettingsService.class, SessionService.class, ClientGuardService.class, NoteStoreService.class, NoteService.class,
-        ImportService.class);
+        ImportService.class, FontService.class);
   }
 
   @Override
@@ -81,6 +82,8 @@ public class WebServerService implements Service {
       ctx.addServletMappingDecoded(ExportServlet.PATH, "export");
       tomcat.addServlet("", "import", new ImportServlet(endpointServiceProvider()));
       ctx.addServletMappingDecoded(ImportServlet.PATH, "import");
+      tomcat.addServlet("", "fonts", new FontServlet(endpointServiceProvider()));
+      ctx.addServletMappingDecoded(FontServlet.PATH, "fonts");
       tomcat.addServlet("", "published", new PublishedPageServlet());
       ctx.addServletMappingDecoded(PublishedPageServlet.PATH, "published");
       addSecurityHeaders(ctx);
@@ -146,6 +149,11 @@ public class WebServerService implements Service {
       @Override
       public ImportService getImportService() {
         return scoped.getImportService();
+      }
+
+      @Override
+      public FontService getFontService() {
+        return scoped.getFontService();
       }
 
       @Override

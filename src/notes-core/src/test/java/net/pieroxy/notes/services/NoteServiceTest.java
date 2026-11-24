@@ -63,7 +63,7 @@ public class NoteServiceTest {
     stores = new NoteStoreService();
     service = new NoteService(3);
     ServiceProvider provider = new ServiceProvider(settings, new SessionService(), new ClientGuardService(), stores, service,
-        new ImportService(), new WebServerService());
+        new ImportService(), new FontService(), new WebServerService());
     stores.init(provider);
     service.init(provider);
   }

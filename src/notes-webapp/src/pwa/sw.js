@@ -7,11 +7,16 @@
 //   cached one, with the bundles it names; bundles it doesn't name are dropped.
 // - The bundles: named after their content, so from the cache when there.
 // - Icons, manifest and compat.js: from the cache, refreshed in the background.
+// - The installed fonts' files (/fonts/): from FONT_CACHE, where the page keeps those chosen on this
+//   device (see Fonts.ts), else from the server, not kept: an admin trying fonts out fills nothing.
+//   Named after their content, they never change.
 //
 // Plain JavaScript, copied as is: its URL must stay /sw.js, and the browser compares its bytes to
 // tell whether it changed.
 
 const CACHE = "notes-app-v1";
+/** As Fonts.ts names it: kept across updates of this worker. */
+const FONT_CACHE = "notes-fonts";
 const PAGE = "/";
 const NAVIGATION_TIMEOUT_MS = 4000;
 const BUNDLE = /^\/bundle-[0-9a-f]+\.(?:js|css)$/;
@@ -24,7 +29,7 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
-    for (const key of await caches.keys()) if (key !== CACHE) await caches.delete(key);
+    for (const key of await caches.keys()) if (key !== CACHE && key !== FONT_CACHE) await caches.delete(key);
     await self.clients.claim();
   })());
 });
@@ -40,6 +45,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (BUNDLE.test(url.pathname)) event.respondWith(cacheFirst(request));
+  else if (url.pathname.startsWith("/fonts/")) event.respondWith(chosenFont(request));
   else if (url.pathname.startsWith("/icons/") || url.pathname === "/manifest.webmanifest" || url.pathname === "/compat.js") event.respondWith(refreshInBackground(event));
 });
 
@@ -89,6 +95,11 @@ async function cacheFirst(request) {
     await cache.put(request, response.clone());
   }
   return response;
+}
+
+async function chosenFont(request) {
+  const cache = await caches.open(FONT_CACHE);
+  return (await cache.match(request)) ?? fetch(request);
 }
 
 async function refreshInBackground(event) {

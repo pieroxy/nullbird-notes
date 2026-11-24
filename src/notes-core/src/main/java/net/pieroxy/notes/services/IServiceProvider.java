@@ -19,5 +19,7 @@ public interface IServiceProvider {
 
   ImportService getImportService();
 
+  FontService getFontService();
+
   WebServerService getWebServerService();
 }

@@ -5,6 +5,7 @@ import { moveTo } from "../../sync/TagOrder";
 import { session } from "../../sync/Session";
 import { SyncEngine } from "../../sync/SyncEngine";
 import { Auth } from "../../utils/Auth";
+import { refreshFontsOnce } from "../../utils/Fonts";
 import { titleAndExcerpt } from "../../utils/format";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
@@ -86,6 +87,7 @@ export class NotesPage extends AbstractPage {
       this.filter = loadFilter(username);
       this.viewing = loadViewing(username);
       void session.open(username);
+      refreshFontsOnce();
     }
   }
 

@@ -133,10 +133,10 @@ const taskShorthandInput = EditorView.inputHandler.of((view, from, to, text) => 
 const theme = EditorView.theme({
   "&": { flex: "1", minHeight: "0", background: "var(--bg)", color: "var(--text)" },
   "&.cm-focused": { outline: "none" },
-  ".cm-scroller": { fontFamily: "inherit", fontSize: "var(--editor-font-size)", lineHeight: "1.5" },
+  ".cm-scroller": { fontFamily: "var(--font-note)", fontSize: "var(--editor-font-size)", lineHeight: "1.5" },
   ".cm-content": { padding: "16px 0", caretColor: "var(--text)" },
   ".cm-line": { padding: "0 20px" },
-  "&.monospace .cm-scroller": { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "var(--editor-mono-font-size)" },
+  "&.monospace .cm-scroller": { fontFamily: "var(--font-mono)", fontSize: "var(--editor-mono-font-size)" },
   ".cm-placeholder": { color: "var(--text-muted)" },
   ".cm-match": { background: "var(--match-bg)", borderRadius: "2px" },
   ".cm-match-current": { background: "var(--match-current-bg)", color: "var(--text-on-accent)" },

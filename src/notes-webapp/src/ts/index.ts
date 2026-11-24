@@ -8,6 +8,7 @@ import { AuthenticatedPageResolver } from "./utils/AuthenticatedPageResolver";
 import { Endpoints } from "./utils/navigation/Endpoints";
 import { registerServiceWorker } from "./utils/ServiceWorker";
 import { initAppearance } from "./utils/Appearance";
+import { initFonts } from "./utils/Fonts";
 
 const routes: m.RouteDefs = {
   [Endpoints.LOGIN]: LoginPage,
@@ -23,6 +24,7 @@ const routes: m.RouteDefs = {
 const root = document.getElementById("app");
 if (root) {
   initAppearance(() => m.redraw());
+  initFonts(() => m.redraw());
   m.route(root, Endpoints.HOME, routes);
   registerServiceWorker();
 }

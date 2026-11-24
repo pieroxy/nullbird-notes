@@ -6,12 +6,14 @@ import jakarta.servlet.http.HttpFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import net.pieroxy.notes.services.FontService;
+
 import java.io.IOException;
 import java.util.regex.Pattern;
 
 /**
  * Security and caching headers, on every response. The page loads nothing but its own script,
- * stylesheet, icons, manifest and service worker, and calls nothing but /api/: the CSP allows exactly that. HSTS is left to
+ * stylesheet, icons, manifest, service worker and installed fonts, and calls nothing but /api/: the CSP allows exactly that. HSTS is left to
  * the reverse proxy, the only one to know whether the site is served over HTTPS.
  */
 public class SecurityHeadersFilter extends HttpFilter {
@@ -20,6 +22,8 @@ public class SecurityHeadersFilter extends HttpFilter {
       "script-src 'self'",
       "style-src 'self'",
       "img-src 'self'",
+      // The fonts the admin installed (/fonts/), loaded by the page's script (see Fonts.ts).
+      "font-src 'self'",
       "connect-src 'self'",
       // The web app manifest, which makes the app installable.
       "manifest-src 'self'",
@@ -33,6 +37,7 @@ public class SecurityHeadersFilter extends HttpFilter {
       "trusted-types notes-sw");
   /** Named after their content's hash by the webapp's build: a new content is a new name. */
   private static final Pattern IMMUTABLE = Pattern.compile("/bundle-[0-9a-f]+\\.(js|css)(\\.map)?");
+  private static final Pattern FONT = Pattern.compile("/fonts/" + FontService.FILE_PATTERN.pattern());
 
   @Override
   protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain) throws IOException, ServletException {
@@ -56,6 +61,8 @@ public class SecurityHeadersFilter extends HttpFilter {
   static String cacheControl(String path) {
     if (path.startsWith("/api/") || path.startsWith("/p/")) return "no-store";
     if (IMMUTABLE.matcher(path).matches()) return "public, max-age=31536000, immutable";
+    // Named after their content too; for logged-in users only.
+    if (FONT.matcher(path).matches()) return "private, max-age=31536000, immutable";
     return "no-cache";
   }
 }

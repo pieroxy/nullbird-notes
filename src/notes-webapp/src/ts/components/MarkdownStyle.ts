@@ -127,7 +127,8 @@ const plugin = ViewPlugin.fromClass(class {
   }
 }, { decorations: (value) => value.decorations });
 
-const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+/** style.scss's: the font chosen in My Account, or the default. */
+const MONO = "var(--font-mono)";
 
 /** In the editor's shadow root, as its theme: the page's CSS variables apply there. */
 const theme = EditorView.theme({

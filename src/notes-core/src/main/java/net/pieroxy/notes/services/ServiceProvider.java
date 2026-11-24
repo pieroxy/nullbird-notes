@@ -18,22 +18,25 @@ public class ServiceProvider implements IServiceProvider {
   private final NoteStoreService noteStoreService;
   private final NoteService noteService;
   private final ImportService importService;
+  private final FontService fontService;
   private final WebServerService webServerService;
   private final List<Service> services;
   private final List<Service> startedInOrder = new ArrayList<>();
 
   public ServiceProvider(SettingsService settingsService, SessionService sessionService,
                          ClientGuardService clientGuardService, NoteStoreService noteStoreService,
-                         NoteService noteService, ImportService importService, WebServerService webServerService) {
+                         NoteService noteService, ImportService importService, FontService fontService,
+                         WebServerService webServerService) {
     this.settingsService = settingsService;
     this.sessionService = sessionService;
     this.clientGuardService = clientGuardService;
     this.noteStoreService = noteStoreService;
     this.noteService = noteService;
     this.importService = importService;
+    this.fontService = fontService;
     this.webServerService = webServerService;
     this.services = List.of(settingsService, sessionService, clientGuardService, noteStoreService, noteService, importService,
-        webServerService);
+        fontService, webServerService);
   }
 
   @Override
@@ -64,6 +67,11 @@ public class ServiceProvider implements IServiceProvider {
   @Override
   public ImportService getImportService() {
     return importService;
+  }
+
+  @Override
+  public FontService getFontService() {
+    return fontService;
   }
 
   @Override
