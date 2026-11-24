@@ -1,5 +1,7 @@
 import m from "mithril";
 import { MAX_TAG_LENGTH } from "../sync/Metadata";
+import { TagOptions } from "../auto/api-types";
+import { tagClasses, tagDot } from "../utils/TagLook";
 import { iconButton } from "./Icons";
 
 export interface TagEditorAttrs {
@@ -7,6 +9,8 @@ export interface TagEditorAttrs {
   /** @return false if the tag is invalid: it stays in the input. */
   onAdd: (tag: string) => boolean;
   onRemove: (tag: string) => void;
+  /** How each tag looks (see TagLook). */
+  tagOptions: { [tag: string]: TagOptions };
 }
 
 /**
@@ -19,8 +23,8 @@ export class TagEditor implements m.ClassComponent<TagEditorAttrs> {
 
   view({ attrs }: m.Vnode<TagEditorAttrs>): m.Children {
     return m(".tags", [
-      attrs.tags.map((tag) => m("span.tag", { key: tag }, [
-        m("span.tagname", tag),
+      attrs.tags.map((tag) => m("span.tag" + tagClasses(attrs.tagOptions[tag]), { key: tag }, [
+        m("span.tagname", [tagDot(attrs.tagOptions[tag]), tag]),
         iconButton("x", "Remove tag " + tag, () => attrs.onRemove(tag), "tagremove"),
       ])),
       m("input.taginput" + (this.invalid ? ".invalid" : ""), {

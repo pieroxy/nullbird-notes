@@ -1,5 +1,7 @@
 import m from "mithril";
+import { TagOptions } from "../auto/api-types";
 import { isValidTag } from "../sync/Metadata";
+import { noteStripe, TAG_COLORS, tagClasses, tagDot } from "../utils/TagLook";
 import { iconButton } from "./Icons";
 
 export interface TagSettingsAttrs {
@@ -13,7 +15,23 @@ export interface TagSettingsAttrs {
   onRename: (to: string) => Promise<void>;
   onRemove: () => Promise<void>;
   onClose: () => void;
+  /** Its options now; undefined for none. */
+  options: TagOptions | undefined;
+  /**
+   * Changes some of them, the others as they are now: applied at once, synced. A change, not the
+   * whole: clicks quicker than redraws would each start from the options as last drawn.
+   */
+  onOptions: (change: Partial<TagOptions>) => void;
 }
+
+/** The colors a tag can have, as the dialog lists them. */
+const COLOR_SLOTS: { key: keyof TagOptions; label: string }[] = [
+  { key: "dot", label: "Dot" },
+  { key: "stripe", label: "Left stripe" },
+  { key: "background", label: "Background" },
+  { key: "text", label: "Text" },
+  { key: "notes", label: "Stripe on its notes" },
+];
 
 function notes(count: number): string {
   return count === 1 ? "1 note" : count + " notes";
@@ -87,12 +105,36 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
           m(".buttons", m("button", { type: "submit", disabled: this.busy }, "Rename")),
         ]),
         this.error ? m("p.errormessage", this.error) : null,
+        this.colors(attrs),
         m(".dangerzone", [
           m("button.danger", { type: "button", disabled: this.busy || count === 0, onclick: () => void this.remove() },
             count > 0 ? "Remove from its " + notes(count) : "No note has it"),
           m("p.muted", "The notes themselves stay."),
         ]),
       ]));
+  }
+
+  /** A row of swatches per color, then how the tag and its notes look with them. */
+  private colors(attrs: TagSettingsAttrs): m.Children {
+    const options = attrs.options ?? {};
+    const tag = attrs.tagName;
+    return m(".tagcolors", [
+      COLOR_SLOTS.map(({ key, label }) => m(".colorrow", { role: "radiogroup", "aria-label": label }, [
+        m("span.colorlabel", label),
+        m(".swatches", [
+          swatch(undefined, "None", options[key] === undefined, () => attrs.onOptions({ [key]: undefined })),
+          TAG_COLORS.map((color) => swatch(color.id, color.label, options[key] === color.id, () => attrs.onOptions({ [key]: color.id }))),
+        ]),
+      ])),
+      m(".tagpreview", { "aria-hidden": "true" }, [
+        m("span.tag" + tagClasses(options), m("span.tagname", [tagDot(options), tag])),
+        m(".previewnote", [
+          noteStripe(options.notes ? [options.notes] : []),
+          m("strong", "A note tagged " + tag),
+          m("span.muted", "In the list"),
+        ]),
+      ]),
+    ]);
   }
 
   private async rename() {
@@ -126,4 +168,11 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
       m.redraw();
     }
   }
+}
+
+/** A color to pick, as a radio button; none is a crossed-out one. */
+function swatch(color: string | undefined, label: string, chosen: boolean, onclick: () => void): m.Children {
+  return m("button.swatch" + (color ? ".tagfill-" + color : ".none") + (chosen ? ".chosen" : ""), {
+    type: "button", role: "radio", "aria-checked": String(chosen), title: label, "aria-label": label, onclick,
+  });
 }

@@ -106,8 +106,8 @@ describe("SyncEngine", () => {
     // The first answer gets lost: the server applied it, but the engine sees a network error.
     const push = server.push.bind(server);
     let lose = true;
-    server.push = async (deviceId, changes, metaChanges, tagOrder, since) => {
-      const results = await push(deviceId, changes, metaChanges, tagOrder, since);
+    server.push = async (deviceId, batch) => {
+      const results = await push(deviceId, batch);
       if (lose) {
         lose = false;
         throw new (await import("../../../ts/utils/api/Api")).ApiError(0, "Cannot reach the server.");
@@ -456,6 +456,46 @@ describe("SyncEngine", () => {
       await expect(engine.renameTag("work", "job")).rejects.toThrow();
       expect(tagsOf(engine.get(A)!)).toEqual(["work", "home"]);
       await expect(engine.renameTag("work", "has space")).rejects.toThrow("without spaces");
+    });
+  });
+
+  describe("tag options", () => {
+    test("set here: shown at once, sent, kept once confirmed; another device's arrive with the changes", async () => {
+      server.write(A, "First");
+      server.writeMeta(A, ["work"], {});
+      await startEngine();
+      engine.setTagOptions("work", { dot: "blue" });
+      engine.setTagOptions("work", { dot: "red", notes: "red" });
+      expect(engine.allTagOptions()).toEqual({ work: { dot: "red", notes: "red" } });
+      await until(() => engine.status().state === "synced" && server.tagOptions !== undefined);
+      expect(server.tagOptions?.tags).toEqual({ work: { dot: "red", notes: "red" } });
+      expect((await store.getMeta())?.tagOptionsChanges).toEqual([]);
+
+      server.writeTagOptions({ work: { text: "green" } });
+      await until(() => engine.allTagOptions().work?.text === "green");
+      engine.setTagOptions("work", undefined);
+      expect(engine.allTagOptions()).toEqual({});
+      await until(() => engine.status().state === "synced" && JSON.stringify(server.tagOptions?.tags) === "{}");
+    });
+
+    test("they follow a rename; set offline before another device's rename, they follow it too", async () => {
+      server.write(A, "First");
+      server.writeMeta(A, ["work", "home"], {});
+      await startEngine();
+      engine.setTagOptions("work", { dot: "teal" });
+      await until(() => engine.status().state === "synced" && server.tagOptions !== undefined);
+      await engine.renameTag("work", "job");
+      expect(engine.allTagOptions()).toEqual({ job: { dot: "teal" } });
+
+      server.failNext = 1000;
+      engine.setTagOptions("home", { background: "yellow" });
+      await until(() => engine.status().state === "offline");
+      server.failNext = 0;
+      await server.renameTag("other", "home", "house");
+      engine.retryNow();
+      await until(() => engine.status().state === "synced" && server.tagOptions?.tags.house !== undefined, 5_000);
+      expect(server.tagOptions?.tags.house).toEqual({ background: "yellow" });
+      expect(server.tagOptions?.tags.home).toBeUndefined();
     });
   });
 

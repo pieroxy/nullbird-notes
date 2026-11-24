@@ -7,6 +7,8 @@ import net.jpountz.lz4.LZ4FrameOutputStream;
 import net.pieroxy.notes.sync.Merge3;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.sync.TagEvent;
+import net.pieroxy.notes.sync.TagOptions;
+import net.pieroxy.notes.sync.TagOptionsChange;
 import net.pieroxy.notes.utils.AtomicFiles;
 import net.pieroxy.notes.utils.Hashes;
 
@@ -20,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -45,6 +48,7 @@ import java.util.stream.Collectors;
  * notes/&lt;id&gt;/meta/NNNNNN.json  every {@link MetaRevision}
  * tag-order.json                 {@link StoredTagOrder}: absent until the user first reorders their tags
  * tag-events.json                the last {@link StoredTagEvent}s: tags renamed or removed from every note
+ * tag-options.json               {@link StoredTagOptions}: absent until the user first sets a tag's options
  * </pre>
  * The head revision's file holds its text; an older one's, a splice turning the next revision's
  * text back into its own (a reverse delta), except every {@link #FULL_REVISION_INTERVAL}th one
@@ -105,6 +109,14 @@ public class UserNoteStore {
     }
   }
 
+  /**
+   * Each tag's options, by tag, those of tags no note has any more included: adding the tag back
+   * brings them back.
+   *
+   * @param seq when they last changed, from the same sequence as the notes: change queries report it.
+   */
+  public record StoredTagOptions(long seq, Map<String, TagOptions> tags) {}
+
   /** Enough for a device offline a long time, renames being rare: beyond, its old changes aren't rewritten. */
   static final int MAX_TAG_EVENTS = 1000;
 
@@ -145,6 +157,7 @@ public class UserNoteStore {
   private StoredTagOrder tagOrder;
   private final List<Runnable> seqWaiters = new ArrayList<>();
   private List<StoredTagEvent> tagEvents = List.of();
+  private StoredTagOptions tagOptions;
   CommitHook commitHook = step -> {};
   /** Visible for tests. */
   int fullRevisionInterval = FULL_REVISION_INTERVAL;
@@ -515,6 +528,13 @@ public class UserNoteStore {
    * those commits) with {@code from} in place of {@code to}; merged, {@code to} keeps its own place.
    */
   public synchronized void recordTagEvent(String from, String to, StoredTagOrder before) throws IOException {
+    // Its options go along: merged, the target keeps its own if it has some. Before the event, which is the last word.
+    if (tagOptions != null && tagOptions.tags().containsKey(from)) {
+      Map<String, TagOptions> tags = new TreeMap<>(tagOptions.tags());
+      TagOptions moved = tags.remove(from);
+      if (to != null) tags.putIfAbsent(to, moved);
+      writeTagOptions(tags);
+    }
     long seq = lastSeq + 1;
     if (before != null) {
       List<String> order = new ArrayList<>();
@@ -640,6 +660,7 @@ public class UserNoteStore {
     loadNotes();
     loadTagOrder();
     loadTagEvents();
+    loadTagOptions();
     if (storeId == null) {
       storeId = UUID.randomUUID().toString();
       writeUserState();
@@ -674,6 +695,50 @@ public class UserNoteStore {
     if (stored == null) return;
     tagEvents = List.of(stored);
     for (StoredTagEvent event : tagEvents) lastSeq = Math.max(lastSeq, event.seq());
+  }
+
+  private void loadTagOptions() throws IOException {
+    Path file = root.resolve("tag-options.json");
+    if (!Files.isRegularFile(file)) return;
+    StoredTagOptions stored = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8), StoredTagOptions.class);
+    if (stored == null || stored.tags() == null) return;
+    tagOptions = stored;
+    lastSeq = Math.max(lastSeq, stored.seq());
+  }
+
+  /** @return each tag's options; null if the user never set any. */
+  public synchronized StoredTagOptions getTagOptions() {
+    return tagOptions;
+  }
+
+  /**
+   * Replaces the options of each tag of {@code changes}, in order: an empty one removes them.
+   * Nothing is written if nothing changes.
+   */
+  public synchronized StoredTagOptions setTagOptions(List<TagOptionsChange> changes) throws IOException {
+    Map<String, TagOptions> tags = new TreeMap<>(tagOptions == null ? Map.of() : tagOptions.tags());
+    for (TagOptionsChange change : changes) {
+      if (change.options() == null || change.options().isEmpty()) tags.remove(change.tag());
+      else tags.put(change.tag(), change.options());
+    }
+    if (tags.equals(tagOptions == null ? Map.of() : tagOptions.tags())) return tagOptions;
+    writeTagOptions(tags);
+    return tagOptions;
+  }
+
+  /** At a new seq, the user state after. */
+  private void writeTagOptions(Map<String, TagOptions> tags) throws IOException {
+    long seq = lastSeq + 1;
+    StoredTagOptions next = new StoredTagOptions(seq, Collections.unmodifiableMap(new TreeMap<>(tags)));
+    AtomicFiles.write(root.resolve("tag-options.json"), PRETTY_GSON.toJson(next).getBytes(StandardCharsets.UTF_8));
+    tagOptions = next;
+    lastSeq = seq;
+    wakeSeqWaiters();
+    try {
+      writeUserState();
+    } catch (IOException e) {
+      LOGGER.log(Level.SEVERE, "Could not write user.json of " + root.getFileName() + " (recovered from tag-options.json on next load)", e);
+    }
   }
 
   private void writeUserState() throws IOException {

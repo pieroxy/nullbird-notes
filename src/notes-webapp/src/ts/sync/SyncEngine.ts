@@ -1,4 +1,4 @@
-import { ChangesPage, MetaChange, NoteChange, NoteContent, NoteRequest, PushResult, TagEvent, TagOrderChange, TagOrderResult, TagOrderStatus } from "../auto/api-types";
+import { ChangesPage, MetaChange, NoteChange, NoteContent, NoteRequest, PushResult, TagEvent, TagOptions, TagOptionsChange, TagOrderChange, TagOrderResult, TagOrderStatus } from "../auto/api-types";
 import { ApiError, ApiErrorKind } from "../utils/api/Api";
 import { LocalNote } from "./LocalNote";
 import { LocalStore, SyncMeta } from "./LocalStore";
@@ -216,6 +216,30 @@ export class SyncEngine {
     return tags;
   }
 
+  /** Each tag's options: the server's, with the changes it hasn't confirmed yet. Tags with none aren't in it. */
+  allTagOptions(): { [tag: string]: TagOptions } {
+    const all = { ...(this.meta.tagOptions ?? {}) };
+    for (const change of this.tagOptionsChanges()) {
+      if (change.options && hasOptions(change.options)) all[change.tag] = change.options;
+      else delete all[change.tag];
+    }
+    return all;
+  }
+
+  /** Replaces {@code tag}'s options, none for undefined: shown at once, sent with the next push. */
+  setTagOptions(tag: string, options: TagOptions | undefined) {
+    const change: TagOptionsChange = options && hasOptions(options) ? { tag, options } : { tag };
+    // Only the last change for a tag matters: earlier ones not sent yet go.
+    this.meta = { ...this.meta, tagOptionsChanges: [...this.tagOptionsChanges().filter((c) => c.tag !== tag), change] };
+    void this.store.putMeta(this.meta);
+    this.schedulePush(0);
+    this.notify();
+  }
+
+  private tagOptionsChanges(): TagOptionsChange[] {
+    return this.meta.tagOptionsChanges ?? [];
+  }
+
   /** Every tag of every note, deleted ones included: renaming to one of them merges (see renameTag). */
   allTagNames(): string[] {
     return [...this.allTags()];
@@ -273,8 +297,22 @@ export class SyncEngine {
       moves = moves.filter((move) => event.to !== undefined || move.tag !== event.from)
         .map((move) => ({ tag: move.tag === event.from ? event.to! : move.tag, after: move.after === event.from ? event.to ?? null : move.after }));
     }
-    if (JSON.stringify(moves) !== JSON.stringify(this.tagMoves())) {
-      this.meta = { ...this.meta, tagMoves: moves };
+    // Options follow, as on the server: merged, the target keeps its own; removed, they go.
+    let options = this.meta.tagOptions;
+    let optionsChanges = this.tagOptionsChanges();
+    for (const event of events) {
+      if (options && event.from in options) {
+        options = { ...options };
+        const moved = options[event.from];
+        delete options[event.from];
+        if (event.to !== undefined && !(event.to in options)) options[event.to] = moved;
+      }
+      optionsChanges = optionsChanges.filter((c) => c.tag !== event.from || event.to !== undefined)
+        .map((c) => (c.tag === event.from ? { ...c, tag: event.to! } : c));
+    }
+    if (JSON.stringify(moves) !== JSON.stringify(this.tagMoves()) || options !== this.meta.tagOptions
+      || JSON.stringify(optionsChanges) !== JSON.stringify(this.tagOptionsChanges())) {
+      this.meta = { ...this.meta, tagMoves: moves, tagOptions: options, tagOptionsChanges: optionsChanges };
       await this.store.putMeta(this.meta);
     }
     for (const listener of this.tagEventListeners) listener(events);
@@ -370,6 +408,7 @@ export class SyncEngine {
     if (page.tagEvents?.length) await this.applyTagEvents(page.tagEvents);
     this.meta = { ...this.meta, storeId: page.storeId, cursor: page.seq };
     if (page.tagOrder && page.tagOrder.revision > (this.meta.tagOrder?.revision ?? 0)) this.meta = { ...this.meta, tagOrder: page.tagOrder };
+    if (page.tagOptions) this.meta = { ...this.meta, tagOptions: page.tagOptions };
     await this.store.putMeta(this.meta);
     this.notify();
   }
@@ -422,7 +461,7 @@ export class SyncEngine {
   private async push() {
     if (!this.running || this.pushing || this.signedOut || this.outdated || this.nextRetryAt !== undefined) return;
     const candidates = [...this.notes.values()].filter(hasWork);
-    if (candidates.length === 0 && this.tagMoves().length === 0) return;
+    if (candidates.length === 0 && this.tagMoves().length === 0 && this.tagOptionsChanges().length === 0) return;
     this.pushing = true;
     this.notify();
     try {
@@ -435,17 +474,25 @@ export class SyncEngine {
       const tagOrder: TagOrderChange | undefined = sentMoves > 0
         ? { baseRevision: this.meta.tagOrder?.revision ?? 0, tags: orderToSend(this.meta.tagOrder, this.tagMoves(), this.allTags()) }
         : undefined;
-      if (batch.changes.length > 0 || batch.metaChanges.length > 0 || tagOrder) {
+      // Those made while the push is out stay for the next one, as moves.
+      const sentOptions = this.tagOptionsChanges();
+      const tagOptions = sentOptions.length > 0 ? sentOptions : undefined;
+      if (batch.changes.length > 0 || batch.metaChanges.length > 0 || tagOrder || tagOptions) {
         const output = await this.withTimeout(TIMINGS.requestTimeout,
-          (signal) => this.api.push(this.meta.deviceId, batch.changes, batch.metaChanges, tagOrder, this.meta.cursor, signal));
+          (signal) => this.api.push(this.meta.deviceId, { ...batch, tagOrder, tagOptions, since: this.meta.cursor }, signal));
         // Stopped meanwhile: another engine may own the store now. Pending changes get resent, then replayed.
         if (!this.running) return;
         await this.applyPushResults(output.results, output.metaResults);
         if (output.tagOrder) await this.applyTagOrderResult(output.tagOrder, sentMoves);
+        if (output.tagOptions) {
+          this.meta = { ...this.meta, tagOptions: output.tagOptions, tagOptionsChanges: this.tagOptionsChanges().filter((c) => !sentOptions.includes(c)) };
+          await this.store.putMeta(this.meta);
+        }
       }
       this.succeeded();
       this.pushing = false;
-      if ([...this.notes.values()].some((note) => isPushable(note) || hasMetaToPush(note)) || this.tagMoves().length > 0) this.schedulePush(0);
+      if ([...this.notes.values()].some((note) => isPushable(note) || hasMetaToPush(note)) || this.tagMoves().length > 0
+        || this.tagOptionsChanges().length > 0) this.schedulePush(0);
     } catch (e) {
       this.pushing = false;
       await this.failed(e);
@@ -642,4 +689,9 @@ function isDraft(note: LocalNote): boolean {
 
 function hasWork(note: LocalNote): boolean {
   return isPushable(note) || note.pending !== undefined || hasMetaToPush(note) || note.pendingMeta !== undefined;
+}
+
+/** Any color set: one with none is the same as no options. */
+export function hasOptions(options: TagOptions): boolean {
+  return [options.dot, options.stripe, options.background, options.text, options.notes].some((color) => color !== undefined && color !== null);
 }

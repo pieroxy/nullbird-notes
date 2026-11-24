@@ -30,6 +30,23 @@
   --merge-bg: #fbdcdc;
   --merge-text: #9b1c1c;
   --merge-border: #f0a8a8;
+  // Tag colors (see TagLook.ts): a strong shade for text, dots and stripes, a pale one for backgrounds.
+  --tag-red: #c62828;
+  --tag-red-pale: #fde2e2;
+  --tag-orange: #c2410c;
+  --tag-orange-pale: #ffe8d6;
+  --tag-yellow: #a16207;
+  --tag-yellow-pale: #fef3c7;
+  --tag-green: #2e7d32;
+  --tag-green-pale: #dcfce7;
+  --tag-teal: #0f766e;
+  --tag-teal-pale: #ccfbf1;
+  --tag-blue: #1d4ed8;
+  --tag-blue-pale: #dbeafe;
+  --tag-purple: #7e22ce;
+  --tag-purple-pale: #f3e8ff;
+  --tag-pink: #be185d;
+  --tag-pink-pale: #fce7f3;
   // The text size chosen in My Account (see Appearance.ts), multiplying every font size.
   --text-scale: 1;
   // The spacing chosen in My Account (see Appearance.ts): rows' padding, and the top bars' height.
@@ -69,6 +86,22 @@
     --merge-bg: #5a1f1f;
     --merge-text: #ffc4c4;
     --merge-border: #8a3434;
+    --tag-red: #fca5a5;
+    --tag-red-pale: #4c1d1d;
+    --tag-orange: #fdba74;
+    --tag-orange-pale: #4a2a12;
+    --tag-yellow: #fde047;
+    --tag-yellow-pale: #423a10;
+    --tag-green: #86efac;
+    --tag-green-pale: #173d25;
+    --tag-teal: #5eead4;
+    --tag-teal-pale: #113c38;
+    --tag-blue: #93c5fd;
+    --tag-blue-pale: #1c2f55;
+    --tag-purple: #d8b4fe;
+    --tag-purple-pale: #36204f;
+    --tag-pink: #f9a8d4;
+    --tag-pink-pale: #4a1d38;
   }
 }
 
@@ -1322,6 +1355,7 @@ body.resizing {
   }
 
   li {
+    position: relative;
     padding: spaced(10px) 14px;
     border-bottom: 1px solid var(--border);
     cursor: pointer;
@@ -2561,6 +2595,139 @@ button.link {
 
     &:hover {
       background: rgba(127, 127, 127, .3);
+    }
+  }
+}
+
+// How tags look, as set in their settings (see TagLook.ts): wherever a tag shows, the same.
+$tag-colors: red, orange, yellow, green, teal, blue, purple, pink;
+
+@each $color in $tag-colors {
+  .tagdot-#{$color} { background: var(--tag-#{$color}); }
+  .tagbg-#{$color} { background: var(--tag-#{$color}-pale) !important; }
+  .tagtext-#{$color} { color: var(--tag-#{$color}) !important; }
+  .tagstripe-#{$color} { box-shadow: inset 3px 0 0 var(--tag-#{$color}); }
+  .tagfill-#{$color} { background: var(--tag-#{$color}); }
+}
+
+.tagdot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+// A tag's name in the panel, with a background or stripe: a pill, as the chips.
+.tagname.tagstyled {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+
+// The tags panel's names with a stripe start further in, as chips do.
+.tagname.tagstyled[class*="tagstripe-"] {
+  padding-left: 8px;
+}
+
+.tag[class*="tagstripe-"] {
+  padding-left: 12px;
+}
+
+// On a note in the list: its tags' colors, up to three, sharing one stripe top to bottom.
+.notestripe {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: 4px;
+
+  i {
+    flex: 1;
+  }
+}
+
+// A tag's colors, in its settings (see TagSettings.ts).
+.tagcolors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+
+  .colorrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+  }
+
+  .colorlabel {
+    width: 130px;
+    font-size: scaled(13px);
+  }
+
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .swatch {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    cursor: pointer;
+
+    &.none {
+      background: linear-gradient(to top right, transparent calc(50% - 1px), var(--text-muted) 50%, transparent calc(50% + 1px)), var(--bg);
+    }
+
+    &.chosen {
+      outline: 2px solid var(--text);
+      outline-offset: 2px;
+    }
+  }
+
+  // The tag as it'll show, and a note of it in the list.
+  .tagpreview {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+    padding: 10px;
+    border-radius: 8px;
+    background: var(--bg-pane);
+  }
+
+  .tag {
+    padding-right: 10px;
+  }
+
+  .previewnote {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 160px;
+    padding: 6px 10px 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    overflow: hidden;
+    font-size: scaled(13px);
+
+    .muted {
+      font-size: scaled(12px);
     }
   }
 }

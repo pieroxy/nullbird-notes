@@ -1,12 +1,12 @@
 import {
   ChangesPage, MetaChange, NoteChange, NoteInfo, NoteRequest, NotesResult, PushApiOutput, PushResult, PushStatus, RejectReason,
-  TagEditOutput, TagEvent, TagOrder, TagOrderChange, TagOrderResult, TagOrderStatus,
+  TagEditOutput, TagEvent, TagOptions, TagOrder, TagOrderChange, TagOrderResult, TagOrderStatus,
 } from "../../../ts/auto/api-types";
 import { ApiError, ApiErrorKind } from "../../../ts/utils/api/Api";
 import { sha256Bytes } from "../../../ts/sync/Sha256";
 import { applySplice, computeSplice, fullSplice } from "../../../ts/sync/Splice";
 import { retagged } from "../../../ts/sync/Metadata";
-import { SyncApi } from "../../../ts/sync/SyncApi";
+import { PushBatch, SyncApi } from "../../../ts/sync/SyncApi";
 
 interface ServerNote {
   info: NoteInfo;
@@ -51,6 +51,8 @@ export class FakeServer implements SyncApi {
   readonly pushCursors: number[] = [];
   /** Tags renamed or removed (see renameTag), at their seq. */
   readonly tagEvents: (TagEvent & { seq: number })[] = [];
+  /** Each tag's options, as the real server keeps them, at their seq. */
+  tagOptions?: { tags: { [tag: string]: TagOptions }; seq: number };
   private readonly replays = new Map<string, PushResult>();
   private waiters: (() => void)[] = [];
 
@@ -74,7 +76,8 @@ export class FakeServer implements SyncApi {
     const notes = [...this.notes.values()].map((n) => n.info).filter((info) => info.seq > since).sort((a, b) => a.seq - b.seq);
     const order = this.tagOrder && this.tagOrder.seq > since ? { revision: this.tagOrder.revision, tags: this.tagOrder.tags } : undefined;
     const events = this.tagEvents.filter((e) => e.seq > since).map(({ from, to }) => (to === undefined ? { from } : { from, to }));
-    return { storeId: this.storeId, seq: this.seq, notes, more: false, tagOrder: order, tagEvents: events.length ? events : undefined };
+    const tagOptions = this.tagOptions && this.tagOptions.seq > since ? this.tagOptions.tags : undefined;
+    return { storeId: this.storeId, seq: this.seq, notes, more: false, tagOrder: order, tagEvents: events.length ? events : undefined, tagOptions };
   }
 
   async getNotes(requests: NoteRequest[]): Promise<NotesResult> {
@@ -97,7 +100,7 @@ export class FakeServer implements SyncApi {
     return { notes, missing };
   }
 
-  async push(_deviceId: string, changes: NoteChange[], metaChanges: MetaChange[], tagOrder: TagOrderChange | undefined, since: number): Promise<PushApiOutput> {
+  async push(_deviceId: string, { changes, metaChanges, tagOrder, tagOptions, since }: PushBatch): Promise<PushApiOutput> {
     this.check();
     this.pushCursors.push(since);
     if (changes.length > 0) this.pushes.push(changes);
@@ -110,7 +113,26 @@ export class FakeServer implements SyncApi {
       ...c, addTags: retagged(c.addTags ?? [], e.from, e.to), removeTags: retagged(c.removeTags ?? [], e.from, e.to),
     }), change));
     const metaResults = rewritten.map((change) => this.once(change.changeId, () => this.applyMeta(change)));
-    return { results, metaResults, tagOrder: tagOrder ? this.applyTagOrder(tagOrder) : undefined };
+    let options: { [tag: string]: TagOptions } | undefined;
+    if (tagOptions) {
+      const tags = { ...(this.tagOptions?.tags ?? {}) };
+      for (const change of tagOptions) {
+        const tag = this.tagEvents.filter((e) => e.seq > since).reduce<string | undefined>((t, e) => (t === e.from ? e.to : t), change.tag);
+        if (tag === undefined) continue;
+        if (change.options) tags[tag] = change.options;
+        else delete tags[tag];
+      }
+      this.writeTagOptions(tags);
+      options = tags;
+    }
+    return { results, metaResults, tagOrder: tagOrder ? this.applyTagOrder(tagOrder) : undefined, tagOptions: options };
+  }
+
+  /** Another device's tag options. */
+  writeTagOptions(tags: { [tag: string]: TagOptions }) {
+    this.seq++;
+    this.tagOptions = { tags, seq: this.seq };
+    this.wake();
   }
 
   /** As the real server: on every note, deleted ones included; then recorded, for the clients. */

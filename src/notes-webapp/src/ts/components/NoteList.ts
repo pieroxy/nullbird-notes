@@ -4,6 +4,8 @@ import { isOn, PINNED, publishedToken } from "../sync/Metadata";
 import { sortKey } from "../sync/Outcomes";
 import { shortDate, titleAndExcerpt } from "../utils/format";
 import { noteHasMergeMark } from "../utils/MergeMarks";
+import { TagOptions } from "../auto/api-types";
+import { noteStripe, tagClasses, tagDot } from "../utils/TagLook";
 import { Snippet } from "../utils/Search";
 import { isActive, NO_FILTER, TagFilter, toggle } from "../utils/TagFilter";
 import { icon, iconButton } from "./Icons";
@@ -20,6 +22,10 @@ export interface NoteListAttrs extends NoteSearchAttrs {
   snippetOf?: (note: LocalNote) => Snippet | undefined;
   selectedId?: string;
   onSelect: (id: string) => void;
+  /** How each tag looks (see TagLook). */
+  tagOptions: { [tag: string]: TagOptions };
+  /** The colors of each note's stripe (see noteStripes). */
+  stripesOf: (note: LocalNote) => string[];
 }
 
 export class NoteList implements m.ClassComponent<NoteListAttrs> {
@@ -51,8 +57,8 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
     return m(".filterstrip", [
       filter.untagged ? m("span.tag", [m("span.tagname", "Untagged"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
       filter.merged ? m("span.tag", [m("span.tagname", "Merge markers"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
-      filter.tags.map((tag) => m("span.tag", { key: tag }, [
-        m("span.tagname", tag),
+      filter.tags.map((tag) => m("span.tag" + tagClasses(attrs.tagOptions[tag]), { key: tag }, [
+        m("span.tagname", [tagDot(attrs.tagOptions[tag]), tag]),
         iconButton("x", "Stop filtering on " + tag, () => onFilter(toggle(filter, tag)), "tagremove"),
       ])),
       m("button.link.clearfilter", { type: "button", onclick: () => onFilter(NO_FILTER) }, "Clear"),
@@ -77,6 +83,7 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
       oncreate: keepInSight,
       onupdate: keepInSight,
     }, [
+      noteStripe(attrs.stripesOf(note)),
       m(".itemhead", [
         m("span.title" + (title ? "" : ".untitled"), title || "New note"),
         publishedToken(note) ? m("span.flag", { title: "Published", "aria-label": "Published" }, icon("globe")) : null,

@@ -2,6 +2,7 @@ import { history, historyKeymap, indentWithTab, insertNewline, isolateHistory, s
 import { Annotation, ChangeSet, Compartment, EditorState, Extension, RangeSetBuilder, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, keymap, placeholder, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
 import m from "mithril";
+import { TagOptions } from "../auto/api-types";
 import { LocalNote } from "../sync/LocalNote";
 import { computeSplice } from "../sync/Splice";
 import { continueList } from "../utils/ListContinuation";
@@ -43,6 +44,8 @@ export interface NoteEditorAttrs {
   onEdit: (text: string) => void;
   onAddTag: (tag: string) => boolean;
   onRemoveTag: (tag: string) => void;
+  /** How each tag looks (see TagLook). */
+  tagOptions: { [tag: string]: TagOptions };
   find?: FindAttrs;
   /** Changed to make the lines at the caret or the selection a list (see {@link formatList}). */
   listCommand?: { kind: ListKind; seq: number };
@@ -426,7 +429,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
           attrs.onView(false);
         },
       }) : null,
-      m(TagEditor, { tags: attrs.tags, onAdd: attrs.onAddTag, onRemove: attrs.onRemoveTag }),
+      m(TagEditor, { tags: attrs.tags, tagOptions: attrs.tagOptions, onAdd: attrs.onAddTag, onRemove: attrs.onRemoveTag }),
     ]);
   }
 }

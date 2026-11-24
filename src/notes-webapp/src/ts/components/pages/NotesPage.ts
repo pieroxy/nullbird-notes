@@ -26,6 +26,8 @@ import { noteSearch } from "../NoteSearch";
 import { SyncStatusIndicator } from "../SyncStatusIndicator";
 import { TagPanel, tagSearch } from "../TagPanel";
 import { TagSettings } from "../TagSettings";
+import { noteStripes } from "../../utils/TagLook";
+import { TagOptions } from "../../auto/api-types";
 import { AbstractPage } from "./AbstractPage";
 
 /** As in style.scss: one pane at a time. */
@@ -216,6 +218,8 @@ export class NotesPage extends AbstractPage {
       tagName: tag,
       count: engine.tagNoteCount(tag),
       allTags: engine.allTagNames(),
+      options: engine.allTagOptions()[tag],
+      onOptions: (change: Partial<TagOptions>) => engine.setTagOptions(tag, { ...engine.allTagOptions()[tag], ...change }),
       onClose: () => (this.tagSettings = undefined),
       onRename: async (to: string) => {
         await engine.renameTag(tag, to);
@@ -285,6 +289,9 @@ export class NotesPage extends AbstractPage {
     const notes = engine.list();
     const tags = new Map(notes.map((note) => [note.id, tagsOf(note)]));
     retainMergeMarks(new Set(tags.keys()));
+    const tagOptions = engine.allTagOptions();
+    // Each tag's place in the user's order, for the notes' stripes.
+    const rank = new Map(this.tagCounts(engine).map((count, i) => [count.tag, i]));
     const merged = (note: LocalNote) => noteHasMergeMark(note.id, note.text);
     const onFilter = (filter: TagFilter) => this.setFilter(filter);
     const terms = parseQuery(this.search);
@@ -307,6 +314,7 @@ export class NotesPage extends AbstractPage {
           engine.moveTag(moveTo(listed, tag, index));
         },
         onSettings: (tag: string) => (this.tagSettings = tag),
+        tagOptions,
         onMoveBy: (tag: string, by: number) => {
           // From the order as it is now: the engine has the previous move already, the page may not show it yet.
           const listed = this.tagCounts(engine).map((count) => count.tag);
@@ -326,6 +334,8 @@ export class NotesPage extends AbstractPage {
         snippetOf: terms.length > 0 ? (note: LocalNote) => snippet(note.text, folded(note), terms) : undefined,
         selectedId: this.selectedId,
         onSelect: (id: string) => this.select(id),
+        tagOptions,
+        stripesOf: (note: LocalNote) => noteStripes(tags.get(note.id)!, tagOptions, rank),
       }),
       this.resizer("list"),
       selected
@@ -342,6 +352,7 @@ export class NotesPage extends AbstractPage {
           onEdit: (text: string) => engine.edit(selected.id, text),
           onAddTag: (tag: string) => engine.addTag(selected.id, tag),
           onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),
+          tagOptions,
           find,
           listCommand: this.listCommand,
           insertCommand: this.insertCommand,

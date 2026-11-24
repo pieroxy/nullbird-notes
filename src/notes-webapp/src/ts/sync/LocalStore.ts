@@ -1,4 +1,4 @@
-import { TagOrder } from "../auto/api-types";
+import { TagOptions, TagOptionsChange, TagOrder } from "../auto/api-types";
 import { TagMove } from "./TagOrder";
 import { LocalNote } from "./LocalNote";
 
@@ -12,6 +12,10 @@ export interface SyncMeta {
   tagOrder?: TagOrder;
   /** Tag moves the server hasn't confirmed yet, oldest first (see TagOrder.ts). */
   tagMoves?: TagMove[];
+  /** Each tag's options, as the server last said: absent before it said. */
+  tagOptions?: { [tag: string]: TagOptions };
+  /** Tag options changes the server hasn't confirmed yet, oldest first. */
+  tagOptionsChanges?: TagOptionsChange[];
 }
 
 const NOTES = "notes";

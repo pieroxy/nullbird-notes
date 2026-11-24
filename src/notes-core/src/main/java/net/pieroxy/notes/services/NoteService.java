@@ -26,6 +26,8 @@ import net.pieroxy.notes.sync.PushStatus;
 import net.pieroxy.notes.sync.RejectReason;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.sync.TagEvent;
+import net.pieroxy.notes.sync.TagOptions;
+import net.pieroxy.notes.sync.TagOptionsChange;
 import net.pieroxy.notes.utils.Hashes;
 
 import java.io.IOException;
@@ -318,6 +320,42 @@ public class NoteService implements Service {
     }
   }
 
+  /** Far more than anyone sets: a bound on a request's size. */
+  public static final int MAX_TAG_OPTIONS_CHANGES = 1000;
+
+  /**
+   * Replaces each changed tag's options, the last change for a tag winning.
+   *
+   * @param knownSeq the client's cursor: tags renamed or removed since are so in the changes too (see
+   *                 {@link #pushMeta}). Null: none are.
+   * A change that isn't valid (an unknown color, from another build…) is skipped, not refused:
+   * the rest of the push is applied already, and the client mustn't send it again forever.
+   *
+   * @return every tag's options now.
+   * @throws InvalidInputException past {@link #MAX_TAG_OPTIONS_CHANGES}.
+   */
+  public Map<String, TagOptions> pushTagOptions(String username, List<TagOptionsChange> changes, Long knownSeq) throws IOException {
+    if (changes.size() > MAX_TAG_OPTIONS_CHANGES) throw new InvalidInputException("At most " + MAX_TAG_OPTIONS_CHANGES + " tag options changes.");
+    UserNoteStore store = noteStores.getStore(username);
+    synchronized (store) {
+      List<TagOptionsChange> renamed = new ArrayList<>();
+      for (TagOptionsChange change : changes) {
+        if (change == null || !isValidTag(change.tag()) || (change.options() != null && !change.options().isValid())) {
+          LOGGER.warning("Tag options change of " + username + " skipped, not valid: " + change);
+          continue;
+        }
+        String tag = change.tag();
+        for (UserNoteStore.StoredTagEvent event : knownSeq == null ? List.<UserNoteStore.StoredTagEvent>of() : store.tagEventsAfter(knownSeq)) {
+          if (tag != null && tag.equals(event.from())) tag = event.to();
+        }
+        // Set before its tag was removed everywhere: nothing to set any more.
+        if (tag != null) renamed.add(new TagOptionsChange(tag, change.options()));
+      }
+      UserNoteStore.StoredTagOptions now = store.setTagOptions(renamed);
+      return now == null ? Map.of() : now.tags();
+    }
+  }
+
   /**
    * Replaces the user's tag order, unless it changed since {@code change}'s base: the client then
    * replays its moves on the current one. Each tag must be a valid one; tags in use but missing are
@@ -361,8 +399,10 @@ public class NoteService implements Service {
       TagOrder tagOrder = order != null && order.seq() > since && order.seq() <= seq ? tagOrderOf(order) : null;
       List<TagEvent> events = store.tagEventsAfter(since).stream().filter(event -> event.seq() <= seq)
           .map(UserNoteStore.StoredTagEvent::event).toList();
+      UserNoteStore.StoredTagOptions options = store.getTagOptions();
+      Map<String, TagOptions> tagOptions = options != null && options.seq() > since && options.seq() <= seq ? options.tags() : null;
       return new ChangesPage(store.getStoreId(), seq, page.stream().map(NoteService::info).toList(), more, tagOrder,
-          events.isEmpty() ? null : events);
+          events.isEmpty() ? null : events, tagOptions);
     }
   }
 

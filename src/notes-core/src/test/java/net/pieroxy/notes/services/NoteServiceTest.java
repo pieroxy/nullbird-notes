@@ -15,6 +15,8 @@ import net.pieroxy.notes.sync.PushStatus;
 import net.pieroxy.notes.sync.RejectReason;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.sync.TagEvent;
+import net.pieroxy.notes.sync.TagOptions;
+import net.pieroxy.notes.sync.TagOptionsChange;
 import net.pieroxy.notes.sync.TagOrderChange;
 import net.pieroxy.notes.storage.UserNoteStore;
 import net.pieroxy.notes.utils.Hashes;
@@ -726,5 +728,65 @@ public class NoteServiceTest {
     UserNoteStore reopened = UserNoteStore.open(tmp.getRoot().toPath().resolve("users").resolve("alice"), java.time.Clock.systemUTC());
     assertEquals(seq, reopened.getLastSeq());
     assertEquals(1, reopened.tagEventsAfter(cursor).size());
+  }
+
+  // ---- Tag options ----
+
+  private static TagOptions colors(String dot, String notes) {
+    return new TagOptions(dot, null, null, null, notes);
+  }
+
+  @Test
+  public void tagOptionsAreSetTheLastChangeWinningAndComeWithTheChanges() throws Exception {
+    long cursor = service.changes("alice", 0).seq();
+    Map<String, TagOptions> now = service.pushTagOptions("alice", List.of(
+        new TagOptionsChange("work", colors("blue", null)), new TagOptionsChange("work", colors("red", "red")),
+        new TagOptionsChange("home", colors("green", null))), cursor);
+    assertEquals(Map.of("work", colors("red", "red"), "home", colors("green", null)), now);
+    ChangesPage page = service.changes("alice", cursor);
+    assertEquals(now, page.tagOptions());
+    assertNull(service.changes("alice", page.seq()).tagOptions());
+
+    // Back to none; an unknown color or an invalid tag skipped, the rest applied.
+    now = service.pushTagOptions("alice", List.of(new TagOptionsChange("home", null), new TagOptionsChange("art", colors("mauve", null)),
+        new TagOptionsChange("has space", colors("red", null)), new TagOptionsChange("art", new TagOptions(null, null, null, null, null))), null);
+    assertEquals(Map.of("work", colors("red", "red")), now);
+  }
+
+  @Test
+  public void tagOptionsFollowARenameAMergeKeepingTheTargetsAndGoWithARemoval() throws Exception {
+    push(A, 0, "a");
+    pushMeta(A, List.of("work", "job", "drafts"), null, null, null);
+    service.pushTagOptions("alice", List.of(new TagOptionsChange("work", colors("red", null)), new TagOptionsChange("drafts", colors("blue", null))), null);
+    service.renameTag("alice", "d", "work", "task");
+    assertEquals(Map.of("task", colors("red", null), "drafts", colors("blue", null)), stores.getStore("alice").getTagOptions().tags());
+
+    service.pushTagOptions("alice", List.of(new TagOptionsChange("job", colors("green", null))), null);
+    service.renameTag("alice", "d", "task", "job");
+    assertEquals(colors("green", null), stores.getStore("alice").getTagOptions().tags().get("job"));
+
+    service.deleteTag("alice", "d", "drafts");
+    assertEquals(Map.of("job", colors("green", null)), stores.getStore("alice").getTagOptions().tags());
+  }
+
+  @Test
+  public void tagOptionsSetBeforeTheClientKnewOfARenameFollowIt() throws Exception {
+    push(A, 0, "a");
+    pushMeta(A, List.of("work", "drafts"), null, null, null);
+    long cursor = service.changes("alice", 0).seq();
+    service.renameTag("alice", "d", "work", "job");
+    service.deleteTag("alice", "d", "drafts");
+    Map<String, TagOptions> now = service.pushTagOptions("alice",
+        List.of(new TagOptionsChange("work", colors("red", null)), new TagOptionsChange("drafts", colors("blue", null))), cursor);
+    assertEquals(Map.of("job", colors("red", null)), now);
+  }
+
+  @Test
+  public void tagOptionsSurviveARestart() throws Exception {
+    service.pushTagOptions("alice", List.of(new TagOptionsChange("work", colors("red", "teal"))), null);
+    long seq = stores.getStore("alice").getLastSeq();
+    UserNoteStore reopened = UserNoteStore.open(tmp.getRoot().toPath().resolve("users").resolve("alice"), java.time.Clock.systemUTC());
+    assertEquals(seq, reopened.getLastSeq());
+    assertEquals(Map.of("work", colors("red", "teal")), reopened.getTagOptions().tags());
   }
 }

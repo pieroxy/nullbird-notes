@@ -1,5 +1,7 @@
 import m from "mithril";
 import { isActive, NO_FILTER, TagCount, TagFilter, toggle, toggleMerged, toggleUntagged, visibleTags } from "../utils/TagFilter";
+import { TagOptions } from "../auto/api-types";
+import { tagClasses, tagDot } from "../utils/TagLook";
 import { icon, iconButton } from "./Icons";
 
 export interface TagPanelAttrs {
@@ -18,6 +20,8 @@ export interface TagPanelAttrs {
   onMoveBy: (tag: string, by: number) => void;
   /** Opens {@code tag}'s settings: its name, removing it (see TagSettings). */
   onSettings: (tag: string) => void;
+  /** How each tag looks (see TagLook): tags with none aren't in it. */
+  tagOptions: { [tag: string]: TagOptions };
 }
 
 /** A tag being dragged in reorder mode, and where it would go. */
@@ -82,7 +86,7 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
       // One keyed list, without holes: mithril refuses keyed and unkeyed siblings mixed, and nulls among
       // keyed ones. " none" can't be a tag: tags have no spaces.
       [
-        ...shown.map((count) => m("li", { key: count.tag }, tagItem(count.tag, count.count, count.selected, () => onChange(toggle(filter, count.tag))))),
+        ...shown.map((count) => m("li", { key: count.tag }, tagItem(count.tag, count.count, count.selected, () => onChange(toggle(filter, count.tag)), "", attrs.tagOptions[count.tag]))),
         ...(filter.tags.length > 0 && !searching && !narrowing ? [m("li.empty", { key: " none" }, "No other tag narrows this further.")] : []),
       ],
     ]);
@@ -116,7 +120,7 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
           "aria-hidden": "true",
           onpointerdown: (e: PointerEvent) => this.startDrag(e, tag, index, attrs),
         }, icon("grip-vertical")),
-        m("span.tagname", tag),
+        m("span.tagname" + tagClasses(attrs.tagOptions[tag]), [tagDot(attrs.tagOptions[tag]), tag]),
       ]), iconButton("settings", "Settings of " + tag, () => attrs.onSettings(tag), "tagsettings")])));
   }
 
@@ -225,12 +229,12 @@ export function tagSearch(attrs: TagSearchAttrs): m.Children {
 }
 
 /** A tag that would leave no note is dimmed but stays clickable: the empty list says why. */
-function tagItem(label: string, count: number, selected: boolean, onclick: () => void, cls = ""): m.Children {
+function tagItem(label: string, count: number, selected: boolean, onclick: () => void, cls = "", options?: TagOptions): m.Children {
   return m("button.tagitem" + (selected ? ".selected" : "") + (count === 0 && !selected ? ".none" : "") + (cls ? "." + cls : ""), {
     type: "button", role: "checkbox", "aria-checked": String(selected), onclick,
   }, [
     m("span.checkmark", selected ? icon("check") : null),
-    m("span.tagname", label),
+    m("span.tagname" + tagClasses(options), [tagDot(options), label]),
     m("span.count", count),
   ]);
 }

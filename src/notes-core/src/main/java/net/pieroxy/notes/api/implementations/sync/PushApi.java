@@ -12,11 +12,14 @@ import net.pieroxy.notes.services.NoteService;
 import net.pieroxy.notes.sync.MetaChange;
 import net.pieroxy.notes.sync.NoteChange;
 import net.pieroxy.notes.sync.PushResult;
+import net.pieroxy.notes.sync.TagOptions;
+import net.pieroxy.notes.sync.TagOptionsChange;
 import net.pieroxy.notes.sync.TagOrderChange;
 import net.pieroxy.notes.sync.TagOrderResult;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Applies changes in order, each on its own: one rejected change doesn't stop the next. Text
@@ -34,6 +37,10 @@ public class PushApi extends AbstractAuthenticatedEndpoint<PushApiInput, PushApi
   @Override
   public PushApiOutput processAuthenticated(PushApiInput input) throws Exception {
     List<MetaChange> metaChanges = input.getMetaChanges() == null ? List.of() : input.getMetaChanges();
+    // Before anything is applied: a refusal after would leave the push half done.
+    if (input.getTagOptions() != null && input.getTagOptions().size() > NoteService.MAX_TAG_OPTIONS_CHANGES) {
+      throw new InvalidInputException("At most " + NoteService.MAX_TAG_OPTIONS_CHANGES + " tag options changes per push.");
+    }
     if (input.getChanges().size() > MAX_CHANGES_PER_PUSH || metaChanges.size() > MAX_CHANGES_PER_PUSH) {
       throw new InvalidInputException("At most " + MAX_CHANGES_PER_PUSH + " changes and " + MAX_CHANGES_PER_PUSH
           + " metadata changes per push.");
@@ -48,7 +55,11 @@ public class PushApi extends AbstractAuthenticatedEndpoint<PushApiInput, PushApi
       metaResults.add(notes.pushMeta(input.getUsername(), input.getDeviceId(), change, input.getSince()));
     }
     TagOrderResult tagOrder = input.getTagOrder() == null ? null : notes.pushTagOrder(input.getUsername(), input.getTagOrder());
-    return new PushApiOutput(results, metaResults, tagOrder);
+    Map<String, TagOptions> tagOptions = input.getTagOptions() == null ? null
+        : notes.pushTagOptions(input.getUsername(), input.getTagOptions(), input.getSince());
+    PushApiOutput output = new PushApiOutput(results, metaResults, tagOrder);
+    output.setTagOptions(tagOptions);
+    return output;
   }
 }
 
@@ -62,6 +73,17 @@ class PushApiInput extends AuthenticatedApiInput {
   private List<MetaChange> metaChanges;
   /** Absent: the order doesn't change. */
   private TagOrderChange tagOrder;
+  /** Absent: no tag's options change. */
+  private List<TagOptionsChange> tagOptions;
+
+  public List<TagOptionsChange> getTagOptions() {
+    return tagOptions;
+  }
+
+  public void setTagOptions(List<TagOptionsChange> tagOptions) {
+    this.tagOptions = tagOptions;
+  }
+
   /** The client's cursor: its metadata changes follow the tags renamed or removed since (see NoteService#pushMeta). */
   private Long since;
 
@@ -116,6 +138,16 @@ class PushApiOutput {
   private List<PushResult> metaResults;
   /** Absent if no tag order was sent. */
   private TagOrderResult tagOrder;
+  /** Every tag's options now; absent if no tag options were sent. */
+  private Map<String, TagOptions> tagOptions;
+
+  public Map<String, TagOptions> getTagOptions() {
+    return tagOptions;
+  }
+
+  public void setTagOptions(Map<String, TagOptions> tagOptions) {
+    this.tagOptions = tagOptions;
+  }
 
   public PushApiOutput() {
   }
