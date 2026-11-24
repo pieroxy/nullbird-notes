@@ -29,6 +29,7 @@ import { noteSearch } from "../NoteSearch";
 import { SyncStatusIndicator } from "../SyncStatusIndicator";
 import { TagPanel, tagSearch } from "../TagPanel";
 import { TagSettings } from "../TagSettings";
+import { TrashedNote } from "../TrashedNote";
 import { noteStripes } from "../../utils/TagLook";
 import { TagOptions } from "../../auto/api-types";
 import { AbstractPage } from "./AbstractPage";
@@ -247,6 +248,21 @@ export class NotesPage extends AbstractPage {
     });
   }
 
+  /** Every note listed in the trash, deleted for good once confirmed. */
+  private async emptyTrash(engine: SyncEngine, ids: string[]) {
+    if (!ids.length || !confirm("Delete " + (ids.length === 1 ? "this note" : "these " + ids.length + " notes")
+      + " forever? Their history goes too: they can't be brought back.")) return;
+    try {
+      const gone = await engine.purge(ids);
+      if (this.selectedId && !engine.get(this.selectedId)) this.selectedId = undefined;
+      const left = ids.length - gone;
+      this.showToast("Deleted " + (gone === 1 ? "1 note" : gone + " notes") + " forever."
+        + (left > 0 ? " " + left + " not yet: their delete isn't on the server yet." : ""));
+    } catch (err) {
+      this.showToast("The trash couldn't be emptied: " + (err as Error).message);
+    }
+  }
+
   private showToast(message: string, undo?: () => void) {
     clearTimeout(this.toastTimer);
     this.toast = { message, undo };
@@ -292,9 +308,11 @@ export class NotesPage extends AbstractPage {
   private panes(engine: SyncEngine): m.Children {
     this.followTagEvents(engine);
     const selected = this.selectedId ? engine.get(this.selectedId) : undefined;
-    if (this.selectedId && (!selected || selected.deleted)) this.selectedId = undefined;
+    // A deleted note is shown in the trash only.
+    if (this.selectedId && (!selected || (selected.deleted && !this.filter.trash))) this.selectedId = undefined;
     const notes = engine.list();
-    const tags = new Map(notes.map((note) => [note.id, tagsOf(note)]));
+    const trashed = engine.trashed();
+    const tags = new Map([...notes, ...trashed].map((note) => [note.id, tagsOf(note)]));
     retainMergeMarks(new Set(tags.keys()));
     const tagOptions = engine.allTagOptions();
     // Each tag's place in the user's order, for the notes' stripes.
@@ -316,8 +334,9 @@ export class NotesPage extends AbstractPage {
         filter: this.filter,
         counts: this.tagCounts(engine),
         search: this.tagSearch,
-        untaggedCount: [...tags.values()].filter((noteTags) => noteTags.length === 0).length,
+        untaggedCount: notes.filter((note) => tags.get(note.id)!.length === 0).length,
         mergedCount: notes.filter(merged).length,
+        trashCount: trashed.length,
         onChange: onFilter,
         onMove: (tag: string, index: number) => {
           const listed = this.tagCounts(engine).map((count) => count.tag);
@@ -336,14 +355,16 @@ export class NotesPage extends AbstractPage {
       this.resizer("tags"),
       m(NoteList, {
         key: "list",
-        notes: this.sorted(notes.filter((note) => matches(this.filter, tags.get(note.id)!, merged(note), this.searchHidden && terms.length > 0 ? undefined : hidden)
-          && (terms.length === 0 || found(note))), sort),
+        notes: this.filter.trash ? trashed.filter((note) => terms.length === 0 || found(note))
+          : this.sorted(notes.filter((note) => matches(this.filter, tags.get(note.id)!, merged(note), this.searchHidden && terms.length > 0 ? undefined : hidden)
+            && (terms.length === 0 || found(note))), sort),
+        onEmptyTrash: () => void this.emptyTrash(engine, trashed.filter((note) => terms.length === 0 || found(note)).map((note) => note.id)),
         // Searching, those of hidden tags that would match: said, and shown on request.
-        hiddenMatches: terms.length > 0 && !this.searchHidden && hidden.size > 0
+        hiddenMatches: terms.length > 0 && !this.searchHidden && hidden.size > 0 && !this.filter.trash
           ? notes.filter((note) => !matches(this.filter, tags.get(note.id)!, merged(note), hidden)
             && matches(this.filter, tags.get(note.id)!, merged(note)) && found(note)).length : 0,
         onShowHidden: () => (this.searchHidden = true),
-        total: notes.length,
+        total: this.filter.trash ? trashed.length : notes.length,
         filter: this.filter,
         onFilter,
         ...this.searchAttrs(),
@@ -354,7 +375,24 @@ export class NotesPage extends AbstractPage {
         stripesOf: (note: LocalNote) => noteStripes(tags.get(note.id)!, tagOptions, rank),
       }),
       this.resizer("list"),
-      selected
+      selected?.deleted
+        ? m(TrashedNote, {
+          key: "trashed " + selected.id,
+          note: selected,
+          ...this.editorOptions(this.applied(engine, selected)),
+          loadText: () => engine.trashedText(selected.id),
+          onRestore: async () => {
+            await engine.restore(selected.id);
+            this.showToast("Restored.");
+          },
+          onPurge: async () => {
+            const gone = await engine.purge([selected.id]);
+            if (gone === 0) throw new Error("Not deleted on the server yet: try again once it's synced.");
+            this.selectedId = undefined;
+            this.showToast("Deleted forever.");
+          },
+        })
+        : selected
         ? m(NoteEditor, {
           key: selected.id,
           note: selected,
@@ -558,6 +596,7 @@ export class NotesPage extends AbstractPage {
 
   /** It gets the tags filtered on: otherwise it wouldn't be in the list it was created from. A search would hide it too: cleared. */
   private newNote(engine: SyncEngine) {
+    if (this.filter.trash) this.setFilter(NO_FILTER);
     this.showTags = false;
     this.clearSearch();
     this.select(engine.create(this.filter.tags));

@@ -342,6 +342,42 @@ public class NoteService implements Service {
     }
   }
 
+  /** A bound on a request's size: emptying a larger trash takes a few. */
+  public static final int MAX_PURGES_PER_REQUEST = 1000;
+
+  /**
+   * A deleted note's text, as it was when deleted: for the trash, on a device that never had it.
+   *
+   * @return null if there's no such note, or it isn't deleted.
+   */
+  public String trashedText(String username, String noteId) throws IOException {
+    UserNoteStore store = noteStores.getStore(username);
+    synchronized (store) {
+      NoteMeta meta = store.get(noteId);
+      return meta == null || !meta.deleted() ? null : store.readContent(noteId);
+    }
+  }
+
+  /**
+   * Deletes for good those of {@code noteIds} that are deleted, with their history: the others
+   * (not deleted, or not yet: a device's delete not sent) are left alone. Clients forget them with
+   * the next changes.
+   *
+   * @return the IDs of the notes deleted for good.
+   */
+  public List<String> purge(String username, List<String> noteIds) throws IOException {
+    if (noteIds.size() > MAX_PURGES_PER_REQUEST) throw new InvalidInputException("At most " + MAX_PURGES_PER_REQUEST + " notes at a time.");
+    for (String id : noteIds) {
+      if (id == null || !UserNoteStore.NOTE_ID_PATTERN.matcher(id).matches()) throw new InvalidInputException("Invalid noteId.");
+    }
+    UserNoteStore store = noteStores.getStore(username);
+    synchronized (store) {
+      List<String> gone = store.purge(noteIds);
+      if (!gone.isEmpty()) LOGGER.info(username + " deleted " + gone.size() + " note(s) for good");
+      return gone;
+    }
+  }
+
   /** Far more than anyone sets: a bound on a request's size. */
   public static final int MAX_TAG_OPTIONS_CHANGES = 1000;
 
@@ -423,8 +459,9 @@ public class NoteService implements Service {
           .map(UserNoteStore.StoredTagEvent::event).toList();
       UserNoteStore.StoredTagOptions options = store.getTagOptions();
       Map<String, TagOptions> tagOptions = options != null && options.seq() > since && options.seq() <= seq ? options.tags() : null;
+      List<String> purged = store.purgesAfter(since).stream().filter(p -> p.seq() <= seq).map(UserNoteStore.StoredPurge::noteId).toList();
       return new ChangesPage(store.getStoreId(), seq, page.stream().map(NoteService::info).toList(), more, tagOrder,
-          events.isEmpty() ? null : events, tagOptions);
+          events.isEmpty() ? null : events, tagOptions, purged.isEmpty() ? null : purged);
     }
   }
 

@@ -401,6 +401,79 @@ describe("SyncEngine", () => {
     await until(() => server.text(A) === "Mine, edited during the fetch");
   });
 
+  describe("the trash", () => {
+    test("deleted here: in the trash; restored, back, on the server too", async () => {
+      server.write(A, "First");
+      await startEngine();
+      engine.delete(A);
+      expect(engine.trashed().map((n) => n.id)).toEqual([A]);
+      await until(() => engine.status().state === "synced" && server.notes.get(A)!.info.deleted);
+      await engine.restore(A);
+      expect(engine.trashed()).toEqual([]);
+      expect(engine.list().map((n) => n.id)).toEqual([A]);
+      await until(() => engine.status().state === "synced" && !server.notes.get(A)!.info.deleted);
+      expect(server.text(A)).toBe("First");
+    });
+
+    test("restored while its delete is still out: the restore goes too", async () => {
+      server.write(A, "First");
+      await startEngine();
+      let release!: () => void;
+      server.gate = new Promise((resolve) => (release = resolve));
+      engine.delete(A);
+      await until(() => server.pushes.length > 0);
+      await engine.restore(A);
+      release();
+      server.gate = undefined;
+      await until(() => engine.status().state === "synced" && !engine.get(A)!.dirty, 5_000);
+      expect(server.notes.get(A)!.info.deleted).toBe(false);
+    });
+
+    test("deleted before it came here: its text from the server, to show and restore", async () => {
+      server.write(A, "Old text");
+      server.write(A, "Old text", true);
+      await startEngine();
+      expect(engine.trashed().map((n) => n.id)).toEqual([A]);
+      expect(await engine.trashedText(A)).toBe("Old text");
+      await engine.restore(A);
+      await until(() => engine.status().state === "synced" && !server.notes.get(A)!.info.deleted);
+      expect(server.text(A)).toBe("Old text");
+    });
+
+    test("deleted before it came here, then restored elsewhere: its text arrives", async () => {
+      server.write(A, "Old text");
+      server.write(A, "Old text", true);
+      await startEngine();
+      server.write(A, "Old text");
+      await until(() => engine.get(A)?.deleted === false, 5_000);
+      expect(engine.get(A)!.text).toBe("Old text");
+      expect(engine.status().state).toBe("synced");
+    });
+
+    test("deleted for good: only once the server has the delete; another device forgets it too", async () => {
+      server.write(A, "First");
+      server.write(B, "Second");
+      await startEngine();
+      server.failNext = 1000;
+      engine.delete(A);
+      await until(() => engine.status().state === "offline");
+      expect(await engine.purge([A])).toBe(0);
+      expect(engine.trashed().map((n) => n.id)).toEqual([A]);
+      server.failNext = 0;
+      engine.retryNow();
+      await until(() => engine.status().state === "synced" && server.notes.get(A)!.info.deleted, 5_000);
+      expect(await engine.purge([A])).toBe(1);
+      expect(engine.get(A)).toBeUndefined();
+      expect(server.notes.has(A)).toBe(false);
+
+      // Another device deletes B, then empties its trash.
+      server.write(B, "Second", true);
+      await until(() => engine.get(B)?.deleted === true);
+      await server.purge([B]);
+      await until(() => engine.get(B) === undefined);
+    });
+  });
+
   describe("renaming and removing tags", () => {
     async function withTags() {
       server.write(A, "First");

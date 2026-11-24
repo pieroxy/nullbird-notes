@@ -1,8 +1,8 @@
 import m from "mithril";
-import { isActive, NO_FILTER, TagCount, TagFilter, toggle, toggleMerged, toggleUntagged, visibleTags } from "../utils/TagFilter";
+import { isActive, NO_FILTER, TagCount, TagFilter, toggle, toggleMerged, toggleTrash, toggleUntagged, visibleTags } from "../utils/TagFilter";
 import { TagOptions } from "../auto/api-types";
 import { tagClasses, tagDot } from "../utils/TagLook";
-import { icon, iconButton } from "./Icons";
+import { icon, iconButton, IconName } from "./Icons";
 
 export interface TagPanelAttrs {
   filter: TagFilter;
@@ -13,6 +13,8 @@ export interface TagPanelAttrs {
   untaggedCount: number;
   /** Notes with merge marks to check (see MergeMarks): listed only when there are some, or while filtering on them. */
   mergedCount: number;
+  /** Notes in the trash: listed only when there are some, or while it's shown. */
+  trashCount: number;
   onChange: (filter: TagFilter) => void;
   /** Puts {@code tag} at {@code index} among the tags listed. */
   onMove: (tag: string, index: number) => void;
@@ -64,6 +66,8 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
         attrs.mergedCount > 0 || filter.merged
           ? tagItem("Merge markers", attrs.mergedCount, filter.merged, () => onChange(toggleMerged(filter)), "merged") : null,
         tagItem("Untagged notes", attrs.untaggedCount, filter.untagged, () => onChange(toggleUntagged(filter)), "untagged"),
+        attrs.trashCount > 0 || filter.trash
+          ? tagItem("Trash", attrs.trashCount, !!filter.trash, () => onChange(toggleTrash(filter)), "trash", undefined, "trash-2") : null,
         m(".footactions", [
           isActive(filter) ? m("button.plain.clearfilter", { type: "button", onclick: () => onChange(NO_FILTER) }, "Clear filter") : null,
           attrs.counts.length > 0 ? m("button.plain.reorder", {
@@ -230,12 +234,12 @@ export function tagSearch(attrs: TagSearchAttrs): m.Children {
 }
 
 /** A tag that would leave no note is dimmed but stays clickable: the empty list says why. */
-function tagItem(label: string, count: number, selected: boolean, onclick: () => void, cls = "", options?: TagOptions): m.Children {
+function tagItem(label: string, count: number, selected: boolean, onclick: () => void, cls = "", options?: TagOptions, iconName?: IconName): m.Children {
   return m("button.tagitem" + (selected ? ".selected" : "") + (count === 0 && !selected ? ".none" : "") + (cls ? "." + cls : ""), {
     type: "button", role: "checkbox", "aria-checked": String(selected), onclick,
   }, [
     m("span.checkmark", selected ? icon("check") : null),
-    m("span.tagname" + tagClasses(options), [tagDot(options), label]),
+    m("span.tagname" + tagClasses(options), [iconName ? m("span.tagicon", icon(iconName)) : null, tagDot(options), label]),
     hiddenMark(options),
     m("span.count", count),
   ]);

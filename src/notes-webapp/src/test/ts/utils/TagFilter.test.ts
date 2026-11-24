@@ -1,4 +1,4 @@
-import { inOrder, isActive, matches, visible, NO_FILTER, tagCounts, toggle, toggleMerged, toggleUntagged, visibleTags } from "../../../ts/utils/TagFilter";
+import { inOrder, isActive, matches, visible, NO_FILTER, tagCounts, toggle, toggleMerged, toggleTrash, toggleUntagged, TRASH, visibleTags } from "../../../ts/utils/TagFilter";
 
 const NOTES = [["work", "urgent"], ["work"], ["home"], [], ["work", "home"]];
 
@@ -53,6 +53,15 @@ describe("TagFilter", () => {
       { tag: "archive", count: 2, selected: true },
       { tag: "work", count: 1, selected: false },
     ]);
+  });
+
+  test("the trash: a view of its own, left by selecting anything else", () => {
+    const trash = toggleTrash(NO_FILTER);
+    expect(trash).toEqual(TRASH);
+    expect(isActive(trash)).toBe(true);
+    expect(toggleTrash(trash)).toEqual(NO_FILTER);
+    expect(toggle(trash, "work").trash).toBeFalsy();
+    expect(toggleUntagged(trash).trash).toBeFalsy();
   });
 
   test("toggling", () => {

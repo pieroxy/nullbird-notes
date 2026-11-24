@@ -2784,3 +2784,86 @@ $tag-colors: red, orange, yellow, green, teal, blue, purple, pink;
     font-size: inherit;
   }
 }
+
+// The trash (see TrashedNote.ts): its entry's icon in the tags panel, the list's bar, a note in it.
+.tagpanel .tagicon {
+  display: inline-flex;
+  margin-right: 6px;
+  vertical-align: -2px;
+  color: var(--text-muted);
+
+  svg.icon {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.notelist .trashbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: scaled(12px);
+
+  .muted {
+    color: var(--text-muted);
+  }
+
+  button.link {
+    font-size: inherit;
+  }
+}
+
+button.link.danger {
+  color: var(--error);
+}
+
+.editor.trashed {
+  .trashbanner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-pane);
+    font-size: scaled(14px);
+  }
+
+  button.danger {
+    border-color: var(--error);
+    background: transparent;
+    color: var(--error);
+  }
+
+  .trasherror {
+    margin: 8px 16px 0;
+    color: var(--error);
+  }
+
+  .trashtext {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    overflow: auto;
+    padding: 16px 20px;
+    color: var(--text-muted);
+    font-family: var(--font-note);
+    font-size: var(--editor-font-size);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+
+    &.monospace {
+      font-family: var(--font-mono);
+      font-size: var(--editor-mono-font-size);
+    }
+  }
+
+  .mdview {
+    color: var(--text-muted);
+  }
+}

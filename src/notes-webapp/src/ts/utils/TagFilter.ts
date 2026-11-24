@@ -1,13 +1,14 @@
 /**
  * Which notes the list shows: those with all of {@code tags}; or, with {@code untagged}, those
- * with none; or, with {@code merged}, those with merge marks to check (see MergeMarks). Those two
- * are views of their own: then {@code tags} is empty, and only one is on. Kept per device, not
- * synced: it's a view, not data.
+ * with none; or, with {@code merged}, those with merge marks to check (see MergeMarks); or, with
+ * {@code trash}, the deleted ones. Those three are views of their own: then {@code tags} is empty,
+ * and only one is on. Kept per device, not synced: it's a view, not data.
  */
 export interface TagFilter {
   tags: string[];
   untagged: boolean;
   merged: boolean;
+  trash?: boolean;
 }
 
 export interface TagCount {
@@ -18,6 +19,9 @@ export interface TagCount {
 }
 
 export const NO_FILTER: TagFilter = { tags: [], untagged: false, merged: false };
+
+/** The trash: deleted notes, whatever their tags. */
+export const TRASH: TagFilter = { tags: [], untagged: false, merged: false, trash: true };
 
 const NONE: ReadonlySet<string> = new Set();
 
@@ -32,7 +36,7 @@ export function visible(noteTags: string[], selected: string[], hidden: Readonly
 }
 
 export function isActive(filter: TagFilter): boolean {
-  return filter.untagged || filter.merged || filter.tags.length > 0;
+  return filter.untagged || filter.merged || !!filter.trash || filter.tags.length > 0;
 }
 
 /**
@@ -109,7 +113,8 @@ export function loadFilter(username: string): TagFilter {
     const stored = JSON.parse(localStorage.getItem(STORAGE_PREFIX + username) ?? "null");
     if (stored && Array.isArray(stored.tags) && stored.tags.every((tag: unknown) => typeof tag === "string")) {
       const untagged = stored.untagged === true && stored.tags.length === 0;
-      return { tags: stored.tags, untagged, merged: stored.merged === true && stored.tags.length === 0 && !untagged };
+      const merged = stored.merged === true && stored.tags.length === 0 && !untagged;
+      return stored.trash === true && stored.tags.length === 0 && !untagged && !merged ? TRASH : { tags: stored.tags, untagged, merged };
     }
   } catch {
     // Unavailable or garbled: no filter.
@@ -124,4 +129,8 @@ export function saveFilter(username: string, filter: TagFilter) {
   } catch {
     // See loadFilter.
   }
+}
+
+export function toggleTrash(filter: TagFilter): TagFilter {
+  return filter.trash ? NO_FILTER : TRASH;
 }

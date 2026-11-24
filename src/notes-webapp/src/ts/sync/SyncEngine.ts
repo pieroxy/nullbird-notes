@@ -7,7 +7,7 @@ import {
 } from "./Metadata";
 import {
   applyPushResult, applyRemote, changeOf, created, deletedLocally, edited, forResync, haveRevision, isPushable, needsFetch,
-  compareNotes, prepareChange, remoteText,
+  compareNotes, prepareChange, remoteText, sortKey,
 } from "./Outcomes";
 import { sha256 } from "./Sha256";
 import { SyncApi } from "./SyncApi";
@@ -50,6 +50,8 @@ export const TIMINGS = {
 
 const MAX_CHANGES_PER_PUSH = 100;
 const MAX_NOTES_PER_FETCH = 200;
+/** As the server's NoteService.MAX_PURGES_PER_REQUEST. */
+const MAX_PURGES = 1000;
 
 /**
  * Keeps one user's local notes and the server in sync. The UI reads and edits notes only through
@@ -114,6 +116,75 @@ export class SyncEngine {
     return () => this.listeners.delete(listener);
   }
 
+
+  /** The notes in the trash: deleted, here or elsewhere; last deleted first. */
+  trashed(): LocalNote[] {
+    return [...this.notes.values()].filter((note) => note.deleted).sort((a, b) => sortKey(b) - sortKey(a));
+  }
+
+  /**
+   * A deleted note's text: as this device has it, or from the server when it never had it (the
+   * note was deleted before it came here). Kept, then: restoring it needs it.
+   */
+  async trashedText(id: string): Promise<string> {
+    const note = this.notes.get(id);
+    if (!note || !note.deleted) throw new Error("Not in the trash.");
+    if (note.text || note.baseRevision === 0) return note.text;
+    const text = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.trashedText(id, signal));
+    const now = this.notes.get(id);
+    if (now && now.deleted && !now.text) {
+      const known = { ...now, text, baseText: now.dirty ? now.baseText : text };
+      this.notes.set(id, known);
+      await this.store.putNotes([known]);
+      this.notify();
+    }
+    return text;
+  }
+
+  /**
+   * Out of the trash: an edit, which beats the delete on the server (see NoteService), so that
+   * it works whichever device deleted it, and whether the delete was sent yet or not.
+   */
+  async restore(id: string) {
+    const text = await this.trashedText(id);
+    const note = this.notes.get(id);
+    if (!note || !note.deleted) return;
+    this.notes.set(id, { ...note, deleted: false, text, dirty: true, editedAt: Date.now(), error: undefined });
+    this.unsaved.add(id);
+    this.scheduleSave();
+    this.schedulePush(0);
+    this.notify();
+  }
+
+  /**
+   * Deletes notes in the trash for good, with their history. Needs the server. Those whose delete
+   * isn't on the server yet stay: emptied again once it is.
+   *
+   * @return how many were deleted for good.
+   */
+  async purge(ids: string[]): Promise<number> {
+    const ready = ids.filter((id) => {
+      const note = this.notes.get(id);
+      return note?.deleted && !note.dirty && !note.pending && note.baseRevision > 0;
+    });
+    let gone: string[] = [];
+    for (let i = 0; i < ready.length; i += MAX_PURGES) {
+      const batch = ready.slice(i, i + MAX_PURGES);
+      gone = gone.concat(await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.purge(batch, signal)));
+    }
+    await this.forget(gone);
+    return gone.length;
+  }
+
+  /** Deleted for good, here or elsewhere: gone from this device too. One restored meanwhile stays: its push brings it back. */
+  private async forget(ids: string[]) {
+    const gone = ids.filter((id) => this.notes.get(id)?.deleted);
+    for (const id of gone) {
+      this.notes.delete(id);
+      await this.store.removeNote(id);
+    }
+    if (gone.length) this.notify();
+  }
 
   /** Notes not deleted, pinned ones first, then newest first (see compareNotes). */
   list(): LocalNote[] {
@@ -412,6 +483,7 @@ export class SyncEngine {
     for (const note of updated) this.notes.set(note.id, note);
     await this.store.putNotes(updated);
     if (page.tagEvents?.length) await this.applyTagEvents(page.tagEvents);
+    if (page.purged?.length) await this.forget(page.purged);
     this.meta = { ...this.meta, storeId: page.storeId, cursor: page.seq };
     if (page.tagOrder && page.tagOrder.revision > (this.meta.tagOrder?.revision ?? 0)) this.meta = { ...this.meta, tagOrder: page.tagOrder };
     if (page.tagOptions) this.meta = { ...this.meta, tagOptions: page.tagOptions };

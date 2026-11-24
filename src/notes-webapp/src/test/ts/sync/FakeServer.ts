@@ -77,7 +77,9 @@ export class FakeServer implements SyncApi {
     const order = this.tagOrder && this.tagOrder.seq > since ? { revision: this.tagOrder.revision, tags: this.tagOrder.tags } : undefined;
     const events = this.tagEvents.filter((e) => e.seq > since).map(({ from, to }) => (to === undefined ? { from } : { from, to }));
     const tagOptions = this.tagOptions && this.tagOptions.seq > since ? this.tagOptions.tags : undefined;
-    return { storeId: this.storeId, seq: this.seq, notes, more: false, tagOrder: order, tagEvents: events.length ? events : undefined, tagOptions };
+    const purged = this.purges.filter((p) => p.seq > since).map((p) => p.id);
+    return { storeId: this.storeId, seq: this.seq, notes, more: false, tagOrder: order, tagEvents: events.length ? events : undefined, tagOptions,
+      purged: purged.length ? purged : undefined };
   }
 
   async getNotes(requests: NoteRequest[]): Promise<NotesResult> {
@@ -160,6 +162,31 @@ export class FakeServer implements SyncApi {
     this.tagEvents.push({ from, to, seq: this.seq });
     this.wake();
     return { noteIds };
+  }
+
+  /** Notes deleted for good, at their seq. */
+  readonly purges: { id: string; seq: number }[] = [];
+
+  async trashedText(noteId: string): Promise<string> {
+    this.check();
+    const note = this.notes.get(noteId);
+    if (!note?.info.deleted) throw new ApiError(ApiErrorKind.API, "No such note in the trash.", 404);
+    return note.revisions[note.revisions.length - 1];
+  }
+
+  /** As the real server: deleted notes only. */
+  async purge(noteIds: string[]): Promise<string[]> {
+    this.check();
+    const gone = noteIds.filter((id) => this.notes.get(id)?.info.deleted);
+    if (gone.length) {
+      this.seq++;
+      for (const id of gone) {
+        this.notes.delete(id);
+        this.purges.push({ id, seq: this.seq });
+      }
+      this.wake();
+    }
+    return gone;
   }
 
   /** Another device's tag order. */

@@ -49,6 +49,7 @@ import java.util.stream.Collectors;
  * tag-order.json                 {@link StoredTagOrder}: absent until the user first reorders their tags
  * tag-events.json                the last {@link StoredTagEvent}s: tags renamed or removed from every note
  * tag-options.json               {@link StoredTagOptions}: absent until the user first sets a tag's options
+ * purged.json                    the last {@link StoredPurge}s: deleted notes deleted for good, for the clients to forget
  * </pre>
  * The head revision's file holds its text; an older one's, a splice turning the next revision's
  * text back into its own (a reverse delta), except every {@link #FULL_REVISION_INTERVAL}th one
@@ -117,6 +118,12 @@ public class UserNoteStore {
    */
   public record StoredTagOptions(long seq, Map<String, TagOptions> tags) {}
 
+  /** A deleted note deleted for good, and when, from the same sequence as the notes. */
+  public record StoredPurge(long seq, String noteId) {}
+
+  /** As {@link #MAX_TAG_EVENTS}: a device offline longer keeps the note in its trash, until it resyncs. */
+  static final int MAX_PURGES = 5000;
+
   /** Enough for a device offline a long time, renames being rare: beyond, its old changes aren't rewritten. */
   static final int MAX_TAG_EVENTS = 1000;
 
@@ -158,6 +165,7 @@ public class UserNoteStore {
   private final List<Runnable> seqWaiters = new ArrayList<>();
   private List<StoredTagEvent> tagEvents = List.of();
   private StoredTagOptions tagOptions;
+  private List<StoredPurge> purges = List.of();
   CommitHook commitHook = step -> {};
   /** Visible for tests. */
   int fullRevisionInterval = FULL_REVISION_INTERVAL;
@@ -661,6 +669,7 @@ public class UserNoteStore {
     loadTagOrder();
     loadTagEvents();
     loadTagOptions();
+    loadPurges();
     if (storeId == null) {
       storeId = UUID.randomUUID().toString();
       writeUserState();
@@ -704,6 +713,58 @@ public class UserNoteStore {
     if (stored == null || stored.tags() == null) return;
     tagOptions = stored;
     lastSeq = Math.max(lastSeq, stored.seq());
+  }
+
+  private void loadPurges() throws IOException {
+    Path file = root.resolve("purged.json");
+    if (!Files.isRegularFile(file)) return;
+    StoredPurge[] stored = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8), StoredPurge[].class);
+    if (stored == null) return;
+    purges = List.of(stored);
+    for (StoredPurge purge : purges) lastSeq = Math.max(lastSeq, purge.seq());
+  }
+
+  /** @return the notes deleted for good after {@code seq}, oldest first. */
+  public synchronized List<StoredPurge> purgesAfter(long seq) {
+    return purges.stream().filter(purge -> purge.seq() > seq).toList();
+  }
+
+  /**
+   * Deletes for good those of {@code noteIds} that are deleted, with every revision: the others are
+   * left alone. Recorded first, then the folders go: interrupted, a folder left is removed again on
+   * the next purge of it, or stays a deleted note.
+   *
+   * @return the IDs of the notes deleted for good.
+   */
+  public synchronized List<String> purge(List<String> noteIds) throws IOException {
+    List<String> gone = noteIds.stream().distinct().filter(id -> index.containsKey(id) && index.get(id).deleted()).toList();
+    if (gone.isEmpty()) return gone;
+    long seq = lastSeq + 1;
+    List<StoredPurge> next = new ArrayList<>(purges);
+    for (String id : gone) next.add(new StoredPurge(seq, id));
+    if (next.size() > MAX_PURGES) next = next.subList(next.size() - MAX_PURGES, next.size());
+    AtomicFiles.write(root.resolve("purged.json"), PRETTY_GSON.toJson(next).getBytes(StandardCharsets.UTF_8));
+    purges = List.copyOf(next);
+    for (String id : gone) {
+      // Out of note.json first: a folder without it is ignored on load.
+      Files.deleteIfExists(noteDir(id).resolve("note.json"));
+      index.remove(id);
+      changes.values().removeIf(record -> record.noteId().equals(id));
+      metaChanges.values().removeIf(id::equals);
+      try (var paths = Files.walk(noteDir(id))) {
+        for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+      } catch (IOException e) {
+        LOGGER.log(Level.WARNING, "Note " + id + " of " + root.getFileName() + " purged, its folder not removed entirely", e);
+      }
+    }
+    lastSeq = seq;
+    wakeSeqWaiters();
+    try {
+      writeUserState();
+    } catch (IOException e) {
+      LOGGER.log(Level.SEVERE, "Could not write user.json of " + root.getFileName() + " (recovered from purged.json on next load)", e);
+    }
+    return gone;
   }
 
   /** @return each tag's options; null if the user never set any. */

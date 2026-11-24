@@ -58,7 +58,8 @@ export function applyPushResult(note: LocalNote, result: PushResult): { note?: L
       if (!result.note) return { removed: true };
       const stored = result.content ? applySplice(result.content, sent) : sent;
       if (pending.deleted) {
-        return { note: { ...cleared, info: result.note, baseRevision: result.note.revision, baseText: stored, basedOnChangeId: undefined, dirty: false } };
+        // Restored from the trash while the delete was out: the restore still has to go.
+        return { note: { ...cleared, info: result.note, baseRevision: result.note.revision, baseText: stored, basedOnChangeId: undefined, dirty: !note.deleted } };
       }
       return { note: settle(cleared, result.note, stored, typedSince, sent, pending.changeId) };
     }
@@ -97,6 +98,8 @@ function settle(note: LocalNote, info: NoteInfo, stored: string, typedSince: boo
 
 /** The revision to ask the server a splice of, if the note's base can serve as one. */
 export function haveRevision(note: LocalNote | undefined): number | undefined {
+  // Deleted before it came here, its text was never sent (see trashedText): no base to splice from.
+  if (note?.deleted && !note.baseText) return undefined;
   return note && note.baseRevision > 0 && !note.basedOnChangeId ? note.baseRevision : undefined;
 }
 

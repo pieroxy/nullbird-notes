@@ -806,4 +806,56 @@ public class NoteServiceTest {
     assertEquals(seq, reopened.getLastSeq());
     assertEquals(Map.of("work", colors("red", "teal")), reopened.getTagOptions().tags());
   }
+
+  // ---- The trash ----
+
+  @Test
+  public void aDeletedNotesTextCanBeReadForTheTrash() throws Exception {
+    push(A, 0, "Gone soon");
+    push(B, 0, "Still here");
+    delete(A, 1);
+    assertEquals("Gone soon", service.trashedText("alice", A));
+    assertNull(service.trashedText("alice", B));
+    assertNull(service.trashedText("alice", id(9)));
+  }
+
+  @Test
+  public void onlyDeletedNotesAreDeletedForGoodAndClientsAreTold() throws Exception {
+    push(A, 0, "a");
+    push(B, 0, "b");
+    delete(A, 1);
+    long cursor = service.changes("alice", 0).seq();
+    assertEquals(List.of(A), service.purge("alice", List.of(A, B, id(9))));
+    assertNull(stores.getStore("alice").get(A));
+    assertNotNull(stores.getStore("alice").get(B));
+    assertFalse(tmp.getRoot().toPath().resolve("users/alice/notes/" + A).toFile().exists());
+    ChangesPage page = service.changes("alice", cursor);
+    assertEquals(List.of(A), page.purged());
+    assertNull(service.changes("alice", page.seq()).purged());
+    assertEquals(List.of(), service.purge("alice", List.of(A)));
+    assertThrows(InvalidInputException.class, () -> service.purge("alice", List.of("not-an-id")));
+  }
+
+  @Test
+  public void aPurgedNoteStaysGoneAfterARestart() throws Exception {
+    push(A, 0, "a");
+    delete(A, 1);
+    long cursor = service.changes("alice", 0).seq();
+    service.purge("alice", List.of(A));
+    long seq = stores.getStore("alice").getLastSeq();
+    UserNoteStore reopened = UserNoteStore.open(tmp.getRoot().toPath().resolve("users").resolve("alice"), java.time.Clock.systemUTC());
+    assertNull(reopened.get(A));
+    assertEquals(seq, reopened.getLastSeq());
+    assertEquals(1, reopened.purgesAfter(cursor).size());
+  }
+
+  @Test
+  public void restoringIsAnEditOfTheDeletedRevision() throws Exception {
+    push(A, 0, "Back again");
+    PushResult deleted = delete(A, 1);
+    PushResult restored = push(A, deleted.note().revision(), "Back again");
+    assertEquals(PushStatus.APPLIED, restored.status());
+    assertFalse(restored.note().deleted());
+    assertEquals("Back again", content(A));
+  }
 }

@@ -19,6 +19,10 @@ export interface SyncApi {
   push(deviceId: string, batch: PushBatch, signal: AbortSignal): Promise<PushApiOutput>;
   renameTag(deviceId: string, from: string, to: string, signal: AbortSignal): Promise<TagEditOutput>;
   deleteTag(deviceId: string, tag: string, signal: AbortSignal): Promise<TagEditOutput>;
+  /** A deleted note's text, for the trash. */
+  trashedText(noteId: string, signal: AbortSignal): Promise<string>;
+  /** @return those deleted for good: the others weren't deleted on the server, or not yet. */
+  purge(noteIds: string[], signal: AbortSignal): Promise<string[]>;
 }
 
 export class HttpSyncApi implements SyncApi {
@@ -44,5 +48,13 @@ export class HttpSyncApi implements SyncApi {
 
   deleteTag(deviceId: string, tag: string, signal: AbortSignal): Promise<TagEditOutput> {
     return ApiEndpoints.DeleteTag.call({ deviceId, tag }, { signal });
+  }
+
+  async trashedText(noteId: string, signal: AbortSignal): Promise<string> {
+    return (await ApiEndpoints.TrashedNote.call({ noteId }, { signal })).text;
+  }
+
+  async purge(noteIds: string[], signal: AbortSignal): Promise<string[]> {
+    return (await ApiEndpoints.PurgeNotes.call({ noteIds }, { signal })).noteIds;
   }
 }

@@ -15,8 +15,10 @@ import java.util.Map;
  * @param tagOrder the tag order, if it changed after the cursor; absent otherwise.
  * @param tagEvents tags renamed or removed from every note after the cursor, oldest first; absent if none.
  * @param tagOptions every tag's options, if they changed after the cursor; absent otherwise.
+ * @param purged   notes deleted for good after the cursor, to forget; absent if none.
  */
 @TypeScriptType
 public record ChangesPage(@Required String storeId, @Required long seq, @Required List<NoteInfo> notes, @Required boolean more,
-                          TagOrder tagOrder, List<TagEvent> tagEvents, Map<String, TagOptions> tagOptions) {
+                          TagOrder tagOrder, List<TagEvent> tagEvents, Map<String, TagOptions> tagOptions,
+                          List<String> purged) {
 }

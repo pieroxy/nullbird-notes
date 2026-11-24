@@ -29,6 +29,8 @@ export interface NoteListAttrs extends NoteSearchAttrs {
   /** Searching: notes of hidden tags that match too, not listed. */
   hiddenMatches: number;
   onShowHidden: () => void;
+  /** In the trash view: deletes every note listed for good. */
+  onEmptyTrash: () => void;
 }
 
 export class NoteList implements m.ClassComponent<NoteListAttrs> {
@@ -41,13 +43,18 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
     return m("aside.notelist", [
       m(".searchrow", noteSearch(attrs)),
       filtered ? this.filterStrip(attrs) : null,
+      attrs.filter.trash && attrs.notes.length > 0 ? m(".trashbar", [
+        m("span.muted", "Deleted notes stay here until deleted forever."),
+        m("button.link.danger", { type: "button", onclick: attrs.onEmptyTrash }, "Empty the trash"),
+      ]) : null,
       attrs.notes.length > 0 ? m("ul", attrs.notes.map((note) => this.item(note, attrs))) : null,
-      attrs.total === 0 ? m(".empty", "No notes yet.") : null,
-      attrs.total > 0 && attrs.notes.length === 0 ? m(".empty", searching ? [
+      attrs.total === 0 && !attrs.filter.trash ? m(".empty", "No notes yet.") : null,
+      (attrs.total > 0 || attrs.filter.trash) && attrs.notes.length === 0 ? m(".empty", searching ? [
         m("p", "No note matches this search."),
         m("button", { type: "button", onclick: () => attrs.onSearch("") }, "Clear search"),
       ] : [
-        m("p", attrs.filter.untagged ? "Every note has tags." : attrs.filter.merged ? "No merge markers left to check." : "No note has all of these tags."),
+        m("p", attrs.filter.trash ? "The trash is empty." : attrs.filter.untagged ? "Every note has tags."
+          : attrs.filter.merged ? "No merge markers left to check." : "No note has all of these tags."),
         m("button", { type: "button", onclick: () => attrs.onFilter(NO_FILTER) }, "Clear filter"),
       ]) : null,
       (filtered || searching) && attrs.notes.length > 0 ? m(".filtercount", attrs.notes.length + " of " + attrs.total + " notes") : null,
@@ -64,6 +71,7 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
     return m(".filterstrip", [
       filter.untagged ? m("span.tag", [m("span.tagname", "Untagged"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
       filter.merged ? m("span.tag", [m("span.tagname", "Merge markers"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
+      filter.trash ? m("span.tag", [m("span.tagname", "Trash"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
       filter.tags.map((tag) => m("span.tag" + tagClasses(attrs.tagOptions[tag]), { key: tag }, [
         m("span.tagname", [tagDot(attrs.tagOptions[tag]), tag]),
         iconButton("x", "Stop filtering on " + tag, () => onFilter(toggle(filter, tag)), "tagremove"),
@@ -73,7 +81,8 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
   }
 
   private item(note: LocalNote, attrs: NoteListAttrs): m.Children {
-    const { title, excerpt } = titleAndExcerpt(note.text);
+    // A deleted note this device never had: the server's title.
+    const { title, excerpt } = note.text || !note.info ? titleAndExcerpt(note.text) : { title: note.info.title, excerpt: "" };
     const snippet = attrs.snippetOf?.(note);
     const unsynced = note.dirty || note.pending !== undefined;
     const selected = note.id === attrs.selectedId;
