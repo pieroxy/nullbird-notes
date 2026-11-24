@@ -90,8 +90,11 @@ public class NoteService implements Service {
 
   private record PublishedRef(String username, String noteId) {}
 
-  /** A published note, as it is now. */
-  public record PublishedNote(String username, NoteMeta meta, String content) {}
+  /**
+   * A published note, as it is now: its options as they apply, its own or its tags' (see
+   * {@link TagOptions#effective}).
+   */
+  public record PublishedNote(String username, NoteMeta meta, String content, boolean markdown, boolean monospace, boolean nowrap) {}
 
   public NoteService() {
     this(CHANGES_PAGE_SIZE);
@@ -196,7 +199,13 @@ public class NoteService implements Service {
     synchronized (store) {
       NoteMeta meta = store.get(ref.noteId());
       if (meta == null || meta.deleted() || !token.equals(meta.options().get(NoteOptions.PUBLISHED))) return null;
-      return new PublishedNote(ref.username(), meta, store.readContent(meta.id()));
+      List<TagOptions> tags = tagOptionsInOrder(store, meta.tags());
+      Map<String, String> own = meta.options();
+      boolean nowrap = TagOptions.effective(own.get(NoteOptions.NOWRAP), tags.stream().map(o -> o == null || o.wrap() == null ? null : !o.wrap()).toList());
+      return new PublishedNote(ref.username(), meta, store.readContent(meta.id()),
+          TagOptions.effective(own.get(NoteOptions.MARKDOWN), tags.stream().map(o -> o == null ? null : o.markdown()).toList()),
+          TagOptions.effective(own.get(NoteOptions.MONOSPACE), tags.stream().map(o -> o == null ? null : o.monospace()).toList()),
+          nowrap);
     }
   }
 
@@ -220,6 +229,19 @@ public class NoteService implements Service {
     byte[] bytes = new byte[16];
     RANDOM.nextBytes(bytes);
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+  }
+
+  /** The options of {@code tags}, in the user's tag order (alphabetical without one, as the clients); null for a tag with none. */
+  private static List<TagOptions> tagOptionsInOrder(UserNoteStore store, List<String> tags) {
+    UserNoteStore.StoredTagOrder order = store.getTagOrder();
+    List<String> sorted = new ArrayList<>(tags);
+    if (order != null) {
+      sorted.sort(java.util.Comparator.comparingInt(tag -> order.tags().indexOf(tag) < 0 ? Integer.MAX_VALUE : order.tags().indexOf(tag)));
+    } else {
+      sorted.sort(String.CASE_INSENSITIVE_ORDER.thenComparing(java.util.Comparator.naturalOrder()));
+    }
+    UserNoteStore.StoredTagOptions options = store.getTagOptions();
+    return sorted.stream().map(tag -> options == null ? null : options.tags().get(tag)).toList();
   }
 
   public PushResult pushMeta(String username, String deviceId, MetaChange change) throws IOException {

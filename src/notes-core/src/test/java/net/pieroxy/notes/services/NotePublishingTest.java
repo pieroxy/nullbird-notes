@@ -1,5 +1,11 @@
 package net.pieroxy.notes.services;
 
+import net.pieroxy.notes.sync.TagOrderChange;
+
+import net.pieroxy.notes.sync.TagOptionsChange;
+
+import net.pieroxy.notes.sync.TagOptions;
+
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.storage.NoteOptions;
 import net.pieroxy.notes.sync.MetaChange;
@@ -19,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -146,5 +153,34 @@ public class NotePublishingTest {
     assertEquals(PushStatus.REJECTED, set.status());
     PushResult unset = service.pushMeta("alice", "device", new MetaChange("m2", A, null, null, null, List.of(NoteOptions.PUBLISHED)));
     assertEquals(PushStatus.REJECTED, unset.status());
+  }
+
+  private static TagOptions noteOptions(Boolean markdown, Boolean monospace, Boolean wrap) {
+    return new TagOptions(null, null, null, null, null, null, markdown, monospace, wrap, null, null, null, null);
+  }
+
+  @Test
+  public void thePublishedNoteFollowsItsTagsUnlessItSaysOtherwise() throws Exception {
+    create("alice", A, "# Title");
+    service.pushMeta("alice", "device", new MetaChange("m1", A, java.util.List.of("journal", "code"), null, null, null));
+    service.pushTagOptions("alice", java.util.List.of(new TagOptionsChange("journal", noteOptions(true, null, false)),
+        new TagOptionsChange("code", noteOptions(false, true, true))), null);
+    String token = service.publish("alice", A, false);
+    NoteService.PublishedNote found = service.findPublished(token);
+    // Alphabetical without an order: code first.
+    assertFalse(found.markdown());
+    assertTrue(found.monospace());
+    assertFalse(found.nowrap());
+
+    service.pushTagOrder("alice", new TagOrderChange(0, java.util.List.of("journal", "code")));
+    found = service.findPublished(token);
+    assertTrue(found.markdown());
+    assertTrue(found.nowrap());
+
+    // Its own option wins.
+    service.pushMeta("alice", "device", new MetaChange("m2", A, null, null, java.util.Map.of("markdown", "false", "nowrap", "false"), null));
+    found = service.findPublished(token);
+    assertFalse(found.markdown());
+    assertFalse(found.nowrap());
   }
 }

@@ -9,7 +9,6 @@ import net.pieroxy.notes.api.metadata.Required;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
 import net.pieroxy.notes.services.IServiceProvider;
 import net.pieroxy.notes.services.NoteService;
-import net.pieroxy.notes.storage.NoteOptions;
 
 /**
  * A published note, for anyone with its link. Unknown, unpublished, deleted, or its user removed:
@@ -29,9 +28,7 @@ public class PublishedNoteApi extends AbstractApiEndpoint<PublishedNoteApiInput,
     if (note == null || serviceProvider.getSettingsService().getUser(note.username()) == null) {
       throw new NotFoundException("This note isn't published, or its link has changed.");
     }
-    var options = note.meta().options();
-    return new PublishedNoteApiOutput(note.content(), note.meta().modifiedAt(), NoteOptions.isOn(options, NoteOptions.MARKDOWN),
-        NoteOptions.isOn(options, NoteOptions.MONOSPACE), NoteOptions.isOn(options, NoteOptions.NOWRAP));
+    return new PublishedNoteApiOutput(note.content(), note.meta().modifiedAt(), note.markdown(), note.monospace(), note.nowrap());
   }
 }
 

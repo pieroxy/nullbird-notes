@@ -319,6 +319,12 @@ export class SyncEngine {
     this.notify();
   }
 
+  /** An option's value, none to unset it: a note's own, over its tags' (see NoteOptions). */
+  setOptionValue(id: string, key: string, value: string | undefined) {
+    const note = this.notes.get(id);
+    if (note) this.changeMeta(note, setOption(note.metaOps ?? noOps(), key, value));
+  }
+
   /** A boolean option: off is its default, so it's unset rather than set to "false". */
   setOption(id: string, key: string, on: boolean) {
     const note = this.notes.get(id);
@@ -693,5 +699,7 @@ function hasWork(note: LocalNote): boolean {
 
 /** Anything set: one with nothing is the same as no options. */
 export function hasOptions(options: TagOptions): boolean {
-  return options.hidden === true || [options.dot, options.stripe, options.background, options.text, options.notes].some((color) => color !== undefined && color !== null);
+  // Flags that only mean something on: off is the same as unset.
+  return Object.entries(options).some(([key, value]) => value !== undefined && value !== null
+    && !((key === "hidden" || key === "rendered") && value === false));
 }

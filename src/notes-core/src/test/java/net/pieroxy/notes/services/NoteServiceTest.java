@@ -733,7 +733,7 @@ public class NoteServiceTest {
   // ---- Tag options ----
 
   private static TagOptions colors(String dot, String notes) {
-    return new TagOptions(dot, null, null, null, notes, null);
+    return TagOptions.colors(dot, null, null, null, notes);
   }
 
   @Test
@@ -749,7 +749,7 @@ public class NoteServiceTest {
 
     // Back to none; an unknown color or an invalid tag skipped, the rest applied.
     now = service.pushTagOptions("alice", List.of(new TagOptionsChange("home", null), new TagOptionsChange("art", colors("mauve", null)),
-        new TagOptionsChange("has space", colors("red", null)), new TagOptionsChange("art", new TagOptions(null, null, null, null, null, false))), null);
+        new TagOptionsChange("has space", colors("red", null)), new TagOptionsChange("art", new TagOptions(null, null, null, null, null, false, null, null, null, null, null, null, false))), null);
     assertEquals(Map.of("work", colors("red", "red")), now);
   }
 
@@ -783,10 +783,19 @@ public class NoteServiceTest {
 
   @Test
   public void aHiddenTagIsAnOptionOfItsOwn() throws Exception {
-    TagOptions hidden = new TagOptions(null, null, null, null, null, true);
+    TagOptions hidden = new TagOptions(null, null, null, null, null, true, null, null, null, null, null, null, null);
     Map<String, TagOptions> now = service.pushTagOptions("alice", List.of(new TagOptionsChange("archive", hidden),
-        new TagOptionsChange("work", new TagOptions("red", null, null, null, null, false))), null);
+        new TagOptionsChange("work", new TagOptions("red", null, null, null, null, false, null, null, null, null, null, null, null))), null);
     assertEquals(Map.of("archive", hidden, "work", colors("red", null)), now);
+  }
+
+  @Test
+  public void optionsForTheNotesAreCheckedAndKept() throws Exception {
+    TagOptions journal = new TagOptions(null, null, null, null, "blue", null, true, false, null, "0123456789abcdef", "fedcba9876543210", "created", true);
+    Map<String, TagOptions> now = service.pushTagOptions("alice", List.of(new TagOptionsChange("journal", journal),
+        new TagOptionsChange("bad-sort", new TagOptions(null, null, null, null, null, null, null, null, null, null, null, "random", null)),
+        new TagOptionsChange("bad-font", new TagOptions(null, null, null, null, null, null, null, null, null, "../etc", null, null, null))), null);
+    assertEquals(Map.of("journal", journal), now);
   }
 
   @Test

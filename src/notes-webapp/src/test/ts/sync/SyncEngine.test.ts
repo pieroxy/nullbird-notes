@@ -478,6 +478,14 @@ describe("SyncEngine", () => {
       await until(() => engine.status().state === "synced" && JSON.stringify(server.tagOptions?.tags) === "{}");
     });
 
+    test("options for the notes alone count: kept, not taken for none", async () => {
+      await startEngine();
+      engine.setTagOptions("journal", { sort: "title" });
+      engine.setTagOptions("code", { monospace: false });
+      engine.setTagOptions("other", { hidden: false, rendered: false });
+      expect(engine.allTagOptions()).toEqual({ journal: { sort: "title" }, code: { monospace: false } });
+    });
+
     test("they follow a rename; set offline before another device's rename, they follow it too", async () => {
       server.write(A, "First");
       server.writeMeta(A, ["work", "home"], {});

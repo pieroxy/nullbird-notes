@@ -46,6 +46,9 @@ export interface NoteEditorAttrs {
   onRemoveTag: (tag: string) => void;
   /** How each tag looks (see TagLook). */
   tagOptions: { [tag: string]: TagOptions };
+  /** Fonts its tags give it (CSS font-family values, see Fonts.tagFontValue), in place of the user's. */
+  noteFont?: string;
+  monoFont?: string;
   find?: FindAttrs;
   /** Changed to make the lines at the caret or the selection a list (see {@link formatList}). */
   listCommand?: { kind: ListKind; seq: number };
@@ -411,7 +414,8 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
 
   view({ attrs }: m.Vnode<NoteEditorAttrs>): m.Children {
     const note = attrs.note;
-    return m("section.editor", [
+    // Through the CSSOM, which the CSP allows: the editor (its shadow root too) and the view use these.
+    return m("section.editor", { style: { "--font-note": attrs.noteFont ?? "", "--font-mono": attrs.monoFont ?? "" } }, [
       note.error ? m(".banner.error", "Not saved on the server: " + note.error.message + " Your text is kept on this device.") : null,
       note.metaError ? m(".banner.error", "A change to the tags or options was refused by the server: " + note.metaError.message) : null,
       attrs.find ? findBar(attrs.find) : null,

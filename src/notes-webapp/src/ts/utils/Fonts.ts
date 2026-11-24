@@ -58,6 +58,8 @@ export interface FontChoice {
 /** As sw.js names it. */
 export const FONT_CACHE = "notes-fonts";
 const STORAGE_PREFIX = "notes.font.";
+/** The fonts tags give their notes (see TagOptions.font), kept like the slots' to work offline. */
+const TAG_FONTS_KEY = STORAGE_PREFIX + "tags";
 /** What follows a chosen font in its variable: style.scss's defaults. */
 const FALLBACK: Record<FontSlot, string> = { ui: "var(--font-ui-default)", note: "var(--font-ui)", mono: "var(--font-mono-default)" };
 
@@ -114,6 +116,71 @@ function storeFont(slot: FontSlot, choice: FontChoice | undefined) {
   }
 }
 
+function isChoice(value: unknown): value is FontChoice {
+  const c = value as FontChoice;
+  return typeof c?.id === "string" && typeof c.name === "string" && Array.isArray(c.faces) && c.faces.every(isFace);
+}
+
+/** The fonts tags use, as last stored; storage unavailable or garbled: none. */
+function loadTagFonts(): FontChoice[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TAG_FONTS_KEY) ?? "[]");
+    return Array.isArray(stored) ? stored.filter(isChoice) : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeTagFonts(choices: FontChoice[]) {
+  try {
+    if (choices.length) localStorage.setItem(TAG_FONTS_KEY, JSON.stringify(choices));
+    else localStorage.removeItem(TAG_FONTS_KEY);
+  } catch {
+    // See loadFont: it lasts the page.
+  }
+}
+
+/** The fonts installed, as the server last said this page load: undefined before it did. */
+let installed: FontFamily[] | undefined;
+/** The fonts the tags use, as last asked (see useTagFonts). */
+let tagFontIds: string[] = [];
+
+/**
+ * A tag's font as a CSS font-family value for its notes, with the defaults after it; undefined when
+ * this device doesn't have it (deleted, or never downloaded): the user's font applies.
+ */
+export function tagFontValue(id: string | undefined, mono: boolean): string | undefined {
+  if (!id || !loadTagFonts().some((c) => c.id === id)) return undefined;
+  return '"' + familyName(id) + '", ' + (mono ? "var(--font-mono-default)" : "var(--font-ui)");
+}
+
+/**
+ * The fonts the tags use now: each kept on this device, its files downloaded, to work offline;
+ * the others dropped. Those the server doesn't list (offline: not known yet) wait for it.
+ */
+export async function useTagFonts(ids: string[]) {
+  tagFontIds = [...new Set(ids)].sort();
+  const current = loadTagFonts();
+  const next: FontChoice[] = [];
+  for (const id of tagFontIds) {
+    const family = installed?.find((f) => f.id === id);
+    const kept = current.find((c) => c.id === id);
+    if (family) next.push(choiceOf(family));
+    else if (kept && !installed) next.push(kept);
+  }
+  if (JSON.stringify(next) === JSON.stringify(current)) return;
+  storeTagFonts(next);
+  applyFonts();
+  await syncCache(true).catch(() => undefined);
+  notifyTagFonts();
+}
+
+let tagFontsChanged: () => void = () => undefined;
+
+function notifyTagFonts() {
+  tagFontsChanged();
+}
+
 function sameFaces(a: FontChoice, b: FontChoice): boolean {
   return JSON.stringify(a.faces) === JSON.stringify(b.faces) && a.name === b.name;
 }
@@ -125,6 +192,17 @@ const added = new Map<string, FontFace>();
 export function applyFonts() {
   const style = document.documentElement.style;
   const wanted = new Set<string>();
+  const register = (choice: FontChoice) => {
+    for (const f of choice.faces) {
+      const key = familyName(choice.id) + " " + f.url + " " + f.weight + " " + f.style;
+      wanted.add(key);
+      if (added.has(key)) continue;
+      const fontFace = new FontFace(familyName(choice.id), "url(" + f.url + ")", { weight: f.weight, style: f.style });
+      document.fonts.add(fontFace);
+      added.set(key, fontFace);
+    }
+  };
+  for (const choice of loadTagFonts()) register(choice);
   for (const { slot } of FONT_SLOTS) {
     const choice = loadFont(slot);
     for (const f of choice?.faces ?? []) {
@@ -151,7 +229,8 @@ export function applyFonts() {
 /** Every file a slot uses, in the cache; the others out of it. */
 async function syncCache(fetchMissing: boolean) {
   if (typeof caches === "undefined") return; // Not a secure context: no service worker either, the HTTP cache keeps them.
-  const wanted = new Set(FONT_SLOTS.flatMap(({ slot }) => loadFont(slot)?.faces.map((f) => f.url) ?? []));
+  const wanted = new Set([...FONT_SLOTS.flatMap(({ slot }) => loadFont(slot)?.faces.map((f) => f.url) ?? []),
+    ...loadTagFonts().flatMap((c) => c.faces.map((f) => f.url))]);
   const cache = await caches.open(FONT_CACHE);
   for (const request of await cache.keys()) {
     if (!wanted.has(new URL(request.url).pathname)) await cache.delete(request);
@@ -194,6 +273,8 @@ export async function refreshFonts(): Promise<FontFamily[] | undefined> {
   } catch {
     return undefined;
   }
+  installed = fonts;
+  await useTagFonts(tagFontIds);
   let changed = false;
   for (const { slot } of FONT_SLOTS) {
     const choice = loadFont(slot);
@@ -220,6 +301,7 @@ export function refreshFontsOnce() {
 
 /** At startup; and when another tab of this app changes a choice, this one follows. */
 export function initFonts(onChange: () => void) {
+  tagFontsChanged = onChange;
   if (typeof FontFace === "undefined" || !document.fonts) return;
   applyFonts();
   window.addEventListener("storage", (event) => {

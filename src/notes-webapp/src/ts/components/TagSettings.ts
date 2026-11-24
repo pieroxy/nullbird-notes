@@ -1,5 +1,7 @@
 import m from "mithril";
-import { TagOptions } from "../auto/api-types";
+import { FontFamily, TagOptions } from "../auto/api-types";
+import { refreshFonts } from "../utils/Fonts";
+import { SORT_ORDERS } from "../utils/NoteOptions";
 import { isValidTag } from "../sync/Metadata";
 import { noteStripe, TAG_COLORS, tagClasses, tagDot } from "../utils/TagLook";
 import { iconButton } from "./Icons";
@@ -24,13 +26,21 @@ export interface TagSettingsAttrs {
   onOptions: (change: Partial<TagOptions>) => void;
 }
 
-/** The colors a tag can have, as the dialog lists them. */
-const COLOR_SLOTS: { key: keyof TagOptions; label: string }[] = [
+type ColorKey = "dot" | "stripe" | "background" | "text" | "notes";
+
+/** The tag's own colors, as the dialog lists them. */
+const TAG_COLOR_SLOTS: { key: ColorKey; label: string }[] = [
   { key: "dot", label: "Dot" },
   { key: "stripe", label: "Left stripe" },
   { key: "background", label: "Background" },
   { key: "text", label: "Text" },
-  { key: "notes", label: "Stripe on its notes" },
+];
+
+/** Its notes' flags: not set, on or off. */
+const FLAGS: { key: "markdown" | "monospace" | "wrap"; label: string }[] = [
+  { key: "markdown", label: "Markdown" },
+  { key: "monospace", label: "Fixed-width text" },
+  { key: "wrap", label: "Wrap long lines" },
 ];
 
 function notes(count: number): string {
@@ -39,14 +49,16 @@ function notes(count: number): string {
 
 /**
  * A tag's settings, from the tag panel's edit mode: its name (renaming to a tag in use merges
- * them), and removing it from its notes. A dialog over the notes; the whole screen on a phone.
- * More options come here (color, hidden…).
+ * them), how it looks, what its notes get, and removing it from its notes. A dialog over the
+ * notes; the whole screen on a phone.
  */
 export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
   private name = "";
   private error?: string;
   private busy = false;
   private attrs?: TagSettingsAttrs;
+  /** The fonts installed, to choose from: undefined offline, or before the server said. */
+  private fonts?: FontFamily[];
   /** Before the page's own keys: Escape puts the name back first, a second one closes. */
   private readonly onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== "Escape" || this.busy || !this.attrs) return;
@@ -63,6 +75,10 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
 
   oninit({ attrs }: m.Vnode<TagSettingsAttrs>) {
     this.name = attrs.tagName;
+    void refreshFonts().then((fonts) => {
+      this.fonts = fonts;
+      m.redraw();
+    });
   }
 
   oncreate() {
@@ -105,15 +121,8 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
           m(".buttons", m("button", { type: "submit", disabled: this.busy }, "Rename")),
         ]),
         this.error ? m("p.errormessage", this.error) : null,
-        m("label.checkfield.hiddenfield", [
-          m("input", {
-            type: "checkbox",
-            checked: attrs.options?.hidden === true,
-            onchange: (e: Event) => attrs.onOptions({ hidden: (e.target as HTMLInputElement).checked ? true : undefined }),
-          }),
-          m("span", [m("strong", "Hidden"), ": its notes show only when it's selected. For an archive."]),
-        ]),
-        this.colors(attrs),
+        this.looks(attrs),
+        this.forNotes(attrs),
         m(".dangerzone", [
           m("button.danger", { type: "button", disabled: this.busy || count === 0, onclick: () => void this.remove() },
             count > 0 ? "Remove from its " + notes(count) : "No note has it"),
@@ -122,26 +131,96 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
       ]));
   }
 
-  /** A row of swatches per color, then how the tag and its notes look with them. */
-  private colors(attrs: TagSettingsAttrs): m.Children {
+  /** A row of swatches for one color of the tag's options. */
+  private colorRow(attrs: TagSettingsAttrs, key: ColorKey, label: string): m.Children {
+    const options = attrs.options ?? {};
+    return m(".colorrow", { role: "radiogroup", "aria-label": label }, [
+      m("span.colorlabel", label),
+      m(".swatches", [
+        swatch(undefined, "None", options[key] === undefined, () => attrs.onOptions({ [key]: undefined })),
+        TAG_COLORS.map((color) => swatch(color.id, color.label, options[key] === color.id, () => attrs.onOptions({ [key]: color.id }))),
+      ]),
+    ]);
+  }
+
+  /** How the tag looks wherever it shows, and how it'll look. */
+  private looks(attrs: TagSettingsAttrs): m.Children {
+    const options = attrs.options ?? {};
+    return m("section.tagsection", [
+      m("h3", "The tag"),
+      TAG_COLOR_SLOTS.map(({ key, label }) => this.colorRow(attrs, key, label)),
+      m(".tagpreview", { "aria-hidden": "true" }, m("span.tag" + tagClasses(options), m("span.tagname", [tagDot(options), attrs.tagName]))),
+    ]);
+  }
+
+  /** What its notes get, unless they say otherwise (see NoteOptions). */
+  private forNotes(attrs: TagSettingsAttrs): m.Children {
     const options = attrs.options ?? {};
     const tag = attrs.tagName;
-    return m(".tagcolors", [
-      COLOR_SLOTS.map(({ key, label }) => m(".colorrow", { role: "radiogroup", "aria-label": label }, [
+    const fonts = this.fonts;
+    const fontSelect = (key: "font" | "monoFont", label: string, monospaceOnly: boolean) => {
+      const chosen = options[key];
+      // Offline, only the one chosen is known: still shown.
+      const listed = fonts?.filter((f) => !monospaceOnly || f.monospace) ?? [];
+      const unknown = chosen && !listed.some((f) => f.id === chosen);
+      return m("label.optionrow", [
         m("span.colorlabel", label),
-        m(".swatches", [
-          swatch(undefined, "None", options[key] === undefined, () => attrs.onOptions({ [key]: undefined })),
-          TAG_COLORS.map((color) => swatch(color.id, color.label, options[key] === color.id, () => attrs.onOptions({ [key]: color.id }))),
+        m("select", {
+          value: chosen ?? "",
+          onchange: (e: Event) => attrs.onOptions({ [key]: (e.target as HTMLSelectElement).value || undefined }),
+        }, [
+          m("option", { value: "" }, "Not set"),
+          listed.map((f) => m("option", { value: f.id }, f.name)),
+          unknown ? m("option", { value: chosen }, fonts ? "A deleted font" : "The one chosen") : null,
         ]),
-      ])),
-      m(".tagpreview", { "aria-hidden": "true" }, [
-        m("span.tag" + tagClasses(options), m("span.tagname", [tagDot(options), tag])),
-        m(".previewnote", [
-          noteStripe(options.notes ? [options.notes] : []),
-          m("strong", "A note tagged " + tag),
-          m("span.muted", "In the list"),
-        ]),
+      ]);
+    };
+    return m("section.tagsection", [
+      m("h3", "For its notes"),
+      m("p.muted", "Unless a note says otherwise. With several such tags, the first in your order wins."),
+      this.colorRow(attrs, "notes", "Stripe in the list"),
+      m("label.checkfield.hiddenfield", [
+        m("input", {
+          type: "checkbox",
+          checked: options.hidden === true,
+          onchange: (e: Event) => attrs.onOptions({ hidden: (e.target as HTMLInputElement).checked ? true : undefined }),
+        }),
+        m("span", [m("strong", "Hidden"), ": its notes show only when it's selected. For an archive."]),
       ]),
+      FLAGS.map(({ key, label }) => m("label.optionrow", [
+        m("span.colorlabel", label),
+        m("select", {
+          value: options[key] === true ? "on" : options[key] === false ? "off" : "",
+          onchange: (e: Event) => {
+            const value = (e.target as HTMLSelectElement).value;
+            attrs.onOptions({ [key]: value === "on" ? true : value === "off" ? false : undefined });
+          },
+        }, [m("option", { value: "" }, "Not set"), m("option", { value: "on" }, "On"), m("option", { value: "off" }, "Off")]),
+      ])),
+      fontSelect("font", "Font", false),
+      fontSelect("monoFont", "Fixed-width font", true),
+      fonts !== undefined && fonts.length === 0 ? m("p.muted", "No fonts are installed: an admin installs them.") : null,
+      m("label.optionrow", [
+        m("span.colorlabel", "Sort the list"),
+        m("select", {
+          value: options.sort ?? "",
+          onchange: (e: Event) => attrs.onOptions({ sort: (e.target as HTMLSelectElement).value || undefined }),
+        }, [m("option", { value: "" }, "Not set"), SORT_ORDERS.map((o) => m("option", { value: o.id }, o.label))]),
+      ]),
+      m("p.muted", "While it's selected."),
+      m("label.checkfield", [
+        m("input", {
+          type: "checkbox",
+          checked: options.rendered === true,
+          onchange: (e: Event) => attrs.onOptions({ rendered: (e.target as HTMLInputElement).checked ? true : undefined }),
+        }),
+        m("span", "Markdown notes open rendered, not in the editor"),
+      ]),
+      m(".tagpreview", { "aria-hidden": "true" }, m(".previewnote", [
+        noteStripe(options.notes ? [options.notes] : []),
+        m("strong", "A note tagged " + tag),
+        m("span.muted", "In the list"),
+      ])),
     ]);
   }
 

@@ -1,6 +1,9 @@
 import m from "mithril";
 import { LocalNote } from "../../sync/LocalNote";
-import { isOn, MARKDOWN, MONOSPACE, NOWRAP, PINNED, publishedToken, retagged, tagsOf } from "../../sync/Metadata";
+import { isOn, MARKDOWN, MONOSPACE, NOWRAP, optionsOf, PINNED, publishedToken, retagged, tagsOf } from "../../sync/Metadata";
+import { activeSort, AppliedOptions, appliedOptions, FlagKey, fromTags, inUserOrder, ownValueFor, SortOrder } from "../../utils/NoteOptions";
+import { tagFontValue, useTagFonts } from "../../utils/Fonts";
+import { compareNotes } from "../../sync/Outcomes";
 import { moveTo } from "../../sync/TagOrder";
 import { session } from "../../sync/Session";
 import { SyncEngine } from "../../sync/SyncEngine";
@@ -67,6 +70,8 @@ export class NotesPage extends AbstractPage {
   /** A message at the bottom of the screen for a few seconds, with what undoes it. */
   private toast?: { message: string; undo?: () => void };
   private toastTimer?: ReturnType<typeof setTimeout>;
+  /** The fonts the tags use, as last given to useTagFonts. */
+  private tagFonts = "";
   /** The engine whose tag events the filter follows, and how to stop. */
   private following?: { engine: SyncEngine; stop: () => void };
   private listCommand?: { kind: ListKind; seq: number };
@@ -185,9 +190,9 @@ export class NotesPage extends AbstractPage {
             engine && selected && !selected.deleted ? [
               m(".menusection", "This note"),
               checkItem("Pinned", isOn(selected, PINNED), (on) => engine.setOption(selected.id, PINNED, on)),
-              checkItem("Markdown", isOn(selected, MARKDOWN), (on) => engine.setOption(selected.id, MARKDOWN, on)),
-              checkItem("Fixed-width font", isOn(selected, MONOSPACE), (on) => engine.setOption(selected.id, MONOSPACE, on)),
-              checkItem("Wrap long lines", !isOn(selected, NOWRAP), (on) => engine.setOption(selected.id, NOWRAP, !on)),
+              this.flagItem(engine, selected, "Markdown", MARKDOWN),
+              this.flagItem(engine, selected, "Fixed-width font", MONOSPACE),
+              this.flagItem(engine, selected, "Wrap long lines", NOWRAP),
               this.viewing.has(selected.id) && this.canView(selected) ? null : [
                 m(".menuseparator"),
                 m("button.menuitem", { type: "button", onclick: () => this.makeList("bullet") }, "Bullet list"),
@@ -296,6 +301,8 @@ export class NotesPage extends AbstractPage {
     const rank = new Map(this.tagCounts(engine).map((count, i) => [count.tag, i]));
     const merged = (note: LocalNote) => noteHasMergeMark(note.id, note.text);
     const hidden = hiddenTags(engine);
+    const sort = activeSort(this.filter.tags, tagOptions, rank);
+    this.keepTagFonts(tagOptions);
     const onFilter = (filter: TagFilter) => this.setFilter(filter);
     const terms = parseQuery(this.search);
     const folded = (note: LocalNote) => this.searchIndex.get(note.id, note.text);
@@ -329,8 +336,8 @@ export class NotesPage extends AbstractPage {
       this.resizer("tags"),
       m(NoteList, {
         key: "list",
-        notes: notes.filter((note) => matches(this.filter, tags.get(note.id)!, merged(note), this.searchHidden && terms.length > 0 ? undefined : hidden)
-          && (terms.length === 0 || found(note))),
+        notes: this.sorted(notes.filter((note) => matches(this.filter, tags.get(note.id)!, merged(note), this.searchHidden && terms.length > 0 ? undefined : hidden)
+          && (terms.length === 0 || found(note))), sort),
         // Searching, those of hidden tags that would match: said, and shown on request.
         hiddenMatches: terms.length > 0 && !this.searchHidden && hidden.size > 0
           ? notes.filter((note) => !matches(this.filter, tags.get(note.id)!, merged(note), hidden)
@@ -352,9 +359,7 @@ export class NotesPage extends AbstractPage {
           key: selected.id,
           note: selected,
           tags: tagsOf(selected),
-          monospace: isOn(selected, MONOSPACE),
-          nowrap: isOn(selected, NOWRAP),
-          markdown: isOn(selected, MARKDOWN),
+          ...this.editorOptions(this.applied(engine, selected)),
           viewing: this.viewing.has(selected.id) && this.canView(selected),
           onView: (viewing: boolean) => this.setViewing(selected.id, viewing),
           publishing: this.publishing ? { token: publishedToken(selected), onClose: () => (this.publishing = false) } : undefined,
@@ -408,7 +413,59 @@ export class NotesPage extends AbstractPage {
   }
 
   private canView(note: LocalNote): boolean {
-    return isOn(note, MARKDOWN);
+    return this.engine ? this.applied(this.engine, note).markdown : isOn(note, MARKDOWN);
+  }
+
+  /** Each tag's place in the user's order (see NoteOptions.inUserOrder). */
+  private rank(engine: SyncEngine): Map<string, number> {
+    return new Map(this.tagCounts(engine).map((count, i) => [count.tag, i]));
+  }
+
+  /** Its options as they apply: its own, or its tags' (see NoteOptions). */
+  private applied(engine: SyncEngine, note: LocalNote): AppliedOptions {
+    return appliedOptions(optionsOf(note), tagsOf(note), engine.allTagOptions(), this.rank(engine));
+  }
+
+  private editorOptions(applied: AppliedOptions) {
+    return {
+      markdown: applied.markdown,
+      monospace: applied.monospace,
+      nowrap: applied.nowrap,
+      noteFont: tagFontValue(applied.font, false),
+      monoFont: tagFontValue(applied.monoFont, true),
+    };
+  }
+
+  /**
+   * A flag of the note's in the menu, as it applies, saying which tag it comes from. Toggling it
+   * sets the note's own value, or unsets it when that's what its tags say: it follows them again.
+   */
+  private flagItem(engine: SyncEngine, note: LocalNote, label: string, key: FlagKey): m.Children {
+    const applied = this.applied(engine, note);
+    // Wrapping is the option's reverse: "nowrap" on is the box off.
+    const on = key === NOWRAP ? !applied.nowrap : applied[key === MARKDOWN ? "markdown" : "monospace"];
+    const from = applied.from[key];
+    const tagsSay = fromTags(key, inUserOrder(tagsOf(note), this.rank(engine)), engine.allTagOptions()).value;
+    return checkItem(label + (from ? " (from " + from + ")" : ""), on, (wanted) => {
+      const value = key === NOWRAP ? !wanted : wanted;
+      engine.setOptionValue(note.id, key, ownValueFor(value, tagsSay));
+    });
+  }
+
+  /** The list in the order the selected tags say (see NoteOptions.activeSort): pinned notes first, always. */
+  private sorted(notes: LocalNote[], sort: SortOrder): LocalNote[] {
+    if (sort === "modified") return notes;
+    const key = sort === "created"
+      ? (note: LocalNote) => -(note.info?.createdAt ?? note.editedAt)
+      // A Markdown heading's marks aside: "# Apple pie" sorts as "Apple pie".
+      : (note: LocalNote) => titleAndExcerpt(note.text).title.replace(/^#{1,6}\s+/, "").toLocaleLowerCase();
+    return [...notes].sort((a, b) => {
+      const pinned = Number(isOn(b, PINNED)) - Number(isOn(a, PINNED));
+      if (pinned) return pinned;
+      const ka = key(a);
+      const kb = key(b);
+      return ka < kb ? -1 : ka > kb ? 1 : compareNotes(a, b);
+    });
   }
 
   /** Applied by the editor, which keeps its selection while the menu has the focus. */
@@ -521,6 +578,20 @@ export class NotesPage extends AbstractPage {
       this.publishing = false;
     }
     this.selectedId = id;
+    // A tag says its Markdown notes open rendered: each time they're opened.
+    const note = id ? this.engine?.get(id) : undefined;
+    if (note && this.engine && note.text.trim()) {
+      const applied = this.applied(this.engine, note);
+      if (applied.rendered && applied.markdown && !this.viewing.has(note.id)) this.setViewing(note.id, true);
+    }
+  }
+
+  /** The fonts the tags use, downloaded to this device (see useTagFonts): when they change. */
+  private keepTagFonts(tagOptions: { [tag: string]: { font?: string; monoFont?: string } }) {
+    const ids = [...new Set(Object.values(tagOptions).flatMap((o) => [o.font, o.monoFont]).filter((id): id is string => !!id))].sort().join(",");
+    if (ids === this.tagFonts) return;
+    this.tagFonts = ids;
+    void useTagFonts(ids ? ids.split(",") : []);
   }
 }
 

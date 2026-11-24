@@ -2653,13 +2653,40 @@ $tag-colors: red, orange, yellow, green, teal, blue, purple, pink;
   }
 }
 
-// A tag's colors, in its settings (see TagSettings.ts).
-.tagcolors {
+// A tag's settings, in two sections (see TagSettings.ts): how it looks, what its notes get.
+.tagsection {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
+
+  h3 {
+    margin: 0;
+    font-size: scaled(15px);
+  }
+
+  .optionrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+
+    select {
+      min-width: 0;
+      max-width: 100%;
+    }
+  }
+
+  .checkfield {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+
+    input {
+      margin-top: 3px;
+    }
+  }
 
   .colorrow {
     display: flex;
@@ -2744,17 +2771,7 @@ $tag-colors: red, orange, yellow, green, teal, blue, purple, pink;
   }
 }
 
-.dialog .hiddenfield {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
 
-  input {
-    margin-top: 3px;
-  }
-}
 
 // Searching: the notes of hidden tags that match too.
 .notelist .hiddenmatches {
