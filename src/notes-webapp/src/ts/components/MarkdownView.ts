@@ -23,6 +23,8 @@ export interface MarkdownViewAttrs {
   monospace: boolean;
   /** A task's box clicked: {@code marker} is the offset of its "[ ]" or "[x]". None: read-only, the boxes don't change. */
   onToggleTask?: (marker: number) => void;
+  /** A merge mark's remove button clicked: {@code lineStart}, its line's offset. None: read-only, no button. */
+  onRemoveMergeMark?: (lineStart: number) => void;
   /** Double-clicked: the source offset nearest to where. */
   onEditAt?: (pos: number) => void;
 }
@@ -153,6 +155,15 @@ function renderBlock(block: Block, ctx: Context): m.Children {
       return m("pre", pos, m("code", block.text));
     case "hr":
       return m("hr", pos);
+    case "merge": {
+      const remove = ctx.attrs.onRemoveMergeMark;
+      return m(".mergemark", { ...pos, role: "note" }, [
+        m("span.mergeicon", { "aria-hidden": "true" }, "⚠"),
+        m("span.mergetext", block.text),
+        remove ? m("button.mergeremove", { type: "button", title: "Remove this mark, once the text below is checked",
+          "aria-label": "Remove this mark, once the text below is checked", onclick: () => remove(block.pos) }, "×") : null,
+      ]);
+    }
     case "table":
       return m(".tablewrap", pos, m("table", [
         m("thead", m("tr", block.head.map((cell, i) => m("th", { class: alignClass(block.align[i]) }, renderInline(cell, ctx))))),

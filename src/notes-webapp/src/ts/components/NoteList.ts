@@ -3,6 +3,7 @@ import { LocalNote } from "../sync/LocalNote";
 import { isOn, PINNED, publishedToken } from "../sync/Metadata";
 import { sortKey } from "../sync/Outcomes";
 import { shortDate, titleAndExcerpt } from "../utils/format";
+import { noteHasMergeMark } from "../utils/MergeMarks";
 import { Snippet } from "../utils/Search";
 import { isActive, NO_FILTER, TagFilter, toggle } from "../utils/TagFilter";
 import { icon, iconButton } from "./Icons";
@@ -37,7 +38,7 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
         m("p", "No note matches this search."),
         m("button", { type: "button", onclick: () => attrs.onSearch("") }, "Clear search"),
       ] : [
-        m("p", attrs.filter.untagged ? "Every note has tags." : "No note has all of these tags."),
+        m("p", attrs.filter.untagged ? "Every note has tags." : attrs.filter.merged ? "No merge markers left to check." : "No note has all of these tags."),
         m("button", { type: "button", onclick: () => attrs.onFilter(NO_FILTER) }, "Clear filter"),
       ]) : null,
       (filtered || searching) && attrs.notes.length > 0 ? m(".filtercount", attrs.notes.length + " of " + attrs.total + " notes") : null,
@@ -49,6 +50,7 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
     const { filter, onFilter } = attrs;
     return m(".filterstrip", [
       filter.untagged ? m("span.tag", [m("span.tagname", "Untagged"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
+      filter.merged ? m("span.tag", [m("span.tagname", "Merge markers"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
       filter.tags.map((tag) => m("span.tag", { key: tag }, [
         m("span.tagname", tag),
         iconButton("x", "Stop filtering on " + tag, () => onFilter(toggle(filter, tag)), "tagremove"),
@@ -79,6 +81,7 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
         m("span.title" + (title ? "" : ".untitled"), title || "New note"),
         publishedToken(note) ? m("span.flag", { title: "Published", "aria-label": "Published" }, icon("globe")) : null,
         isOn(note, PINNED) ? m("span.flag", { title: "Pinned", "aria-label": "Pinned" }, icon("pin")) : null,
+        noteHasMergeMark(note.id, note.text) ? m("span.mergedot", { title: "Merge markers to check", "aria-label": "Merge markers to check" }) : null,
         m("span.date", shortDate(sortKey(note))),
       ]),
       m(".itemfoot", [

@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.jpountz.lz4.LZ4FrameInputStream;
 import net.jpountz.lz4.LZ4FrameOutputStream;
+import net.pieroxy.notes.sync.Merge3;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.utils.AtomicFiles;
 import net.pieroxy.notes.utils.Hashes;
@@ -560,11 +561,14 @@ public class UserNoteStore {
     }
   }
 
-  /** The first non-blank line, trimmed, at most {@link #TITLE_MAX_LENGTH} code points. */
+  /**
+   * The first non-blank line, trimmed, at most {@link #TITLE_MAX_LENGTH} code points; a merge's mark
+   * (see Merge3) isn't one.
+   */
   public static String title(String content) {
     for (String line : content.split("\n", -1)) {
       String trimmed = line.strip();
-      if (trimmed.isEmpty()) continue;
+      if (trimmed.isEmpty() || line.startsWith(Merge3.TAG)) continue;
       if (trimmed.codePointCount(0, trimmed.length()) <= TITLE_MAX_LENGTH) return trimmed;
       return trimmed.substring(0, trimmed.offsetByCodePoints(0, TITLE_MAX_LENGTH));
     }

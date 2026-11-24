@@ -1,5 +1,5 @@
 import m from "mithril";
-import { isActive, NO_FILTER, TagCount, TagFilter, toggle, toggleUntagged, visibleTags } from "../utils/TagFilter";
+import { isActive, NO_FILTER, TagCount, TagFilter, toggle, toggleMerged, toggleUntagged, visibleTags } from "../utils/TagFilter";
 import { icon } from "./Icons";
 
 export interface TagPanelAttrs {
@@ -9,6 +9,8 @@ export interface TagPanelAttrs {
   /** What's typed in the tagSearch field above the panel. */
   search: string;
   untaggedCount: number;
+  /** Notes with merge marks to check (see MergeMarks): listed only when there are some, or while filtering on them. */
+  mergedCount: number;
   onChange: (filter: TagFilter) => void;
   /** Puts {@code tag} at {@code index} among the tags listed. */
   onMove: (tag: string, index: number) => void;
@@ -51,6 +53,8 @@ export class TagPanel implements m.ClassComponent<TagPanelAttrs> {
         m("p.reorderhint", "Drag the handles, or Alt+↑ and Alt+↓."),
         m("button.plain.reorder", { type: "button", onclick: () => this.stopReordering() }, "Done"),
       ] : [
+        attrs.mergedCount > 0 || filter.merged
+          ? tagItem("Merge markers", attrs.mergedCount, filter.merged, () => onChange(toggleMerged(filter)), "merged") : null,
         tagItem("Untagged notes", attrs.untaggedCount, filter.untagged, () => onChange(toggleUntagged(filter)), "untagged"),
         m(".footactions", [
           isActive(filter) ? m("button.plain.clearfilter", { type: "button", onclick: () => onChange(NO_FILTER) }, "Clear filter") : null,

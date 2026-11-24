@@ -15,6 +15,7 @@ import { ListKind } from "../../utils/ListFormat";
 import { loadViewing, saveViewing } from "../../utils/ViewMode";
 import { EMOJI_HELPER, loadChoice } from "../../utils/Appearance";
 import { emojiHelperShown, TOUCH } from "../../utils/Emoji";
+import { noteHasMergeMark, retainMergeMarks } from "../../utils/MergeMarks";
 import { EmojiPicker } from "../EmojiPicker";
 import { inOrder, isActive, loadFilter, matches, NO_FILTER, saveFilter, TagCount, TagFilter, tagCounts, toggle, visibleTags } from "../../utils/TagFilter";
 import { Dropdown } from "../Dropdown";
@@ -215,6 +216,8 @@ export class NotesPage extends AbstractPage {
     if (this.selectedId && (!selected || selected.deleted)) this.selectedId = undefined;
     const notes = engine.list();
     const tags = new Map(notes.map((note) => [note.id, tagsOf(note)]));
+    retainMergeMarks(new Set(tags.keys()));
+    const merged = (note: LocalNote) => noteHasMergeMark(note.id, note.text);
     const onFilter = (filter: TagFilter) => this.setFilter(filter);
     const terms = parseQuery(this.search);
     const folded = (note: LocalNote) => this.searchIndex.get(note.id, note.text);
@@ -229,6 +232,7 @@ export class NotesPage extends AbstractPage {
         counts: this.tagCounts(engine),
         search: this.tagSearch,
         untaggedCount: [...tags.values()].filter((noteTags) => noteTags.length === 0).length,
+        mergedCount: notes.filter(merged).length,
         onChange: onFilter,
         onMove: (tag: string, index: number) => {
           const listed = this.tagCounts(engine).map((count) => count.tag);
@@ -245,7 +249,7 @@ export class NotesPage extends AbstractPage {
       this.resizer("tags"),
       m(NoteList, {
         key: "list",
-        notes: notes.filter((note) => matches(this.filter, tags.get(note.id)!) && (terms.length === 0 || found(note))),
+        notes: notes.filter((note) => matches(this.filter, tags.get(note.id)!, merged(note)) && (terms.length === 0 || found(note))),
         total: notes.length,
         filter: this.filter,
         onFilter,

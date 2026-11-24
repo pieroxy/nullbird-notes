@@ -1,3 +1,4 @@
+import { MERGE_TAG } from "../../../ts/auto/Constants";
 import { Block, Inline, parseMarkdown, toggledTask } from "../../../ts/components/MarkdownTree";
 
 /** Inline content as a compact string: *em*, **strong**, ~~strike~~, `code`, [text](href), / for a break. */
@@ -35,6 +36,20 @@ function paragraph(text: string): string {
 }
 
 describe("MarkdownTree", () => {
+  test("a merge mark: a block of its own, between the paragraph above and the line below", () => {
+    const mark = MERGE_TAG + " Auto-merged below";
+    const blocks = body("Before\n" + mark + "\nI like dogs birds.");
+    expect(blocks.map((b) => b.t)).toEqual(["p", "merge", "p"]);
+    expect(blocks[1]).toEqual({ t: "merge", pos: 4 + 7, text: "Auto-merged below" });
+    expect(inline((blocks[2] as { children: Inline[] }).children)).toBe("I like dogs birds.");
+    // Above a list item, ending the list.
+    expect(body("- a\n" + mark + "\n- b").map((b) => b.t)).toEqual(["list", "merge", "list"]);
+    // On the first line: above the title, the line after.
+    const titled = parseMarkdown(mark + "\nTitle\nBody");
+    expect(titled.map((b) => b.t)).toEqual(["merge", "h", "p"]);
+    expect(titled[1]).toMatchObject({ pos: mark.length + 1 });
+  });
+
   test("headings, paragraphs, rules", () => {
     const blocks = parseMarkdown("# Title ##\n\nSome text\n\n---\n### Sub");
     expect(blocks.map((b) => b.t)).toEqual(["h", "p", "hr", "h"]);

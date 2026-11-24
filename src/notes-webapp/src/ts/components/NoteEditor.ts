@@ -1,11 +1,12 @@
 import { history, historyKeymap, indentWithTab, insertNewline, isolateHistory, standardKeymap } from "@codemirror/commands";
 import { Annotation, ChangeSet, Compartment, EditorState, Extension, RangeSetBuilder, StateEffect, StateField, Transaction } from "@codemirror/state";
-import { Decoration, DecorationSet, EditorView, keymap, placeholder } from "@codemirror/view";
+import { Decoration, DecorationSet, EditorView, keymap, placeholder, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
 import m from "mithril";
 import { LocalNote } from "../sync/LocalNote";
 import { computeSplice } from "../sync/Splice";
 import { continueList } from "../utils/ListContinuation";
 import { formatList, ListKind, taskShorthand } from "../utils/ListFormat";
+import { isMergeMark, removedMergeMark } from "../utils/MergeMarks";
 import { MAX_MATCHES, Range } from "../utils/Search";
 import { iconButton } from "./Icons";
 import { markdownStyle } from "./MarkdownStyle";
@@ -128,6 +129,85 @@ const taskShorthandInput = EditorView.inputHandler.of((view, from, to, text) => 
   return true;
 });
 
+/** A merge mark's line removed, with its line break (see MergeMarks). */
+function removeMergeMark(view: EditorView, pos: number) {
+  const line = view.state.doc.lineAt(pos);
+  if (!isMergeMark(line.text)) return;
+  const last = line.number === view.state.doc.lines;
+  view.dispatch({ changes: { from: last ? Math.max(0, line.from - 1) : line.from, to: last ? line.to : line.to + 1 }, userEvent: "delete" });
+  view.focus();
+}
+
+class MergeIcon extends WidgetType {
+  eq(): boolean {
+    return true;
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "cm-mergeicon";
+    span.textContent = "⚠";
+    span.setAttribute("aria-hidden", "true");
+    return span;
+  }
+}
+
+class MergeRemove extends WidgetType {
+  eq(): boolean {
+    return true;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "cm-mergeremove";
+    button.textContent = "×";
+    button.title = "Remove this mark, once the text below is checked";
+    button.setAttribute("aria-label", button.title);
+    // The caret stays where it was until the click.
+    button.addEventListener("mousedown", (e) => e.preventDefault());
+    button.addEventListener("click", () => removeMergeMark(view, view.posAtDOM(button)));
+    return button;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+const mergeLine = Decoration.line({ class: "cm-mergemark" });
+const mergeIcon = Decoration.widget({ widget: new MergeIcon(), side: -1 });
+const mergeRemove = Decoration.widget({ widget: new MergeRemove(), side: 1 });
+
+function mergeDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const { from, to } of view.visibleRanges) {
+    for (let pos = from; pos <= to;) {
+      const line = view.state.doc.lineAt(pos);
+      if (isMergeMark(line.text)) {
+        builder.add(line.from, line.from, mergeLine);
+        builder.add(line.from, line.from, mergeIcon);
+        builder.add(line.to, line.to, mergeRemove);
+      }
+      pos = line.to + 1;
+    }
+  }
+  return builder.finish();
+}
+
+/** Merge marks, markdown or not: in red across the line, with a button removing them. Only the lines in sight: a note can be huge. */
+const mergeMarks = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+
+  constructor(view: EditorView) {
+    this.decorations = mergeDecorations(view);
+  }
+
+  update(update: ViewUpdate) {
+    if (update.docChanged || update.viewportChanged) this.decorations = mergeDecorations(update.view);
+  }
+}, { decorations: (plugin) => plugin.decorations });
+
 /**
  * Styles inside the editor's shadow root, where the page's stylesheet doesn't apply: CSS variables
  * still do.
@@ -142,6 +222,15 @@ const theme = EditorView.theme({
   ".cm-placeholder": { color: "var(--text-muted)" },
   ".cm-match": { background: "var(--match-bg)", borderRadius: "2px" },
   ".cm-match-current": { background: "var(--match-current-bg)", color: "var(--text-on-accent)" },
+  ".cm-mergemark": { background: "var(--merge-bg)", color: "var(--merge-text)", fontWeight: "600" },
+  // Over the Markdown coloring, which comes later at the same specificity: "[!merge]" would be a link's.
+  "& .cm-line.cm-mergemark span:not(.cm-match)": { color: "inherit", fontWeight: "inherit", fontStyle: "inherit" },
+  ".cm-mergeicon": { marginRight: "6px" },
+  ".cm-mergeremove": {
+    marginLeft: "8px", padding: "0 6px", border: "none", borderRadius: "4px", background: "transparent",
+    color: "inherit", font: "inherit", cursor: "pointer",
+  },
+  ".cm-mergeremove:hover": { background: "var(--merge-border)" },
 });
 
 /**
@@ -197,6 +286,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
           placeholder("Start typing…"),
           theme,
           matchField,
+          mergeMarks,
           this.options.of(options(attrs)),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !update.transactions.some((tr) => tr.annotation(remote))) {
@@ -285,6 +375,12 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
     view.focus();
   }
 
+  private removeMergeMark(lineStart: number) {
+    const view = this.editor!;
+    const change = removedMergeMark(view.state.doc.toString(), lineStart);
+    if (change) view.dispatch({ changes: change, userEvent: "delete" });
+  }
+
   private toggleTask(marker: number) {
     const view = this.editor!;
     const change = toggledTask(view.state.doc.toString(), marker);
@@ -324,6 +420,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
         find: attrs.find,
         anchor: this.anchor,
         onToggleTask: (marker: number) => this.toggleTask(marker),
+        onRemoveMergeMark: (lineStart: number) => this.removeMergeMark(lineStart),
         onEditAt: (pos: number) => {
           this.caretOnShow = pos;
           attrs.onView(false);

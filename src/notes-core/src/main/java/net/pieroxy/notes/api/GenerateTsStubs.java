@@ -1,10 +1,12 @@
 package net.pieroxy.notes.api;
 
+import com.google.gson.Gson;
 import net.pieroxy.notes.api.metadata.BaseApiEndpoint;
 import net.pieroxy.notes.api.metadata.ApiEndpoint;
 import net.pieroxy.notes.api.metadata.Endpoint;
 import net.pieroxy.notes.api.metadata.RequiredFields;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
+import net.pieroxy.notes.sync.Merge3;
 import net.pieroxy.notes.utils.BuildInfo;
 import net.pieroxy.notes.utils.reflection.GenericTypeArgumentResolver;
 import net.pieroxy.notes.utils.reflection.GetAccessibleClasses;
@@ -45,6 +47,14 @@ public class GenerateTsStubs {
       build.newLine();
       build.write("export const BUILD_ID = \"" + BuildInfo.ID + "\";");
       build.newLine();
+    }
+    try (BufferedWriter constants = new BufferedWriter(new FileWriter(new File(out.getParentFile(), "Constants.ts")))) {
+      constants.write("// Generated: the server's constants the web app needs.");
+      constants.newLine();
+      constants.write("/** What starts the line Merge3 puts above each clash it couldn't settle. */");
+      constants.newLine();
+      constants.write("export const MERGE_TAG = " + new Gson().toJson(Merge3.TAG) + ";");
+      constants.newLine();
     }
     writer = new BufferedWriter(new FileWriter(out));
 

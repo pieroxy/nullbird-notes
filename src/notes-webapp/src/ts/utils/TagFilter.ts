@@ -1,10 +1,13 @@
 /**
- * Which notes the list shows: those with all of {@code tags}, or, with {@code untagged}, those
- * with none (then {@code tags} is empty). Kept per device, not synced: it's a view, not data.
+ * Which notes the list shows: those with all of {@code tags}; or, with {@code untagged}, those
+ * with none; or, with {@code merged}, those with merge marks to check (see MergeMarks). Those two
+ * are views of their own: then {@code tags} is empty, and only one is on. Kept per device, not
+ * synced: it's a view, not data.
  */
 export interface TagFilter {
   tags: string[];
   untagged: boolean;
+  merged: boolean;
 }
 
 export interface TagCount {
@@ -14,25 +17,31 @@ export interface TagCount {
   selected: boolean;
 }
 
-export const NO_FILTER: TagFilter = { tags: [], untagged: false };
+export const NO_FILTER: TagFilter = { tags: [], untagged: false, merged: false };
 
 export function isActive(filter: TagFilter): boolean {
-  return filter.untagged || filter.tags.length > 0;
+  return filter.untagged || filter.merged || filter.tags.length > 0;
 }
 
-export function matches(filter: TagFilter, noteTags: string[]): boolean {
+/** {@code merged}: whether the note has merge marks. */
+export function matches(filter: TagFilter, noteTags: string[], merged = false): boolean {
   if (filter.untagged) return noteTags.length === 0;
+  if (filter.merged) return merged;
   return filter.tags.every((tag) => noteTags.includes(tag));
 }
 
-/** Selecting a tag leaves the untagged view. */
+/** Selecting a tag leaves the untagged or merged view. */
 export function toggle(filter: TagFilter, tag: string): TagFilter {
   const tags = filter.tags.includes(tag) ? filter.tags.filter((t) => t !== tag) : [...filter.tags, tag];
-  return { tags, untagged: false };
+  return { tags, untagged: false, merged: false };
 }
 
 export function toggleUntagged(filter: TagFilter): TagFilter {
-  return { tags: [], untagged: !filter.untagged };
+  return { tags: [], untagged: !filter.untagged, merged: false };
+}
+
+export function toggleMerged(filter: TagFilter): TagFilter {
+  return { tags: [], untagged: false, merged: !filter.merged };
 }
 
 /**
@@ -66,7 +75,7 @@ export function findTags(counts: TagCount[], search: string): TagCount[] {
  * The tags to list: those found by {@code search}, without, while tags are selected, those that
  * would leave no note: dead ends, since selected tags combine. Selected ones always stay, to be
  * unselected. Not in the untagged view: no shown note has a tag, every count is 0, and tags are
- * the way out of it.
+ * the way out of it. Nor in the merged view, for the same reason: its counts are all 0.
  */
 export function visibleTags(counts: TagCount[], filter: TagFilter, search: string): TagCount[] {
   const found = findTags(counts, search);
@@ -80,7 +89,8 @@ export function loadFilter(username: string): TagFilter {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_PREFIX + username) ?? "null");
     if (stored && Array.isArray(stored.tags) && stored.tags.every((tag: unknown) => typeof tag === "string")) {
-      return { tags: stored.tags, untagged: stored.untagged === true && stored.tags.length === 0 };
+      const untagged = stored.untagged === true && stored.tags.length === 0;
+      return { tags: stored.tags, untagged, merged: stored.merged === true && stored.tags.length === 0 && !untagged };
     }
   } catch {
     // Unavailable or garbled: no filter.

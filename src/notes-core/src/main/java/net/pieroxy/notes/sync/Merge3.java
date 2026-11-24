@@ -20,7 +20,8 @@ import java.util.TreeSet;
  * when they overlap, or when one inserts exactly where the other changes or inserts, unless both
  * made the very same change. A clash keeps both sides' versions, ours first; a side that deleted
  * the passage gives way to the other's edit. Each clash gets {@link #MARKER} on a line of its own
- * above the line it starts in.
+ * above the line it starts in. The web app recognizes it by {@link #TAG} at the start of a line,
+ * whatever follows: the sentence can change, or be translated.
  * <p>
  * A diff costs about its size times its number of edits: one going past {@link #MAX_DIFF_WORK} is
  * abandoned, and what was left to merge once the common lines at the start and end were set aside
@@ -29,7 +30,9 @@ import java.util.TreeSet;
  */
 public final class Merge3 {
   static final long MAX_DIFF_WORK = 100_000_000L;
-  public static final String MARKER = "[Auto-merged below: watch out for duplicated text]";
+  /** Passed on to the web app (see GenerateTsStubs). */
+  public static final String TAG = "[!merge]";
+  public static final String MARKER = TAG + " Auto-merged below: watch out for duplicated text";
 
   private Merge3() {}
 

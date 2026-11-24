@@ -1,5 +1,6 @@
 import { SyntaxNode } from "@lezer/common";
-import { Table } from "@lezer/markdown";
+import { MarkdownConfig, Table } from "@lezer/markdown";
+import { isMergeMark, mergeMarkText } from "../utils/MergeMarks";
 import { markdownGrammar } from "./MarkdownGrammar";
 
 /**
@@ -24,7 +25,9 @@ export type Block =
   | { t: "list"; pos: number; ordered: boolean; start: number; items: ListItem[] }
   | { t: "code"; pos: number; text: string }
   | { t: "hr"; pos: number }
-  | { t: "table"; pos: number; align: Align[]; head: Inline[][]; rows: Inline[][][] };
+  | { t: "table"; pos: number; align: Align[]; head: Inline[][]; rows: Inline[][][] }
+  /** A merge mark's line (see MergeMarks): {@code text}, the sentence after its tag. */
+  | { t: "merge"; pos: number; text: string };
 
 export interface ListItem {
   pos: number;
@@ -33,8 +36,26 @@ export interface ListItem {
   children: Block[];
 }
 
-/** The coloring's grammar, plus tables. */
-const viewParser = markdownGrammar.configure([Table]);
+/**
+ * A merge mark's line, a block of its own: it ends the paragraph above it, which the line below it
+ * would otherwise continue (Merge3 puts it right above the line where the clash starts).
+ */
+const MergeMark: MarkdownConfig = {
+  defineNodes: [{ name: "MergeMark", block: true }],
+  parseBlock: [{
+    name: "MergeMark",
+    parse(cx, line) {
+      if (!isMergeMark(line.text)) return false;
+      cx.addElement(cx.elt("MergeMark", cx.lineStart, cx.lineStart + line.text.length));
+      cx.nextLine();
+      return true;
+    },
+    endLeaf: (_cx, line) => isMergeMark(line.text),
+  }],
+};
+
+/** The coloring's grammar, plus tables and merge marks. */
+const viewParser = markdownGrammar.configure([Table, MergeMark]);
 
 /** Children that only delimit their parent: nothing of theirs shows. */
 const MARKS = new Set(["EmphasisMark", "StrikethroughMark", "CodeMark", "LinkMark", "HeaderMark", "QuoteMark", "ListMark", "TaskMarker", "LinkTitle", "LinkLabel"]);
@@ -44,7 +65,7 @@ const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"
 /**
  * The note's title, its first non-blank line, is a heading: as if "# " came first, unless it's a
  * heading already. A list item's, a quote's or a task's marker in front of it goes, as in the note
- * list.
+ * list. A merge mark above it stays above it, the title still the line after.
  */
 export function parseMarkdown(text: string): Block[] {
   const title = /[^\s]/.exec(text);
@@ -53,6 +74,10 @@ export function parseMarkdown(text: string): Block[] {
   const nl = text.indexOf("\n", title.index);
   const lineEnd = nl < 0 ? text.length : nl;
   const line = text.slice(lineStart, lineEnd);
+  if (isMergeMark(line)) {
+    const mark: Block = { t: "merge", pos: lineStart, text: mergeMarkText(line) };
+    return [mark, ...parseMarkdown(text.slice(0, lineStart) + blank(line) + text.slice(lineEnd))];
+  }
   if (/^ {0,3}#{1,6}(\s|$)/.test(line)) return parse(text);
   const contentStart = lineStart + /^\s*(?:>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1,9}[.)]\s+)*/.exec(line)![0].length;
   // Blanked out as spaces, what isn't parsed keeps every offset where it was.
@@ -153,6 +178,8 @@ class Builder {
         return { t: "code", pos: node.from, text: this.codeText(node) };
       case "HorizontalRule":
         return { t: "hr", pos: node.from };
+      case "MergeMark":
+        return { t: "merge", pos: node.from, text: mergeMarkText(this.text.slice(node.from, node.to)) };
       case "Table":
         return this.table(node);
       case "LinkReference":

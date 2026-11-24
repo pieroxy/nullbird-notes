@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.jpountz.lz4.LZ4FrameInputStream;
 import net.jpountz.lz4.LZ4FrameOutputStream;
+import net.pieroxy.notes.sync.Merge3;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -390,6 +391,12 @@ public class UserNoteStoreTest {
     assertEquals("x".repeat(UserNoteStore.TITLE_MAX_LENGTH), UserNoteStore.title("x".repeat(500)));
     String emojis = "😀".repeat(UserNoteStore.TITLE_MAX_LENGTH + 5);
     assertEquals(UserNoteStore.TITLE_MAX_LENGTH, UserNoteStore.title(emojis).codePointCount(0, UserNoteStore.title(emojis).length()));
+  }
+
+  @Test
+  public void titleSkipsMergeMarks() {
+    assertEquals("Title", UserNoteStore.title(Merge3.MARKER + "\nTitle\nbody"));
+    assertEquals("Title", UserNoteStore.title("\n" + Merge3.MARKER + "\n\nTitle"));
   }
 
   @Test
