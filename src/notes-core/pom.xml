@@ -6,12 +6,12 @@
   <parent>
     <groupId>net.pieroxy.notes</groupId>
     <artifactId>notes-parent</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
   <artifactId>notes-core</artifactId>
-  <version>1.1.0</version>
+  <version>1.2.0</version>
 
   <name>notes-core</name>
 
