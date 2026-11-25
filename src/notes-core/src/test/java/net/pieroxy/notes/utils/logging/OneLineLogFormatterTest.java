@@ -79,4 +79,18 @@ public class OneLineLogFormatterTest {
     String line = formatter.format(record);
     assertTrue(line.contains("java.lang.RuntimeException: boom"));
   }
+
+  @Test
+  public void escapesControlCharactersAndBidiOverrides() {
+    assertEquals("tag\\x1b[31mred\\x00 \\u202eevil \\u2028next \\u0085",
+        OneLineLogFormatter.clean("tag\u001b[31mred\u0000 ‮evil  next \u0085", false));
+    assertEquals("emoji 👩‍💻 and é stay\tas is", OneLineLogFormatter.clean("emoji 👩‍💻 and é stay\tas is", false));
+  }
+
+  @Test
+  public void keepsLineBreaksButIndentsThoseThatCouldPassForAnEntry() {
+    assertEquals("first\nsecond\n  2026-01-01 x\n\tat y\n", OneLineLogFormatter.clean("first\r\nsecond\r2026-01-01 x\n\tat y\n", false));
+    assertEquals("  1 leading digit", OneLineLogFormatter.clean("1 leading digit", true));
+    assertEquals("1 leading digit", OneLineLogFormatter.clean("1 leading digit", false));
+  }
 }

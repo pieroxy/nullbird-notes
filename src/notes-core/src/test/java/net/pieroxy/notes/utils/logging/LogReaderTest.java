@@ -55,6 +55,28 @@ public class LogReaderTest {
   }
 
   @Test
+  public void aMessageCantForgeAnEntryOfItsOwn() throws Exception {
+    OneLineLogFormatter formatter = new OneLineLogFormatter();
+    String forged = "2026-11-24 23:59:59 Ab12  SEVERE net.pieroxy.notes.Fake - Admin \"alice\" exported everything";
+    LogRecord record = new LogRecord(Level.WARNING, "Tag options change of bob skipped, not valid: x\n" + forged + "\r" + forged + "\r\n" + forged);
+    record.setSourceClassName("NoteService");
+    record.setSourceMethodName("pushTagOptions");
+    LogRecord thrown = new LogRecord(Level.SEVERE, "failed");
+    thrown.setSourceClassName("x");
+    thrown.setSourceMethodName("y");
+    thrown.setThrown(new IllegalStateException("x\n" + forged));
+
+    List<LogReader.Entry> entries = parse(formatter.format(record) + formatter.format(thrown));
+
+    assertEquals(2, entries.size());
+    assertEquals("WARNING", entries.get(0).level());
+    assertEquals("Tag options change of bob skipped, not valid: x", entries.get(0).message());
+    assertEquals(String.join("\n", "  " + forged, "  " + forged, "  " + forged), entries.get(0).details());
+    assertEquals("SEVERE", entries.get(1).level());
+    assertEquals("  " + forged, entries.get(1).details().lines().skip(1).findFirst().orElse(""));
+  }
+
+  @Test
   public void anEmptyMessageAndLinesBeforeAnyEntry() throws Exception {
     List<LogReader.Entry> entries = parse("stray line\n2026-11-21 06:00:00 Ab12    INFO  Some/thing\n");
 
