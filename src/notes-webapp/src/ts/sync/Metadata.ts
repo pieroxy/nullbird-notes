@@ -17,10 +17,14 @@ export const NOWRAP = "nowrap";
 export const PUBLISHED = "published";
 export const MAX_TAG_LENGTH = 64;
 
-/** As the server: 1 to {@link MAX_TAG_LENGTH} characters, no whitespace. */
+/**
+ * A tag name to give, as the server (NoteService.isValidTag): 1 to {@link MAX_TAG_LENGTH} characters,
+ * no whitespace, no control characters, no bidi controls (they'd show it as another name). Joiners and
+ * variation selectors are fine: emoji need them.
+ */
 export function isValidTag(tag: string): boolean {
   const length = [...tag].length;
-  return length > 0 && length <= MAX_TAG_LENGTH && !/[\s\p{Zs}]/u.test(tag);
+  return length > 0 && length <= MAX_TAG_LENGTH && !/[\s\p{Zs}\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(tag);
 }
 
 export function tagsOf(note: LocalNote): string[] {

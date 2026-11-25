@@ -49,6 +49,10 @@ describe("Metadata", () => {
     expect(isValidTag("")).toBe(false);
     expect(isValidTag("two words")).toBe(false);
     expect(isValidTag("tab\there")).toBe(false);
+    for (const tag of ["esc\u001b[31m", "nul\u0000", "c1\u0085", "evil\u202egpj", "iso\u2066late", "mark\u200f"]) {
+      expect(isValidTag(tag)).toBe(false);
+    }
+    for (const tag of ["👩\u200d💻", "❤\ufe0f", "👍🏽"]) expect(isValidTag(tag)).toBe(true);
     expect(isValidTag("nbsp here")).toBe(false);
   });
 

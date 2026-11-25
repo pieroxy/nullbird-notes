@@ -309,8 +309,8 @@ public class NoteService implements Service {
    * @throws InvalidInputException if a name isn't a valid tag.
    */
   public List<String> renameTag(String username, String deviceId, String from, String to) throws IOException {
-    if (!isValidTag(from) || !isValidTag(to)) {
-      throw new InvalidInputException("Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.");
+    if (!isTagName(from) || !isValidTag(to)) {
+      throw new InvalidInputException("Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace or control characters.");
     }
     if (from.equals(to)) return List.of();
     return retag(username, deviceId, from, to);
@@ -322,7 +322,7 @@ public class NoteService implements Service {
    * @return the IDs of the notes changed.
    */
   public List<String> deleteTag(String username, String deviceId, String tag) throws IOException {
-    if (!isValidTag(tag)) throw new InvalidInputException("Invalid tag.");
+    if (!isTagName(tag)) throw new InvalidInputException("Invalid tag.");
     return retag(username, deviceId, tag, null);
   }
 
@@ -398,7 +398,7 @@ public class NoteService implements Service {
     synchronized (store) {
       List<TagOptionsChange> renamed = new ArrayList<>();
       for (TagOptionsChange change : changes) {
-        if (change == null || !isValidTag(change.tag()) || (change.options() != null && !change.options().isValid())) {
+        if (change == null || !isTagName(change.tag()) || (change.options() != null && !change.options().isValid())) {
           LOGGER.warning("Tag options change of " + username + " skipped, not valid: " + change);
           continue;
         }
@@ -436,7 +436,7 @@ public class NoteService implements Service {
     if (change.tags() == null) return "No tags.";
     if (change.tags().size() > MAX_ORDERED_TAGS) return "At most " + MAX_ORDERED_TAGS + " tags.";
     for (String tag : change.tags()) {
-      if (!isValidTag(tag)) return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.";
+      if (!isTagName(tag)) return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.";
     }
     return null;
   }
@@ -536,8 +536,12 @@ public class NoteService implements Service {
       if (tags == null) continue;
       if (tags.size() > MAX_TAGS) return "At most " + MAX_TAGS + " tags.";
       for (String tag : tags) {
-        if (!isValidTag(tag)) return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.";
+        if (!isTagName(tag)) return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.";
       }
+    }
+    // A tag added is a new name; one removed may have been made before the rules got stricter.
+    if (change.addTags() != null && !change.addTags().stream().allMatch(NoteService::isValidTag)) {
+      return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace or control characters.";
     }
     if (change.setOptions() != null) {
       if (change.setOptions().size() > MAX_OPTIONS) return "At most " + MAX_OPTIONS + " options.";
@@ -557,9 +561,26 @@ public class NoteService implements Service {
     return null;
   }
 
+  /**
+   * A tag name to give: 1 to {@link #MAX_TAG_LENGTH} characters, no whitespace, no control characters
+   * and no bidi controls, which would show it as another name (U+202E reverses what follows). Joiners
+   * and variation selectors are fine: emoji need them. Metadata.ts has the same rule.
+   */
   static boolean isValidTag(String tag) {
+    return isTagName(tag) && tag.codePoints().noneMatch(c -> Character.getType(c) == Character.CONTROL || isBidiControl(c));
+  }
+
+  /**
+   * A tag name to refer to, made perhaps when {@link #isValidTag} was laxer: still removable,
+   * renamable, orderable.
+   */
+  static boolean isTagName(String tag) {
     if (tag == null || tag.isEmpty() || tag.codePointCount(0, tag.length()) > MAX_TAG_LENGTH) return false;
     return tag.codePoints().noneMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c));
+  }
+
+  private static boolean isBidiControl(int c) {
+    return c == 0x061c || c == 0x200e || c == 0x200f || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069);
   }
 
   private static boolean isValidOptionKey(String key) {

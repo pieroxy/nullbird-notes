@@ -18,6 +18,8 @@ import net.pieroxy.notes.sync.TagEvent;
 import net.pieroxy.notes.sync.TagOptions;
 import net.pieroxy.notes.sync.TagOptionsChange;
 import net.pieroxy.notes.sync.TagOrderChange;
+import net.pieroxy.notes.sync.TagOrderStatus;
+import net.pieroxy.notes.storage.MetaWrite;
 import net.pieroxy.notes.storage.UserNoteStore;
 import net.pieroxy.notes.utils.Hashes;
 import org.junit.After;
@@ -579,6 +581,33 @@ public class NoteServiceTest {
     assertEquals(RejectReason.INVALID, pushMeta(A, null, null, Map.of("k", "v".repeat(NoteService.MAX_OPTION_VALUE_LENGTH + 1)), null).reason());
     assertEquals(RejectReason.INVALID, pushMeta(A, null, null, null, List.of("bad key")).reason());
     assertEquals(PushStatus.APPLIED, pushMeta(A, List.of("x".repeat(NoteService.MAX_TAG_LENGTH), "Émoji🙂"), null, null, null).status());
+  }
+
+  @Test
+  public void aNewTagCantHoldControlCharactersNorBidiControls() throws Exception {
+    push(A, 0, BASE);
+    List<String> bad = List.of("esc\u001b[31m", "nul\u0000", "c1\u0085", "evil\u202egpj", "iso\u2066late", "mark\u200f");
+    for (String tag : bad) {
+      assertEquals(tag, RejectReason.INVALID, pushMeta(A, List.of(tag), null, null, null).reason());
+      assertThrows(tag, InvalidInputException.class, () -> service.renameTag("alice", "d", "work", tag));
+      assertFalse(tag, NoteService.isValidTag(tag));
+    }
+    // Emoji sequences: a zero-width joiner, a variation selector, a skin tone.
+    assertEquals(PushStatus.APPLIED, pushMeta(A, List.of("👩\u200d💻", "❤\ufe0f", "👍🏽"), null, null, null).status());
+  }
+
+  @Test
+  public void aTagMadeBeforeTheStricterRulesCanStillBeRemovedRenamedAndOrdered() throws Exception {
+    push(A, 0, "a");
+    push(B, 0, "b");
+    String old = "evil\u202egpj";
+    for (String id : List.of(A, B)) stores.getStore("alice").commitMeta(id, new MetaWrite(null, "d", List.of(old, "work"), null, null, null));
+
+    assertEquals(PushStatus.APPLIED, pushMeta(A, null, List.of(old), null, null).status());
+    assertEquals(List.of("work"), tags(A));
+    assertEquals(TagOrderStatus.APPLIED, service.pushTagOrder("alice", new TagOrderChange(0, List.of(old, "work"))).status());
+    assertEquals(List.of(B), service.renameTag("alice", "d", old, "clean"));
+    assertEquals(List.of("work", "clean"), tags(B));
   }
 
   @Test
