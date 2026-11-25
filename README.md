@@ -1,3 +1,5 @@
+<p align="center"><img src="resources/logo.png" alt="Notes" width="400"></p>
+
 # nullbird notes
 
 A simple, self-hosted note-taking application. Its sync handles concurrent edits and always shows
