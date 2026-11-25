@@ -184,9 +184,14 @@ button {
   }
 
   h1 {
-    margin: 0 0 8px;
+    margin: 0 0 16px;
+    line-height: 0;
     text-align: center;
-    font-weight: 500;
+  }
+
+  .logo {
+    width: 100%;
+    fill: var(--accent);
   }
 
   .errormessage {

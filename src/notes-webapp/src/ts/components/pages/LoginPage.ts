@@ -3,6 +3,7 @@ import { ApiEndpoints } from "../../auto/ApiEndpoints";
 import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
+import { logo } from "../Logo";
 import { AbstractPage } from "./AbstractPage";
 
 /** Fetched once: logging out recreates the page. */
@@ -29,7 +30,7 @@ export class LoginPage extends AbstractPage {
   render(): m.Children {
     return m("main.loginpage",
       m("form", { onsubmit: (e: Event) => this.submit(e) }, [
-        m("h1", "Notes"),
+        m("h1", logo()),
         m("input", {
           type: "text",
           placeholder: "Login",
