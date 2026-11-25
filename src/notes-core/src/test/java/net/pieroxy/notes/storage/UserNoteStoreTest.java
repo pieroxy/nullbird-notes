@@ -5,6 +5,7 @@ import com.google.gson.JsonParser;
 import net.jpountz.lz4.LZ4FrameInputStream;
 import net.jpountz.lz4.LZ4FrameOutputStream;
 import net.pieroxy.notes.sync.Merge3;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -17,6 +18,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -507,6 +509,35 @@ public class UserNoteStoreTest {
   public void aMetadataChangeToAnUnknownNoteWritesNothing() throws Exception {
     assertNull(store.commitMeta(A, meta("m1", List.of("x"), null, null, null)));
     assertEquals(0, store.getLastSeq());
+  }
+
+  @Test
+  public void aNoteThatCantBeDeletedForGoodStaysInTheTrashAndIsntRecorded() throws Exception {
+    for (String id : List.of(A, B)) {
+      store.commit(id, 0, write(id, "c-" + id));
+      store.commit(id, 1, new NoteWrite(id, true, "d-" + id, "device-1", null));
+    }
+    long before = store.getLastSeq();
+    Path stuck = root.resolve("notes").resolve(A);
+    Files.setPosixFilePermissions(stuck, PosixFilePermissions.fromString("r-xr-xr-x"));
+    try {
+      Assume.assumeFalse("root can delete anyway", Files.isWritable(stuck));
+
+      assertEquals(List.of(B), store.purge(List.of(A, B)));
+
+      assertEquals(List.of(B), store.purgesAfter(before).stream().map(UserNoteStore.StoredPurge::noteId).toList());
+      assertTrue(store.get(A).deleted());
+      assertNull(store.get(B));
+      reopen();
+      assertEquals(List.of(B), store.purgesAfter(before).stream().map(UserNoteStore.StoredPurge::noteId).toList());
+      assertTrue(store.get(A).deleted());
+      assertNull(store.get(B));
+    } finally {
+      Files.setPosixFilePermissions(stuck, PosixFilePermissions.fromString("rwxr-xr-x"));
+    }
+    // Once it can be: purged like any other.
+    assertEquals(List.of(A), store.purge(List.of(A)));
+    assertNull(store.get(A));
   }
 
   private Path revisionPath(String noteId, int revision) {

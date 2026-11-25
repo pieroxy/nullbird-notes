@@ -731,23 +731,32 @@ public class UserNoteStore {
 
   /**
    * Deletes for good those of {@code noteIds} that are deleted, with every revision: the others are
-   * left alone. Recorded first, then the folders go: interrupted, a folder left is removed again on
-   * the next purge of it, or stays a deleted note.
+   * left alone. Recorded first: if that fails, nothing is deleted. Then each note on its own: one
+   * whose note.json can't be deleted stays a deleted note, and is taken out of the record before any
+   * client reads it. A folder left without its note.json is ignored on load, and removed by the
+   * next purge of the same ID.
    *
    * @return the IDs of the notes deleted for good.
    */
   public synchronized List<String> purge(List<String> noteIds) throws IOException {
-    List<String> gone = noteIds.stream().distinct().filter(id -> index.containsKey(id) && index.get(id).deleted()).toList();
-    if (gone.isEmpty()) return gone;
+    List<String> candidates = noteIds.stream().distinct().filter(id -> index.containsKey(id) && index.get(id).deleted()).toList();
+    if (candidates.isEmpty()) return candidates;
     long seq = lastSeq + 1;
     List<StoredPurge> next = new ArrayList<>(purges);
-    for (String id : gone) next.add(new StoredPurge(seq, id));
+    for (String id : candidates) next.add(new StoredPurge(seq, id));
     if (next.size() > MAX_PURGES) next = next.subList(next.size() - MAX_PURGES, next.size());
-    AtomicFiles.write(root.resolve("purged.json"), PRETTY_GSON.toJson(next).getBytes(StandardCharsets.UTF_8));
-    purges = List.copyOf(next);
-    for (String id : gone) {
-      // Out of note.json first: a folder without it is ignored on load.
-      Files.deleteIfExists(noteDir(id).resolve("note.json"));
+    Path file = root.resolve("purged.json");
+    AtomicFiles.write(file, PRETTY_GSON.toJson(next).getBytes(StandardCharsets.UTF_8));
+    List<String> gone = new ArrayList<>();
+    for (String id : candidates) {
+      try {
+        // Out of note.json first: a folder without it is ignored on load.
+        Files.deleteIfExists(noteDir(id).resolve("note.json"));
+      } catch (IOException e) {
+        LOGGER.log(Level.WARNING, "Note " + id + " of " + root.getFileName() + " not purged: it stays in the trash", e);
+        continue;
+      }
+      gone.add(id);
       index.remove(id);
       changes.values().removeIf(record -> record.noteId().equals(id));
       metaChanges.values().removeIf(id::equals);
@@ -757,6 +766,16 @@ public class UserNoteStore {
         LOGGER.log(Level.WARNING, "Note " + id + " of " + root.getFileName() + " purged, its folder not removed entirely", e);
       }
     }
+    if (gone.size() < candidates.size()) {
+      next.removeIf(purge -> purge.seq() == seq && !gone.contains(purge.noteId()));
+      try {
+        AtomicFiles.write(file, PRETTY_GSON.toJson(next).getBytes(StandardCharsets.UTF_8));
+      } catch (IOException e) {
+        LOGGER.log(Level.SEVERE, "Could not write purged.json of " + root.getFileName()
+            + ": its clients will forget the notes that couldn't be purged, the server keeps them in its trash", e);
+      }
+    }
+    purges = List.copyOf(next);
     lastSeq = seq;
     wakeSeqWaiters();
     try {
