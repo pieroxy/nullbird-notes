@@ -17,6 +17,8 @@ public class Configuration {
   /** See {@code LogRetention#days}. */
   private Integer keepLogFiles;
   private int maxNoteSizeMb = 10;
+  /** Absent: no mail is sent. */
+  private MailOutConfiguration mailOut;
 
   public File resolveDataFolder(File configDir) {
     File folder = new File(dataFolder);
@@ -69,6 +71,14 @@ public class Configuration {
 
   public void setMaxNoteSizeMb(int maxNoteSizeMb) {
     this.maxNoteSizeMb = maxNoteSizeMb;
+  }
+
+  public MailOutConfiguration getMailOut() {
+    return mailOut;
+  }
+
+  public void setMailOut(MailOutConfiguration mailOut) {
+    this.mailOut = mailOut;
   }
 
   public boolean isSecureCookie() {

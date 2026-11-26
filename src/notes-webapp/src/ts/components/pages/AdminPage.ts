@@ -5,6 +5,7 @@ import { Endpoints } from "../../utils/navigation/Endpoints";
 import { ConfigSection } from "../AdminConfig";
 import { FontsSection } from "../AdminFonts";
 import { LogsSection } from "../AdminLogs";
+import { MailOutSection } from "../AdminMailOut";
 import { UserDetail, UserList } from "../AdminUsers";
 import { PageSection, sectionedPage } from "../SectionedPage";
 import { AbstractPage } from "./AbstractPage";
@@ -26,6 +27,7 @@ export class AdminPage extends AbstractPage<AdminPageAttrs> {
     { id: "users", title: "Users", render: () => this.username !== undefined ? m(UserDetail, { key: this.username, username: this.username }) : m(UserList) },
     { id: "config", title: "Config", render: () => m(ConfigSection) },
     { id: "fonts", title: "Fonts", render: () => m(FontsSection) },
+    { id: "mailout", title: "Mail out", render: () => m(MailOutSection) },
     { id: "logs", title: "Logs", render: () => m(LogsSection), wide: true },
   ];
 
