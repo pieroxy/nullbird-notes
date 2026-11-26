@@ -2,6 +2,7 @@ package net.pieroxy.notes.api;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import net.pieroxy.notes.mail.FakeSmtpServer;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -111,6 +112,33 @@ public class AdminMailOutApiTest {
     assertTrue(refusal(save("smtp.example.com", 587, "STARTTLS", "notes", null, "notes@example.com")).contains("needs a password"));
     assertTrue(refusal(save("smtp.example.com", 587, "STARTTLS", "notes", "a\\r\\nRSET", "notes@example.com")).contains("line breaks"));
     assertFalse(new File(tmp.getRoot(), "config.json").exists());
+  }
+
+  @Test
+  public void aTestMailGoesThroughTheSavedSettingsOrSaysWhyNot() throws Exception {
+    JsonObject none = alice.post("AdminTestMailOut", "{\"to\":\"alice@example.com\"}").result();
+    assertFalse(none.get("ok").getAsBoolean());
+    assertEquals("No SMTP server is saved.", none.get("error").getAsString());
+
+    try (FakeSmtpServer smtp = new FakeSmtpServer(null)) {
+      smtp.replies.put("RCPT", "550 5.1.1 No such user");
+      smtp.start();
+      alice.post("AdminSaveMailOut", save("127.0.0.1", smtp.port(), "NONE", "", null, "notes@example.com"));
+
+      JsonObject refused = alice.post("AdminTestMailOut", "{\"to\":\"nobody@example.com\"}").result();
+
+      assertFalse(refused.get("ok").getAsBoolean());
+      assertEquals("RCPT TO:<nobody@example.com> was refused: 550 5.1.1 No such user", refused.get("error").getAsString());
+    }
+    try (FakeSmtpServer smtp = new FakeSmtpServer(null)) {
+      smtp.start();
+      alice.post("AdminSaveMailOut", save("127.0.0.1", smtp.port(), "NONE", "", null, "notes@example.com"));
+
+      JsonObject sent = alice.post("AdminTestMailOut", "{\"to\":\"alice@example.com\"}").result();
+
+      assertTrue(sent.get("ok").getAsBoolean());
+      assertTrue(smtp.message.contains("To: alice@example.com\r\n"));
+    }
   }
 
   @Test

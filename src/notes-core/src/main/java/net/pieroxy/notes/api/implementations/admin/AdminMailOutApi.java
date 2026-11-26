@@ -18,7 +18,10 @@ public class AdminMailOutApi extends AbstractAdminEndpoint<AdminMailOutApiInput,
 
   @Override
   public AdminMailOut processAdmin(AdminMailOutApiInput input) throws Exception {
-    return AdminMailOut.of(serviceProvider.getSettingsService().readSavedConfig().getMailOut());
+    var settings = serviceProvider.getSettingsService();
+    var admin = settings.getUser(input.getUsername());
+    String email = admin == null || admin.getEmail() == null ? "" : admin.getEmail();
+    return AdminMailOut.of(settings.readSavedConfig().getMailOut(), email);
   }
 }
 
@@ -28,15 +31,16 @@ public class AdminMailOutApi extends AbstractAdminEndpoint<AdminMailOutApiInput,
  * @param host        "": no mail is sent.
  * @param username    "": no authentication.
  * @param passwordSet a password is saved, unused without a user name.
+ * @param yourEmail   the admin's own address, "" if none: where a test mail would go.
  */
 @TypeScriptType
 record AdminMailOut(@Required String host, @Required int port, @Required MailOutConfiguration.Security security, @Required String username,
-                    @Required boolean passwordSet, @Required String from) {
-  static AdminMailOut of(MailOutConfiguration mail) {
+                    @Required boolean passwordSet, @Required String from, @Required String yourEmail) {
+  static AdminMailOut of(MailOutConfiguration mail, String yourEmail) {
     if (mail == null) mail = new MailOutConfiguration();
     MailOutConfiguration.Security security = mail.getSecurity() == null ? MailOutConfiguration.Security.STARTTLS : mail.getSecurity();
     return new AdminMailOut(blankIfNull(mail.getHost()), mail.getPort() == 0 ? security.defaultPort() : mail.getPort(), security,
-        blankIfNull(mail.getUsername()), mail.getPassword() != null && !mail.getPassword().isEmpty(), blankIfNull(mail.getFrom()));
+        blankIfNull(mail.getUsername()), mail.getPassword() != null && !mail.getPassword().isEmpty(), blankIfNull(mail.getFrom()), yourEmail);
   }
 
   private static String blankIfNull(String value) {

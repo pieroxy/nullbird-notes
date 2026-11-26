@@ -43,6 +43,11 @@ export class MailOutSection implements m.ClassComponent {
   private saving = false;
   private error?: string;
   private saved = false;
+  /** Where the test mail goes: the admin's own address at first. */
+  private testTo?: string;
+  private testing = false;
+  private testError?: string;
+  private testSent?: string;
 
   oninit() {
     this.load();
@@ -53,6 +58,7 @@ export class MailOutSection implements m.ClassComponent {
       .then((mail) => {
         this.mail = mail;
         this.fields = fieldsOf(mail);
+        this.testTo ??= mail.yourEmail;
         this.loadError = undefined;
       })
       .catch((err: Error) => (this.loadError = err.message));
@@ -122,7 +128,46 @@ export class MailOutSection implements m.ClassComponent {
         this.error ? m("p.errormessage", { role: "alert" }, this.error) : null,
         this.saved ? m("p.successmessage", { role: "status" }, "Saved.") : null,
       ]),
+      this.testForm(mail, dirty),
     ];
+  }
+
+  /** With the saved settings: unsaved changes would test something else than what's used. */
+  private testForm(mail: AdminMailOut, dirty: boolean): m.Children {
+    const blocked = mail.host === "" ? "Save an SMTP server first." : dirty ? "Save your changes first: the test uses the saved settings." : undefined;
+    return m("form.stackedform.configform", { onsubmit: (e: Event) => this.sendTest(e) }, [
+      m("h3", "Test"),
+      m("label.field", [
+        m("span.fieldlabel", "Send a test mail to"),
+        m("input", {
+          type: "email", autocomplete: "email", spellcheck: false, value: this.testTo ?? "", disabled: this.testing,
+          oninput: (e: Event) => {
+            this.testTo = (e.target as HTMLInputElement).value;
+            this.testSent = undefined;
+          },
+        }),
+        m("span.fieldhint", blocked ?? "A short mail, sent right away. Any error the server gives is shown here."),
+      ]),
+      m(".buttons", m("button.secondary", { type: "submit", disabled: this.testing || blocked !== undefined || !this.testTo?.trim() },
+        this.testing ? "Sending…" : "Send test mail")),
+      this.testError ? m("p.errormessage", { role: "alert" }, this.testError) : null,
+      this.testSent ? m("p.successmessage", { role: "status" }, "Sent to " + this.testSent + ": check that it arrived, spam folder included.") : null,
+    ]);
+  }
+
+  private sendTest(e: Event) {
+    e.preventDefault();
+    const to = (this.testTo ?? "").trim();
+    this.testing = true;
+    this.testError = undefined;
+    this.testSent = undefined;
+    ApiEndpoints.AdminTestMailOut.call({ to })
+      .then((result) => {
+        if (result.ok) this.testSent = to;
+        else this.testError = result.error ?? "The test mail couldn't be sent.";
+      })
+      .catch((err: Error) => (this.testError = err.message))
+      .finally(() => (this.testing = false));
   }
 
   private submit(e: Event, port: number) {

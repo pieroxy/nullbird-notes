@@ -50,8 +50,8 @@ public class AdminSaveMailOutApi extends AbstractAdminEndpoint<AdminSaveMailOutA
       return AdminResult.refused(e.getMessage());
     }
 
-    AdminMailOut before = AdminMailOut.of(saved);
-    AdminMailOut after = AdminMailOut.of(wanted);
+    AdminMailOut before = AdminMailOut.of(saved, "");
+    AdminMailOut after = AdminMailOut.of(wanted, "");
     List<String> changes = new ArrayList<>();
     if (!before.host().equals(after.host())) changes.add("host \"" + before.host() + "\" → \"" + after.host() + "\"");
     if (before.port() != after.port()) changes.add("port " + before.port() + " → " + after.port());
