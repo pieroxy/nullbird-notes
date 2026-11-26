@@ -23,6 +23,8 @@ const routes: m.RouteDefs = {
 // Gone when compat.js found the browser too old, and replaced it with a message.
 const root = document.getElementById("app");
 if (root) {
+  // iOS applies :active (see the hover-or-pressed mixin) only on pages listening to touchstart.
+  document.addEventListener("touchstart", () => undefined, { passive: true });
   initAppearance(() => m.redraw());
   initFonts(() => m.redraw());
   m.route(root, Endpoints.HOME, routes);

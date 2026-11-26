@@ -8,6 +8,22 @@
   @return calc(#{$size} * var(--space-scale));
 }
 
+/**
+ * Hovered, where a pointer can hover, or pressed. Not hovered on touch screens: iOS turns a tap into
+ * a hover that stays until the next tap elsewhere.
+ */
+@mixin hover-or-pressed {
+  @media (hover: hover) {
+    &:hover {
+      @content;
+    }
+  }
+
+  &:active {
+    @content;
+  }
+}
+
 :root {
   --bg: #ffffff;
   --bg-pane: #f5f6f8;
@@ -304,8 +320,10 @@ button {
       cursor: col-resize;
     }
 
-    &:hover::after {
-      background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
+    @include hover-or-pressed {
+      &::after {
+        background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
+      }
     }
   }
 
@@ -391,11 +409,12 @@ button {
       color: var(--text);
       text-decoration: none;
 
-      &:hover, &.active {
+      @include hover-or-pressed {
         background: var(--bg-selected);
       }
 
       &.active {
+        background: var(--bg-selected);
         font-weight: 500;
       }
 
@@ -692,7 +711,7 @@ button {
       color: var(--text);
       text-decoration: none;
 
-      &:hover {
+      @include hover-or-pressed {
         background: var(--bg-selected);
       }
 
@@ -1047,7 +1066,7 @@ a.button {
         font-weight: normal;
       }
 
-      &:hover {
+      @include hover-or-pressed {
         background: var(--bg-selected);
       }
 
@@ -1189,7 +1208,7 @@ body.resizing {
     color: var(--text);
     text-align: left;
 
-    &:hover {
+    @include hover-or-pressed {
       background: var(--bg);
     }
 
@@ -1284,7 +1303,7 @@ body.resizing {
         height: 16px;
       }
 
-      &:hover {
+      @include hover-or-pressed {
         color: var(--text);
       }
     }
@@ -1365,7 +1384,7 @@ body.resizing {
     border-bottom: 1px solid var(--border);
     cursor: pointer;
 
-    &:hover {
+    @include hover-or-pressed {
       background: var(--bg);
     }
 
@@ -1577,7 +1596,7 @@ body.resizing {
       font: inherit;
       cursor: pointer;
 
-      &:hover {
+      @include hover-or-pressed {
         background: var(--merge-border);
       }
     }
@@ -1875,7 +1894,7 @@ button.icon, button.plain {
   background: transparent;
   color: var(--text);
 
-  &:hover {
+  @include hover-or-pressed {
     background: var(--bg-selected);
   }
 }
@@ -1935,7 +1954,12 @@ svg.icon {
     line-height: 1;
     opacity: .6;
 
-    &:hover, &.selected {
+    @include hover-or-pressed {
+      background: var(--bg-selected);
+      opacity: 1;
+    }
+
+    &.selected {
       background: var(--bg-selected);
       opacity: 1;
     }
@@ -1959,7 +1983,11 @@ svg.icon {
     font-size: scaled(22px);
     line-height: 1.2;
 
-    &:hover, &.active {
+    @include hover-or-pressed {
+      background: var(--bg-selected);
+    }
+
+    &.active {
       background: var(--bg-selected);
     }
   }
@@ -2079,7 +2107,7 @@ svg.icon {
     color: var(--text);
     text-align: left;
 
-    &:hover {
+    @include hover-or-pressed {
       background: var(--bg-selected);
     }
   }
@@ -2557,8 +2585,10 @@ button.link {
     background: transparent;
     color: var(--error);
 
-    &:hover:not(:disabled) {
-      background: var(--error-bg);
+    &:not(:disabled) {
+      @include hover-or-pressed {
+        background: var(--error-bg);
+      }
     }
   }
 }
@@ -2598,7 +2628,7 @@ button.link {
     color: inherit;
     font-weight: 600;
 
-    &:hover {
+    @include hover-or-pressed {
       background: rgba(127, 127, 127, .3);
     }
   }
