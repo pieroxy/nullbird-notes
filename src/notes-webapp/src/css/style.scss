@@ -1532,6 +1532,60 @@ body.resizing {
     gap: 6px;
     padding: spaced(8px) 16px calc(#{spaced(8px)} + var(--safe-bottom));
     border-top: 1px solid var(--border);
+    // The suggestions open above it (see TagEditor).
+    position: relative;
+  }
+
+  // The tags a typed one could be, above the tags: the best one at the bottom, next to the input.
+  .tagsuggest {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 12px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column-reverse;
+    min-width: min(240px, calc(100% - 24px));
+    max-width: calc(100% - 24px);
+    margin: 0;
+    padding: 4px;
+    overflow-y: auto;
+    list-style: none;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    font-size: scaled(13px);
+
+    li {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+      padding: spaced(5px) 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+
+      @include hover-or-pressed {
+        background: var(--bg-pane);
+      }
+
+      &.active {
+        background: var(--bg-selected);
+      }
+    }
+
+    .tagname {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tagpath {
+      opacity: 0.6;
+    }
+
+    b {
+      font-weight: 600;
+    }
   }
 
   .taginput {

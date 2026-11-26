@@ -1,6 +1,6 @@
 import {
-  ancestorsOf, isUnder, leafOf, nearest, normalizeTag, parentOf, siblingsOf, subtreeRenames, treeOrder, withAncestors, withoutRedundant,
-  withSiblingMoved,
+  ancestorsOf, isUnder, leafOf, MAX_SUGGESTIONS, nearest, normalizeTag, parentOf, siblingsOf, subtreeRenames, suggestTags, treeOrder, withAncestors,
+  withoutRedundant, withSiblingMoved,
 } from "../../../ts/utils/TagTree";
 
 describe("TagTree", () => {
@@ -47,5 +47,26 @@ describe("TagTree", () => {
     expect(nearest("code/python/django", options, (o) => o.monospace)).toEqual({ value: true, tag: "code" });
     expect(nearest("code/python", options, (o) => o.markdown)).toEqual({ value: true, tag: "code/python" });
     expect(nearest("other", options, (o) => o.markdown)).toEqual({});
+  });
+
+  test("suggestions: tags starting with what's typed, then those with a level starting with it", () => {
+    const known = ["urgent", "work", "work/clients", "work/clients/acme", "work/meetings", "clinic"];
+    const tags = (typed: string, excluded?: string[]) => suggestTags(known, typed, excluded).map((s) => s.tag);
+    expect(tags("cl")).toEqual(["clinic", "work/clients", "work/clients/acme"]);
+    expect(tags("ACM")).toEqual(["work/clients/acme"]);
+    expect(tags("work/cl")).toEqual(["work/clients", "work/clients/acme"]);
+    expect(tags("clients/a")).toEqual(["work/clients/acme"]);
+    expect(tags("/wo")).toEqual(["work", "work/clients", "work/clients/acme", "work/meetings"]);
+    expect(tags("me")).toEqual(["work/meetings"]);
+    expect(tags("cl", ["clinic", "work/clients"])).toEqual(["work/clients/acme"]);
+    expect(tags("")).toEqual([]);
+    expect(tags("zz")).toEqual([]);
+  });
+
+  test("suggestions: where what's typed is, and no more than a few", () => {
+    expect(suggestTags(["work/clients/acme"], "Cli")).toEqual([{ tag: "work/clients/acme", at: 5, length: 3 }]);
+    expect(suggestTags(["work"], "/w")).toEqual([{ tag: "work", at: 0, length: 1 }]);
+    const many = Array.from({ length: 20 }, (_, i) => "t" + i);
+    expect(suggestTags(many, "t")).toHaveLength(MAX_SUGGESTIONS);
   });
 });

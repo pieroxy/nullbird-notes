@@ -49,6 +49,8 @@ export interface NoteEditorAttrs {
   onRemoveTag: (tag: string) => void;
   /** How each tag looks (see TagLook). */
   tagOptions: { [tag: string]: TagOptions };
+  /** The tags to suggest while one is typed, in the panel's order (see TagEditor). */
+  knownTags: string[];
   /** Fonts its tags give it (CSS font-family values, see Fonts.tagFontValue), in place of the user's. */
   noteFont?: string;
   monoFont?: string;
@@ -460,7 +462,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
           attrs.onView(false);
         },
       }) : null,
-      m(TagEditor, { tags: attrs.tags, tagOptions: attrs.tagOptions, onAdd: attrs.onAddTag, onRemove: attrs.onRemoveTag }),
+      m(TagEditor, { tags: attrs.tags, tagOptions: attrs.tagOptions, knownTags: attrs.knownTags, onAdd: attrs.onAddTag, onRemove: attrs.onRemoveTag }),
     ]);
   }
 }

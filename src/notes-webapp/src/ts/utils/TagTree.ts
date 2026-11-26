@@ -145,3 +145,40 @@ export function nearest<T, O>(tag: string, options: { [tag: string]: O }, pick: 
   }
   return {};
 }
+
+/** A tag to suggest while one is typed, and where what's typed is in it. */
+export interface Suggestion {
+  tag: string;
+  at: number;
+  length: number;
+}
+
+/** At most this many suggestions. */
+export const MAX_SUGGESTIONS = 8;
+
+/**
+ * The tags of {@code known} (in the panel's order) to suggest for {@code typed}, ignoring case: those
+ * starting with it first, then those with a level starting with it ("acm" finds "work/clients/acme"),
+ * in the order of {@code known} within each. Without those in {@code excluded} (the note's own).
+ */
+export function suggestTags(known: string[], typed: string, excluded: string[] = []): Suggestion[] {
+  const needle = typed.replace(/^\/+/, "").toLowerCase();
+  if (needle === "") return [];
+  const starting: Suggestion[] = [];
+  const level: Suggestion[] = [];
+  for (const tag of known) {
+    if (excluded.includes(tag)) continue;
+    const lower = tag.toLowerCase();
+    if (lower.startsWith(needle)) {
+      starting.push({ tag, at: 0, length: needle.length });
+      continue;
+    }
+    for (let at = lower.indexOf(SEPARATOR); at >= 0; at = lower.indexOf(SEPARATOR, at + 1)) {
+      if (lower.startsWith(needle, at + 1)) {
+        level.push({ tag, at: at + 1, length: needle.length });
+        break;
+      }
+    }
+  }
+  return [...starting, ...level].slice(0, MAX_SUGGESTIONS);
+}

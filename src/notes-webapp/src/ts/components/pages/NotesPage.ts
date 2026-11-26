@@ -421,6 +421,7 @@ export class NotesPage extends AbstractPage {
           onAddTag: (tag: string) => engine.addTag(selected.id, tag),
           onRemoveTag: (tag: string) => engine.removeTag(selected.id, tag),
           tagOptions,
+          knownTags: [...rank.keys()],
           find,
           listCommand: this.listCommand,
           insertCommand: this.insertCommand,
