@@ -6,7 +6,7 @@
   <!-- Builds every Java module (mvn package from here) and pins the versions they share. -->
   <groupId>net.pieroxy.notes</groupId>
   <artifactId>notes-parent</artifactId>
-  <version>1.2.0</version>
+  <version>1.2.1</version>
   <packaging>pom</packaging>
 
   <name>notes-parent</name>
