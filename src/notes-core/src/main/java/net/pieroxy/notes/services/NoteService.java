@@ -27,6 +27,7 @@ import net.pieroxy.notes.sync.RejectReason;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.sync.TagEvent;
 import net.pieroxy.notes.sync.TagOptions;
+import net.pieroxy.notes.sync.TagPaths;
 import net.pieroxy.notes.sync.TagOptionsChange;
 import net.pieroxy.notes.utils.Hashes;
 
@@ -38,8 +39,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -66,7 +69,12 @@ public class NoteService implements Service {
   static final int MAX_NOTES_PER_REQUEST = 200;
   private final static int MAX_ID_LENGTH = 64;
   static final int MAX_TAGS = 100;
+  /** A level of a nested tag (see TagPaths): "acme" in "work/clients/acme". */
   static final int MAX_TAG_LENGTH = 64;
+  /** A whole nested tag. */
+  static final int MAX_TAG_PATH_LENGTH = 255;
+  static final String INVALID_TAG = "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters per level (" + MAX_TAG_PATH_LENGTH
+      + " in all), without whitespace or control characters.";
   /** Far more tags than anyone has: a bound on a request's size. */
   static final int MAX_ORDERED_TAGS = 10_000;
   static final int MAX_OPTIONS = 32;
@@ -199,12 +207,11 @@ public class NoteService implements Service {
     synchronized (store) {
       NoteMeta meta = store.get(ref.noteId());
       if (meta == null || meta.deleted() || !token.equals(meta.options().get(NoteOptions.PUBLISHED))) return null;
-      List<TagOptions> tags = tagOptionsInOrder(store, meta.tags());
       Map<String, String> own = meta.options();
-      boolean nowrap = TagOptions.effective(own.get(NoteOptions.NOWRAP), tags.stream().map(o -> o == null || o.wrap() == null ? null : !o.wrap()).toList());
+      boolean nowrap = TagOptions.effective(own.get(NoteOptions.NOWRAP), tagValuesInOrder(store, meta.tags(), o -> o.wrap() == null ? null : !o.wrap()));
       return new PublishedNote(ref.username(), meta, store.readContent(meta.id()),
-          TagOptions.effective(own.get(NoteOptions.MARKDOWN), tags.stream().map(o -> o == null ? null : o.markdown()).toList()),
-          TagOptions.effective(own.get(NoteOptions.MONOSPACE), tags.stream().map(o -> o == null ? null : o.monospace()).toList()),
+          TagOptions.effective(own.get(NoteOptions.MARKDOWN), tagValuesInOrder(store, meta.tags(), TagOptions::markdown)),
+          TagOptions.effective(own.get(NoteOptions.MONOSPACE), tagValuesInOrder(store, meta.tags(), TagOptions::monospace)),
           nowrap);
     }
   }
@@ -231,17 +238,31 @@ public class NoteService implements Service {
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
   }
 
-  /** The options of {@code tags}, in the user's tag order (alphabetical without one, as the clients); null for a tag with none. */
-  private static List<TagOptions> tagOptionsInOrder(UserNoteStore store, List<String> tags) {
+  /**
+   * What each of {@code tags} says for an option, in the user's tag order (alphabetical without one,
+   * as the clients); null for one saying nothing. A tag says what it sets, or else what the nearest
+   * tag above it sets (see TagPaths): "work/clients" follows "work" unless it sets its own. Tags above
+   * another of the note's say nothing more: "work/clients" decides, not "work" next to it.
+   */
+  private static List<Boolean> tagValuesInOrder(UserNoteStore store, List<String> tags, java.util.function.Function<TagOptions, Boolean> pick) {
     UserNoteStore.StoredTagOrder order = store.getTagOrder();
-    List<String> sorted = new ArrayList<>(tags);
-    if (order != null) {
-      sorted.sort(java.util.Comparator.comparingInt(tag -> order.tags().indexOf(tag) < 0 ? Integer.MAX_VALUE : order.tags().indexOf(tag)));
-    } else {
-      sorted.sort(String.CASE_INSENSITIVE_ORDER.thenComparing(java.util.Comparator.naturalOrder()));
-    }
+    List<String> deciding = TagPaths.withoutRedundant(tags);
+    List<String> tree = TagPaths.treeOrder(deciding, order == null ? null : order.tags(),
+        String.CASE_INSENSITIVE_ORDER.thenComparing(java.util.Comparator.naturalOrder()));
     UserNoteStore.StoredTagOptions options = store.getTagOptions();
-    return sorted.stream().map(tag -> options == null ? null : options.tags().get(tag)).toList();
+    List<Boolean> values = new ArrayList<>();
+    for (String tag : tree) {
+      if (!deciding.contains(tag)) continue;
+      Boolean value = null;
+      List<String> chain = new ArrayList<>(TagPaths.ancestors(tag));
+      chain.add(tag);
+      for (int i = chain.size() - 1; i >= 0 && value == null && options != null; i--) {
+        TagOptions own = options.tags().get(chain.get(i));
+        if (own != null) value = pick.apply(own);
+      }
+      values.add(value);
+    }
+    return values;
   }
 
   public PushResult pushMeta(String username, String deviceId, MetaChange change) throws IOException {
@@ -255,6 +276,12 @@ public class NoteService implements Service {
    *                 are so in the change too, made before the client knew. Null: none are.
    */
   public PushResult pushMeta(String username, String deviceId, MetaChange change, Long knownSeq) throws IOException {
+    // "/work//clients" is "work/clients": added as such. Those removed are as the note has them.
+    if (change.addTags() != null) {
+      change = new MetaChange(change.changeId(), change.noteId(),
+          change.addTags().stream().map(tag -> tag == null ? null : TagPaths.normalize(tag)).distinct().toList(),
+          change.removeTags(), change.setOptions(), change.unsetOptions());
+    }
     String invalid = validate(deviceId, change);
     if (invalid != null) return rejected(change.changeId(), change.noteId(), RejectReason.INVALID, invalid);
     UserNoteStore store = noteStores.getStore(username);
@@ -301,23 +328,26 @@ public class NoteService implements Service {
 
   /**
    * Renames {@code from} to {@code to} on every note having it, deleted ones included: they'd come
-   * back with the old name if restored. When {@code to} is in use already, the two merge. The tag
-   * order keeps {@code from}'s place, or {@code to}'s when merged. Recorded as a {@link TagEvent},
-   * which clients get with the changes, so that their changes not sent yet follow.
+   * back with the old name if restored. The tags under it go along: "work/clients" becomes
+   * "job/clients" (see TagPaths). When a new name is in use already, the two merge. The tag order
+   * keeps each one's place, or the target's when merged. Recorded as {@link TagEvent}s, one per tag
+   * renamed, which clients get with the changes, so that their changes not sent yet follow.
    *
+   * @param to normalized first (see TagPaths.normalize).
    * @return the IDs of the notes changed.
-   * @throws InvalidInputException if a name isn't a valid tag.
+   * @throws InvalidInputException if a name isn't a valid tag, or {@code to} is under {@code from}.
    */
   public List<String> renameTag(String username, String deviceId, String from, String to) throws IOException {
-    if (!isTagName(from) || !isValidTag(to)) {
-      throw new InvalidInputException("Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace or control characters.");
-    }
+    to = TagPaths.normalize(to);
+    if (!isTagName(from) || !isValidTag(to)) throw new InvalidInputException(INVALID_TAG);
     if (from.equals(to)) return List.of();
+    if (TagPaths.isUnder(to, from)) throw new InvalidInputException("A tag can't move under itself.");
     return retag(username, deviceId, from, to);
   }
 
   /**
-   * Removes {@code tag} from every note having it, deleted ones included, likewise recorded.
+   * Removes {@code tag} from every note having it, deleted ones included, and the tags under it,
+   * likewise recorded.
    *
    * @return the IDs of the notes changed.
    */
@@ -331,13 +361,28 @@ public class NoteService implements Service {
     UserNoteStore store = noteStores.getStore(username);
     synchronized (store) {
       UserNoteStore.StoredTagOrder before = store.getTagOrder();
-      List<String> ids = store.list().stream().filter(note -> note.tags().contains(from)).map(NoteMeta::id).sorted().toList();
-      if (ids.isEmpty() && (before == null || !before.tags().contains(from))) return ids;
-      MetaWrite write = new MetaWrite(null, deviceId, to == null ? null : List.of(to), List.of(from), null, null);
-      for (String id : ids) store.commitMeta(id, write);
-      store.recordTagEvent(from, to, before);
+      UserNoteStore.StoredTagOptions options = store.getTagOptions();
+      // Every name the server knows at or under it: on notes, in the order, with options.
+      Set<String> names = new LinkedHashSet<>();
+      for (NoteMeta note : store.list()) names.addAll(note.tags());
+      if (before != null) names.addAll(before.tags());
+      if (options != null) names.addAll(options.tags().keySet());
+      if (names.stream().noneMatch(name -> TagPaths.isUnder(name, from))) return List.of();
+      List<TagPaths.Rename> renames = TagPaths.subtreeRenames(names, from, to);
+      Map<String, String> renamed = new HashMap<>();
+      for (TagPaths.Rename rename : renames) renamed.put(rename.from(), rename.to());
+      List<String> ids = new ArrayList<>();
+      for (NoteMeta note : store.list().stream().sorted(java.util.Comparator.comparing(NoteMeta::id)).toList()) {
+        List<String> removed = note.tags().stream().filter(tag -> TagPaths.isUnder(tag, from)).toList();
+        if (removed.isEmpty()) continue;
+        List<String> added = removed.stream().map(renamed::get).filter(java.util.Objects::nonNull).distinct().toList();
+        store.commitMeta(note.id(), new MetaWrite(null, deviceId, added.isEmpty() ? null : added, removed, null, null));
+        ids.add(note.id());
+      }
+      store.recordTagEvents(renames, before);
+      int under = renames.size() - 1;
       LOGGER.info(username + (to == null ? " removed the tag " + from : " renamed the tag " + from + " to " + to)
-          + " on " + ids.size() + " note(s)");
+          + (under > 0 ? " with " + under + " tag(s) under it" : "") + " on " + ids.size() + " note(s)");
       return ids;
     }
   }
@@ -436,7 +481,7 @@ public class NoteService implements Service {
     if (change.tags() == null) return "No tags.";
     if (change.tags().size() > MAX_ORDERED_TAGS) return "At most " + MAX_ORDERED_TAGS + " tags.";
     for (String tag : change.tags()) {
-      if (!isTagName(tag)) return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.";
+      if (!isTagName(tag)) return INVALID_TAG;
     }
     return null;
   }
@@ -536,12 +581,12 @@ public class NoteService implements Service {
       if (tags == null) continue;
       if (tags.size() > MAX_TAGS) return "At most " + MAX_TAGS + " tags.";
       for (String tag : tags) {
-        if (!isTagName(tag)) return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace.";
+        if (!isTagName(tag)) return INVALID_TAG;
       }
     }
     // A tag added is a new name; one removed may have been made before the rules got stricter.
     if (change.addTags() != null && !change.addTags().stream().allMatch(NoteService::isValidTag)) {
-      return "Invalid tag: tags are 1 to " + MAX_TAG_LENGTH + " characters, without whitespace or control characters.";
+      return INVALID_TAG;
     }
     if (change.setOptions() != null) {
       if (change.setOptions().size() > MAX_OPTIONS) return "At most " + MAX_OPTIONS + " options.";
@@ -562,12 +607,16 @@ public class NoteService implements Service {
   }
 
   /**
-   * A tag name to give: 1 to {@link #MAX_TAG_LENGTH} characters, no whitespace, no control characters
-   * and no bidi controls, which would show it as another name (U+202E reverses what follows). Joiners
-   * and variation selectors are fine: emoji need them. Metadata.ts has the same rule.
+   * A tag name to give, once normalized (see TagPaths.normalize, which {@link #pushMeta} and
+   * {@link #renameTag} apply): no empty level, 1 to {@link #MAX_TAG_LENGTH} characters per level and
+   * {@link #MAX_TAG_PATH_LENGTH} in all, no whitespace, no control characters and no bidi controls,
+   * which would show it as another name (U+202E reverses what follows). Joiners and variation
+   * selectors are fine: emoji need them. TagTree.ts and Metadata.ts have the same rule.
    */
   static boolean isValidTag(String tag) {
-    return isTagName(tag) && tag.codePoints().noneMatch(c -> Character.getType(c) == Character.CONTROL || isBidiControl(c));
+    if (!isTagName(tag) || !tag.equals(TagPaths.normalize(tag))) return false;
+    for (String level : tag.split(TagPaths.SEPARATOR)) if (level.codePointCount(0, level.length()) > MAX_TAG_LENGTH) return false;
+    return tag.codePoints().noneMatch(c -> Character.getType(c) == Character.CONTROL || isBidiControl(c));
   }
 
   /**
@@ -575,7 +624,7 @@ public class NoteService implements Service {
    * renamable, orderable.
    */
   static boolean isTagName(String tag) {
-    if (tag == null || tag.isEmpty() || tag.codePointCount(0, tag.length()) > MAX_TAG_LENGTH) return false;
+    if (tag == null || tag.isEmpty() || tag.codePointCount(0, tag.length()) > MAX_TAG_PATH_LENGTH) return false;
     return tag.codePoints().noneMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c));
   }
 

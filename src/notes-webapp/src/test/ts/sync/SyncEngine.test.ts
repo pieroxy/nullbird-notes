@@ -523,6 +523,37 @@ describe("SyncEngine", () => {
       expect(server.pushCursors.every((c) => typeof c === "number")).toBe(true);
     });
 
+    test("a nested tag's rename takes the tags under it along, its removal too", async () => {
+      server.write(A, "First");
+      server.write(B, "Second");
+      server.writeMeta(A, ["work/clients/acme", "home"], {});
+      server.writeMeta(B, ["work", "workshop"], {});
+      await startEngine();
+      const told: unknown[] = [];
+      engine.onTagEvents((events) => told.push(...events));
+      expect(engine.tagNoteCount("work")).toBe(2);
+      expect(engine.allTagNames().sort()).toEqual(["home", "work", "work/clients", "work/clients/acme", "workshop"]);
+
+      expect(await engine.renameTag("work", "/job//")).toEqual([A, B]);
+      expect(tagsOf(engine.get(A)!)).toEqual(["home", "job/clients/acme"]);
+      expect(tagsOf(engine.get(B)!)).toEqual(["workshop", "job"]);
+      expect(told).toEqual([{ from: "work", to: "job" }, { from: "work/clients", to: "job/clients" },
+        { from: "work/clients/acme", to: "job/clients/acme" }]);
+      await expect(engine.renameTag("job", "job/old")).rejects.toThrow("under itself");
+
+      await until(() => engine.status().state === "synced");
+      expect(await engine.deleteTag("job/clients")).toEqual([A]);
+      expect(tagsOf(engine.get(A)!)).toEqual(["home"]);
+    });
+
+    test("added tags lose their empty levels", async () => {
+      server.write(A, "First");
+      await startEngine();
+      expect(engine.addTag(A, "/work//clients/")).toBe(true);
+      expect(tagsOf(engine.get(A)!)).toEqual(["work/clients"]);
+      expect(engine.addTag(A, "//")).toBe(false);
+    });
+
     test("offline, renaming fails and changes nothing", async () => {
       await withTags();
       server.failNext = 1000;

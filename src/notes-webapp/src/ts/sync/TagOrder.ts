@@ -62,3 +62,8 @@ export function moveTo(shown: string[], tag: string, index: number): TagMove {
   const clamped = Math.max(0, Math.min(index, others.length));
   return { tag, after: clamped === 0 ? null : others[clamped - 1] };
 }
+
+/** The moves that put {@code order} first, as it is: each tag after the one before it. */
+export function movesFor(order: string[]): TagMove[] {
+  return order.map((tag, i) => ({ tag, after: i === 0 ? null : order[i - 1] }));
+}

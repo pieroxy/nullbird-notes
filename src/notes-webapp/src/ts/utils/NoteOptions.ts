@@ -1,10 +1,14 @@
 import { TagOptions } from "../auto/api-types";
 import { MARKDOWN, MONOSPACE, NOWRAP } from "../sync/Metadata";
+import { nearest, withoutRedundant } from "./TagTree";
 
 /**
  * A note's options as they apply: its own when set ("true" or "false"), otherwise its tags', the
  * first in the user's tag order to set one (see TagOptions on the server), otherwise the default.
  * Notes follow their tags live: a tag's option changed, every note of it without its own follows.
+ * A nested tag that doesn't set an option follows the nearest tag above it that does (see
+ * TagTree.nearest), and a tag above another of the note's says nothing more: "work/clients" decides,
+ * not "work" next to it.
  */
 export type FlagKey = typeof MARKDOWN | typeof MONOSPACE | typeof NOWRAP;
 export type SortOrder = "modified" | "created" | "title";
@@ -41,11 +45,16 @@ function tagFlag(options: TagOptions | undefined, key: FlagKey): boolean | undef
   return options.wrap === undefined || options.wrap === null ? undefined : !options.wrap;
 }
 
-/** What the tags say for {@code key}, and which one: the first, in the user's order, to say. */
+/** The note's tags that decide (see withoutRedundant), in the user's order. */
+export function decidingTags(tags: string[], rank: Map<string, number>): string[] {
+  return inUserOrder(withoutRedundant(tags), rank);
+}
+
+/** What the tags say for {@code key}, and which one: the first, in the user's order, to say (or a tag above it). */
 export function fromTags(key: FlagKey, ordered: string[], tagOptions: { [tag: string]: TagOptions }): { value?: boolean; tag?: string } {
   for (const tag of ordered) {
-    const value = tagFlag(tagOptions[tag], key);
-    if (value !== undefined) return { value, tag };
+    const said = nearest(tag, tagOptions, (options) => tagFlag(options, key));
+    if (said.value !== undefined) return said;
   }
   return {};
 }
@@ -56,7 +65,7 @@ function own(value: string | undefined): boolean | undefined {
 
 export function appliedOptions(options: { [key: string]: string }, tags: string[], tagOptions: { [tag: string]: TagOptions },
   rank: Map<string, number>): AppliedOptions {
-  const ordered = inUserOrder(tags, rank);
+  const ordered = decidingTags(tags, rank);
   const from: AppliedOptions["from"] = {};
   const flag = (key: FlagKey): boolean => {
     const mine = own(options[key]);
@@ -67,8 +76,8 @@ export function appliedOptions(options: { [key: string]: string }, tags: string[
   };
   const first = (pick: (o: TagOptions) => string | boolean | undefined) => {
     for (const tag of ordered) {
-      const value = tagOptions[tag] && pick(tagOptions[tag]);
-      if (value !== undefined && value !== null) return value;
+      const said = nearest(tag, tagOptions, pick);
+      if (said.value !== undefined) return said.value;
     }
     return undefined;
   };
@@ -92,10 +101,13 @@ export function ownValueFor(wanted: boolean, tagsSay: boolean | undefined): stri
   return wanted ? "true" : "false";
 }
 
-/** The list's order while {@code selected} tags filter it: the first of them, in the user's order, to set one. */
+/**
+ * The list's order while {@code selected} tags filter it: the first of them, in the user's order, to
+ * set one, or a tag above it; the most specific selected tags decide (see decidingTags).
+ */
 export function activeSort(selected: string[], tagOptions: { [tag: string]: TagOptions }, rank: Map<string, number>): SortOrder {
-  for (const tag of inUserOrder(selected, rank)) {
-    const sort = tagOptions[tag]?.sort;
+  for (const tag of decidingTags(selected, rank)) {
+    const sort = nearest(tag, tagOptions, (options) => options.sort).value;
     if (sort === "created" || sort === "title" || sort === "modified") return sort;
   }
   return "modified";

@@ -1,5 +1,6 @@
 import m from "mithril";
 import { TagOptions } from "../auto/api-types";
+import { withAncestors } from "./TagTree";
 
 /**
  * How a tag looks, as set in its settings (see TagOptions on the server): its dot, stripe,
@@ -45,12 +46,13 @@ export const MAX_NOTE_STRIPES = 3;
 
 /**
  * The colors of a note's stripe in the list: those of its tags that have one, in the user's tag
- * order, three at most.
+ * order, three at most. A nested tag's stripes stack (see TagTree): "work" blue and "work/clients"
+ * red make blue then red on a note of "work/clients", each tag once, those above first.
  *
- * @param rank each tag's place in the user's order; tags missing from it go last.
+ * @param rank each tag's place as the tags panel lists them (see TagTree.treeOrder); tags missing from it go last.
  */
 export function noteStripes(tags: string[], options: { [tag: string]: TagOptions }, rank: Map<string, number>): string[] {
-  return tags.filter((tag) => known(options[tag]?.notes))
+  return [...withAncestors(tags)].filter((tag) => known(options[tag]?.notes))
     .sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity))
     .slice(0, MAX_NOTE_STRIPES)
     .map((tag) => options[tag].notes!);

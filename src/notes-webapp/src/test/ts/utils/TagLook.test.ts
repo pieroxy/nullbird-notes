@@ -17,3 +17,15 @@ describe("TagLook", () => {
     expect(noteStripes(["c"], options, rank)).toEqual([]);
   });
 });
+
+describe("TagLook, nested tags", () => {
+  test("the stripes stack: the tags above first, each once, three at most", () => {
+    const options = { work: { notes: "blue" }, "work/clients": { notes: "red" }, "work/clients/acme": { notes: "pink" }, urgent: { notes: "orange" },
+      "work/meetings": { notes: "green" } };
+    const rank = new Map(["work", "work/clients", "work/clients/acme", "work/meetings", "urgent"].map((t, i) => [t, i]));
+    expect(noteStripes(["work/clients"], options, rank)).toEqual(["blue", "red"]);
+    expect(noteStripes(["work/clients/acme", "urgent"], options, rank)).toEqual(["blue", "red", "pink"]);
+    expect(noteStripes(["work/clients", "work/meetings"], options, rank)).toEqual(["blue", "red", "green"]);
+    expect(noteStripes(["work", "work/clients"], options, rank)).toEqual(["blue", "red"]);
+  });
+});

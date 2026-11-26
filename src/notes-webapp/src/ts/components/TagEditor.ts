@@ -1,5 +1,6 @@
 import m from "mithril";
-import { MAX_TAG_LENGTH } from "../sync/Metadata";
+import { TAG_RULE } from "../sync/Metadata";
+import { leafOf, parentOf, SEPARATOR } from "../utils/TagTree";
 import { TagOptions } from "../auto/api-types";
 import { tagClasses, tagDot } from "../utils/TagLook";
 import { iconButton } from "./Icons";
@@ -24,14 +25,15 @@ export class TagEditor implements m.ClassComponent<TagEditorAttrs> {
   view({ attrs }: m.Vnode<TagEditorAttrs>): m.Children {
     return m(".tags", [
       attrs.tags.map((tag) => m("span.tag" + tagClasses(attrs.tagOptions[tag]), { key: tag }, [
-        m("span.tagname", [tagDot(attrs.tagOptions[tag]), tag]),
+        // A nested tag (see TagTree): the tags above it dimmed, "work/clients/" before "acme".
+        m("span.tagname", [tagDot(attrs.tagOptions[tag]), parentOf(tag) ? m("span.tagpath", parentOf(tag) + SEPARATOR) : null, leafOf(tag)]),
         iconButton("x", "Remove tag " + tag, () => attrs.onRemove(tag), "tagremove"),
       ])),
       m("input.taginput" + (this.invalid ? ".invalid" : ""), {
         value: this.draft,
         placeholder: attrs.tags.length === 0 ? "Add a tag…" : "",
         "aria-label": "Add a tag",
-        title: this.invalid ? "Tags are 1 to " + MAX_TAG_LENGTH + " characters, without spaces." : undefined,
+        title: this.invalid ? TAG_RULE : undefined,
         autocapitalize: "none",
         spellcheck: false,
         oninput: (e: Event) => {

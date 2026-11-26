@@ -6,6 +6,7 @@ import { ApiError, ApiErrorKind } from "../../../ts/utils/api/Api";
 import { sha256Bytes } from "../../../ts/sync/Sha256";
 import { applySplice, computeSplice, fullSplice } from "../../../ts/sync/Splice";
 import { retagged } from "../../../ts/sync/Metadata";
+import { isUnder, subtreeRenames } from "../../../ts/utils/TagTree";
 import { PushBatch, SyncApi } from "../../../ts/sync/SyncApi";
 
 interface ServerNote {
@@ -148,18 +149,25 @@ export class FakeServer implements SyncApi {
     return this.retag(tag, undefined);
   }
 
+  /** The tags under {@code from} go along (see TagTree.subtreeRenames): one event each, at one seq. */
   private retag(from: string, to: string | undefined): TagEditOutput {
+    const names = [...this.notes.values()].flatMap((note) => note.info.tags);
+    const renames = subtreeRenames(names, from, to);
+    const renamed = new Map(renames.map((rename) => [rename.from, rename.to]));
     const noteIds: string[] = [];
     for (const note of this.notes.values()) {
-      if (!note.info.tags.includes(from)) continue;
-      const tags = note.info.tags.filter((t) => t !== from);
-      if (to !== undefined && !tags.includes(to)) tags.push(to);
+      if (!note.info.tags.some((t) => isUnder(t, from))) continue;
+      const tags = note.info.tags.filter((t) => !isUnder(t, from));
+      for (const t of note.info.tags.filter((t) => isUnder(t, from))) {
+        const now = renamed.get(t);
+        if (now !== undefined && !tags.includes(now)) tags.push(now);
+      }
       this.seq++;
       note.info = { ...note.info, seq: this.seq, tags };
       noteIds.push(note.info.id);
     }
     this.seq++;
-    this.tagEvents.push({ from, to, seq: this.seq });
+    for (const rename of renames) this.tagEvents.push({ from: rename.from, to: rename.to, seq: this.seq });
     this.wake();
     return { noteIds };
   }

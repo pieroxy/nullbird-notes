@@ -13,7 +13,9 @@ import java.util.regex.Pattern;
  * wherever it's shown.
  * <p>
  * For its notes, which follow it live: a note's own option, when set, wins; then its tags', the
- * first in the user's tag order (see {@link #effective}); then the default.
+ * first in the user's tag order (see {@link #effective}); then the default. A nested tag (see
+ * TagPaths) that doesn't set an option follows the nearest tag above it that does; the look (dot,
+ * stripe, background, text) is each tag's own, and the stripes on notes stack, the top tag's first.
  *
  * @param notes    the stripe on its notes, in the note list: a color.
  * @param hidden   its notes show only when it's selected (an archive): true, or absent.

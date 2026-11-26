@@ -133,3 +133,54 @@ describe("TagFilter", () => {
     });
   });
 });
+
+describe("TagFilter, nested tags", () => {
+  const notes = [["work/clients/acme"], ["work/meetings", "urgent"], ["work"], ["home"], ["archive/2025"]];
+
+  test("a tag matches the notes of the tags under it", () => {
+    const filter = { ...NO_FILTER, tags: ["work"] };
+    expect(notes.filter((tags) => matches(filter, tags))).toEqual([["work/clients/acme"], ["work/meetings", "urgent"], ["work"]]);
+    expect(matches({ ...NO_FILTER, tags: ["work/clients"] }, ["workshop"])).toBe(false);
+  });
+
+  test("counts: the tags above a note's count it too; children are flagged; tree order", () => {
+    const counts = tagCounts(NO_FILTER, notes);
+    expect(counts.map((c) => [c.tag, c.count, !!c.hasChildren])).toEqual([
+      ["archive", 1, true], ["archive/2025", 1, false], ["home", 1, false], ["urgent", 1, false],
+      ["work", 3, true], ["work/clients", 1, true], ["work/clients/acme", 1, false], ["work/meetings", 1, false]]);
+  });
+
+  test("the panel follows the selection: the top tags, and those right under a selected one", () => {
+    const shown = (tags: string[]) => {
+      const filter = { ...NO_FILTER, tags };
+      return visibleTags(tagCounts(filter, notes), filter, "").map((c) => c.tag);
+    };
+    expect(shown([])).toEqual(["archive", "home", "urgent", "work"]);
+    expect(shown(["work"])).toEqual(["urgent", "work", "work/clients", "work/meetings"]);
+    expect(shown(["work", "work/clients"])).toEqual(["work", "work/clients", "work/clients/acme"]);
+    // Searching: every tag that matches, nested or not.
+    expect(visibleTags(tagCounts(NO_FILTER, notes), NO_FILTER, "acme").map((c) => c.tag)).toEqual(["work/clients/acme"]);
+  });
+
+  test("unselecting a tag unselects those under it; siblings add up", () => {
+    const filter = { ...NO_FILTER, tags: ["work", "work/clients", "work/clients/acme", "home"] };
+    expect(toggle(filter, "work").tags).toEqual(["home"]);
+    expect(toggle(filter, "work/clients").tags).toEqual(["work", "home"]);
+    expect(toggle({ ...NO_FILTER, tags: ["work", "work/clients"] }, "work/meetings").tags).toEqual(["work", "work/clients", "work/meetings"]);
+  });
+
+  test("a hidden tag hides the tags under it; selecting any of them shows their notes", () => {
+    const hidden = new Set(["archive"]);
+    expect(visible(["archive/2025"], [], hidden)).toBe(false);
+    expect(visible(["archive/2025"], ["archive"], hidden)).toBe(true);
+    expect(visible(["archive/2025"], ["archive/2025"], hidden)).toBe(true);
+    expect(visible(["work"], [], hidden)).toBe(true);
+    expect(visible(["work/old"], ["work"], new Set(["work/old"]))).toBe(false);
+  });
+
+  test("in the user's order, siblings stay together under their parent", () => {
+    const counts = tagCounts(NO_FILTER, notes);
+    expect(inOrder(counts, ["urgent", "work/meetings", "home", "work/clients/acme", "archive/2025"]).map((c) => c.tag)).toEqual([
+      "urgent", "work", "work/meetings", "work/clients", "work/clients/acme", "home", "archive", "archive/2025"]);
+  });
+});

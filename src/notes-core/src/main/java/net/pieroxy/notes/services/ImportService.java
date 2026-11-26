@@ -1,5 +1,6 @@
 package net.pieroxy.notes.services;
 
+import net.pieroxy.notes.sync.TagPaths;
 import net.pieroxy.notes.api.metadata.InvalidInputException;
 import net.pieroxy.notes.api.metadata.TooManyRequestsException;
 import net.pieroxy.notes.export.ImportSummary;
@@ -284,7 +285,7 @@ public class ImportService implements Service {
         return new Decision(note, Outcome.TOO_LARGE, null, null, bytes.length, null, null, 0, 0);
       }
       String id = fileId != null && UserNoteStore.NOTE_ID_PATTERN.matcher(fileId).matches() ? fileId : UUID.randomUUID().toString();
-      List<String> tags = new ArrayList<>(new LinkedHashSet<>(note.tags().stream().filter(NoteService::isValidTag).toList()));
+      List<String> tags = new ArrayList<>(new LinkedHashSet<>(note.tags().stream().filter(java.util.Objects::nonNull).map(TagPaths::normalize).filter(NoteService::isValidTag).toList()));
       if (tags.size() > NoteService.MAX_TAGS) tags = tags.subList(0, NoteService.MAX_TAGS);
       Map<String, String> options = new LinkedHashMap<>();
       for (Map.Entry<String, String> option : note.options().entrySet()) {

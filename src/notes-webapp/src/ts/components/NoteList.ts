@@ -10,6 +10,7 @@ import { Snippet } from "../utils/Search";
 import { isActive, NO_FILTER, TagFilter, toggle } from "../utils/TagFilter";
 import { icon, iconButton } from "./Icons";
 import { noteSearch, NoteSearchAttrs } from "./NoteSearch";
+import { leafOf, parentOf, SEPARATOR, withoutRedundant } from "../utils/TagTree";
 
 export interface NoteListAttrs extends NoteSearchAttrs {
   /** Those the tag filter and the search let through. */
@@ -72,8 +73,9 @@ export class NoteList implements m.ClassComponent<NoteListAttrs> {
       filter.untagged ? m("span.tag", [m("span.tagname", "Untagged"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
       filter.merged ? m("span.tag", [m("span.tagname", "Merge markers"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
       filter.trash ? m("span.tag", [m("span.tagname", "Trash"), iconButton("x", "Show all notes", () => onFilter(NO_FILTER), "tagremove")]) : null,
-      filter.tags.map((tag) => m("span.tag" + tagClasses(attrs.tagOptions[tag]), { key: tag }, [
-        m("span.tagname", [tagDot(attrs.tagOptions[tag]), tag]),
+      // "work/clients" says "work" too, selected above it: the most specific only.
+      withoutRedundant(filter.tags).map((tag) => m("span.tag" + tagClasses(attrs.tagOptions[tag]), { key: tag }, [
+        m("span.tagname", [tagDot(attrs.tagOptions[tag]), parentOf(tag) ? m("span.tagpath", parentOf(tag) + SEPARATOR) : null, leafOf(tag)]),
         iconButton("x", "Stop filtering on " + tag, () => onFilter(toggle(filter, tag)), "tagremove"),
       ])),
       m("button.link.clearfilter", { type: "button", onclick: () => onFilter(NO_FILTER) }, "Clear"),

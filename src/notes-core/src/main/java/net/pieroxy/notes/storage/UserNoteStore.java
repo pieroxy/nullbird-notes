@@ -8,6 +8,7 @@ import net.pieroxy.notes.sync.Merge3;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.sync.TagEvent;
 import net.pieroxy.notes.sync.TagOptions;
+import net.pieroxy.notes.sync.TagPaths;
 import net.pieroxy.notes.sync.TagOptionsChange;
 import net.pieroxy.notes.utils.AtomicFiles;
 import net.pieroxy.notes.utils.Hashes;
@@ -515,7 +516,7 @@ public class UserNoteStore {
 
   /**
    * After a metadata commit leaving a note with {@code tags}: a tag new to the user goes at the end
-   * of the order, and a removed one no note has any more leaves it. Nothing while there's no order.
+   * of the order, and a removed one no note has any more (nor a tag under it) leaves it. Nothing while there's no order.
    */
   private void keepTagOrderComplete(List<String> tags, List<String> removed, long seq) throws IOException {
     if (tagOrder == null) return;
@@ -524,41 +525,55 @@ public class UserNoteStore {
     for (String tag : tags) changed |= order.add(tag);
     if (removed != null) {
       for (String tag : removed) {
-        if (order.contains(tag) && index.values().stream().noneMatch(note -> note.tags().contains(tag))) changed |= order.remove(tag);
+        // Still implied by a tag under it: still in use.
+        if (order.contains(tag) && index.values().stream().noneMatch(note -> note.tags().stream().anyMatch(t -> TagPaths.isUnder(t, tag)))) {
+          changed |= order.remove(tag);
+        }
       }
     }
     if (changed) writeTagOrder(new StoredTagOrder(tagOrder.revision() + 1, seq, List.copyOf(order)));
   }
 
   /**
-   * Records that {@code from} was renamed to {@code to} (null: removed) on every note, once their
-   * metadata commits are done. The tag order, if there's one, is {@code before} (as it was before
-   * those commits) with {@code from} in place of {@code to}; merged, {@code to} keeps its own place.
+   * Records that each rename's {@code from} became its {@code to} (null: removed) on every note, once
+   * their metadata commits are done: renames of a tag and those under it (see TagPaths.subtreeRenames),
+   * applied in order, recorded under one seq. The tag order, if there's one, is {@code before} (as it
+   * was before those commits) with each {@code from} in place of its {@code to}; merged, {@code to}
+   * keeps its own place.
    */
-  public synchronized void recordTagEvent(String from, String to, StoredTagOrder before) throws IOException {
-    // Its options go along: merged, the target keeps its own if it has some. Before the event, which is the last word.
-    if (tagOptions != null && tagOptions.tags().containsKey(from)) {
+  public synchronized void recordTagEvents(List<TagPaths.Rename> renames, StoredTagOrder before) throws IOException {
+    if (renames.isEmpty()) return;
+    // Their options go along: merged, the target keeps its own if it has some. Before the events, which are the last word.
+    if (tagOptions != null && renames.stream().anyMatch(rename -> tagOptions.tags().containsKey(rename.from()))) {
       Map<String, TagOptions> tags = new TreeMap<>(tagOptions.tags());
-      TagOptions moved = tags.remove(from);
-      if (to != null) tags.putIfAbsent(to, moved);
+      for (TagPaths.Rename rename : renames) {
+        TagOptions moved = tags.remove(rename.from());
+        if (moved != null && rename.to() != null) tags.putIfAbsent(rename.to(), moved);
+      }
       writeTagOptions(tags);
     }
     long seq = lastSeq + 1;
     if (before != null) {
-      List<String> order = new ArrayList<>();
-      for (String tag : before.tags()) {
-        if (!tag.equals(from)) order.add(tag);
-        else if (to != null && !before.tags().contains(to)) order.add(to);
+      List<String> order = new ArrayList<>(before.tags());
+      for (TagPaths.Rename rename : renames) {
+        List<String> next = new ArrayList<>();
+        for (String tag : order) {
+          if (!tag.equals(rename.from())) next.add(tag);
+          else if (rename.to() != null && !order.contains(rename.to())) next.add(rename.to());
+        }
+        order = next;
       }
       LinkedHashSet<String> complete = new LinkedHashSet<>(order);
       Set<String> used = usedTags();
-      complete.removeIf(tag -> !used.contains(tag));
+      // Tags above those in use stay: they're in use too, implied, and keep their place.
+      Set<String> implied = TagPaths.withAncestors(used);
+      complete.removeIf(tag -> !implied.contains(tag));
       used.stream().filter(tag -> !complete.contains(tag)).sorted(ALPHABETICAL).forEach(complete::add);
       int revision = Math.max(before.revision(), tagOrder == null ? 0 : tagOrder.revision()) + 1;
       writeTagOrder(new StoredTagOrder(revision, seq, List.copyOf(complete)));
     }
     List<StoredTagEvent> events = new ArrayList<>(tagEvents);
-    events.add(new StoredTagEvent(seq, from, to));
+    for (TagPaths.Rename rename : renames) events.add(new StoredTagEvent(seq, rename.from(), rename.to()));
     if (events.size() > MAX_TAG_EVENTS) events = events.subList(events.size() - MAX_TAG_EVENTS, events.size());
     AtomicFiles.write(root.resolve("tag-events.json"), PRETTY_GSON.toJson(events).getBytes(StandardCharsets.UTF_8));
     tagEvents = List.copyOf(events);

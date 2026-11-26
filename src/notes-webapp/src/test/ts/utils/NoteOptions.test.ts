@@ -41,3 +41,23 @@ describe("NoteOptions", () => {
     expect(activeSort(["other"], TAGS, RANK)).toBe("modified");
   });
 });
+
+describe("NoteOptions, nested tags", () => {
+  const options = { code: { monospace: true, markdown: true, sort: "title" as const }, "code/python": { markdown: false } };
+  const rank = new Map([["code", 0], ["code/python", 1], ["code/sql", 2]]);
+
+  test("a nested tag follows the nearest tag above it, unless it sets its own", () => {
+    const sql = appliedOptions({}, ["code/sql"], options, rank);
+    expect([sql.monospace, sql.markdown, sql.from.monospace]).toEqual([true, true, "code"]);
+    const python = appliedOptions({}, ["code/python"], options, rank);
+    expect([python.monospace, python.markdown, python.from.markdown]).toEqual([true, false, "code/python"]);
+  });
+
+  test("a tag above another of the note's says nothing more", () => {
+    expect(appliedOptions({}, ["code", "code/python"], options, rank).markdown).toBe(false);
+  });
+
+  test("the list's order: the most specific selected tag, or one above it", () => {
+    expect(activeSort(["code/sql"], options, rank)).toBe("title");
+  });
+});

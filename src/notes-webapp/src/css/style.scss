@@ -2813,6 +2813,34 @@ $tag-colors: red, orange, yellow, green, teal, blue, purple, pink;
 
 
 
+// Nested tags (see TagTree): each one under the tag above it, the "›" after a tag with tags under it
+// (TagPanel), and what a tag follows from the tags above it (TagSettings).
+.tagpanel li {
+  --indent: calc(var(--depth, 0) * 16px);
+
+  .tagitem {
+    padding-left: calc(8px + var(--indent));
+  }
+
+  .reorderitem {
+    padding-left: calc(4px + var(--indent));
+  }
+}
+
+.tag .tagpath {
+  opacity: 0.6;
+}
+
+.tagpanel .childhint {
+  margin-left: 6px;
+  color: var(--text-muted);
+}
+
+.tagsettings .inherited {
+  margin: -4px 0 8px;
+  font-size: scaled(12px);
+}
+
 // Searching: the notes of hidden tags that match too.
 .notelist .hiddenmatches {
   padding: 6px 14px;

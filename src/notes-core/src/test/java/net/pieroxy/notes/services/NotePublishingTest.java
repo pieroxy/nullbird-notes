@@ -183,4 +183,26 @@ public class NotePublishingTest {
     assertFalse(found.markdown());
     assertFalse(found.nowrap());
   }
+
+  @Test
+  public void aNestedTagFollowsTheTagsAboveItUnlessItSetsItsOwn() throws Exception {
+    create("alice", A, "x");
+    service.pushMeta("alice", "device", new MetaChange("m1", A, List.of("code/python"), null, null, null));
+    service.pushTagOptions("alice", List.of(new TagOptionsChange("code", noteOptions(true, true, false))), null);
+    String token = service.publish("alice", A, false);
+    NoteService.PublishedNote found = service.findPublished(token);
+    assertTrue(found.markdown());
+    assertTrue(found.monospace());
+    assertTrue(found.nowrap());
+
+    service.pushTagOptions("alice", List.of(new TagOptionsChange("code/python", noteOptions(null, false, null))), null);
+    found = service.findPublished(token);
+    assertTrue(found.markdown());
+    assertFalse(found.monospace());
+
+    // "code" next to it says nothing more: "code/python" is more specific, whatever the order.
+    service.pushMeta("alice", "device", new MetaChange("m2", A, List.of("code"), null, null, null));
+    service.pushTagOrder("alice", new TagOrderChange(0, List.of("code", "code/python")));
+    assertFalse(service.findPublished(token).monospace());
+  }
 }

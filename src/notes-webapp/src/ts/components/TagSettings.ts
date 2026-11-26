@@ -2,7 +2,8 @@ import m from "mithril";
 import { FontFamily, TagOptions } from "../auto/api-types";
 import { refreshFonts } from "../utils/Fonts";
 import { SORT_ORDERS } from "../utils/NoteOptions";
-import { isValidTag } from "../sync/Metadata";
+import { isValidTag, MAX_TAG_PATH_LENGTH, TAG_RULE } from "../sync/Metadata";
+import { isUnder, normalizeTag } from "../utils/TagTree";
 import { noteStripe, TAG_COLORS, tagClasses, tagDot } from "../utils/TagLook";
 import { iconButton } from "./Icons";
 
@@ -11,8 +12,15 @@ export interface TagSettingsAttrs {
   tagName: string;
   /** Notes with it, deleted ones included: as many as renaming or removing it changes. */
   count: number;
-  /** Every tag in use: renaming to one of them merges the two. */
+  /** Every tag in use, those above them included (see TagTree): renaming to one of them merges the two. */
   allTags: string[];
+  /** How many tags are under it: they go along when it's renamed or removed. */
+  under: number;
+  /**
+   * What the tags above it say for an option, the nearest first to say, and which one: what it
+   * follows while it doesn't set its own (see TagTree.nearest). Nothing for a tag at the top.
+   */
+  inherited: <T>(pick: (options: TagOptions) => T | undefined | null) => { value?: T; tag?: string };
   /** Resolves once done; rejects with why not (offline…). */
   onRename: (to: string) => Promise<void>;
   onRemove: () => Promise<void>;
@@ -45,6 +53,10 @@ const FLAGS: { key: "markdown" | "monospace" | "wrap"; label: string }[] = [
 
 function notes(count: number): string {
   return count === 1 ? "1 note" : count + " notes";
+}
+
+function tags(count: number): string {
+  return count === 1 ? "tag" : count + " tags";
 }
 
 /**
@@ -103,7 +115,7 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
             m("span.fieldlabel", "Name"),
             m("input#tagname", {
               value: this.name,
-              maxlength: 64,
+              maxlength: MAX_TAG_PATH_LENGTH,
               autocomplete: "off",
               autocapitalize: "off",
               spellcheck: false,
@@ -115,7 +127,8 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
               },
             }),
           ]),
-          m("p.muted", "Renaming to a tag you already have merges the two."),
+          m("p.muted", "Renaming to a tag you already have merges the two. A \"/\" puts it under another tag: work/clients."
+            + (attrs.under > 0 ? " The " + tags(attrs.under) + " under it go along." : "")),
           // Enabled whatever the name: Enter right after typing may come before the redraw, and a disabled
           // submit button stops it. The same name does nothing.
           m(".buttons", m("button", { type: "submit", disabled: this.busy }, "Rename")),
@@ -126,7 +139,7 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
         m(".dangerzone", [
           m("button.danger", { type: "button", disabled: this.busy || count === 0, onclick: () => void this.remove() },
             count > 0 ? "Remove from its " + notes(count) : "No note has it"),
-          m("p.muted", "The notes themselves stay."),
+          m("p.muted", (attrs.under > 0 ? "The " + tags(attrs.under) + " under it go too. " : "") + "The notes themselves stay."),
         ]),
       ]));
   }
@@ -158,6 +171,17 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
     const options = attrs.options ?? {};
     const tag = attrs.tagName;
     const fonts = this.fonts;
+    /** "Not set", or what it follows meanwhile, and from which tag. */
+    const notSet = <T>(pick: (o: TagOptions) => T | undefined | null, say: (value: T) => string) => {
+      const from = attrs.inherited(pick);
+      return from.tag === undefined ? "Not set" : "As " + from.tag + ": " + say(from.value as T);
+    };
+    const fontName = (id: string) => fonts?.find((f) => f.id === id)?.name ?? "a font";
+    /** A box set or not: when not, what it follows meanwhile. */
+    const followed = (pick: (o: TagOptions) => boolean | undefined | null, own: boolean | undefined, what: string) => {
+      const from = attrs.inherited(pick);
+      return !own && from.value === true ? m("p.muted.inherited", what + ", as " + from.tag + ".") : null;
+    };
     const fontSelect = (key: "font" | "monoFont", label: string, monospaceOnly: boolean) => {
       const chosen = options[key];
       // Offline, only the one chosen is known: still shown.
@@ -169,7 +193,7 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
           value: chosen ?? "",
           onchange: (e: Event) => attrs.onOptions({ [key]: (e.target as HTMLSelectElement).value || undefined }),
         }, [
-          m("option", { value: "" }, "Not set"),
+          m("option", { value: "" }, notSet((o) => o[key], fontName)),
           listed.map((f) => m("option", { value: f.id }, f.name)),
           unknown ? m("option", { value: chosen }, fonts ? "A deleted font" : "The one chosen") : null,
         ]),
@@ -177,7 +201,8 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
     };
     return m("section.tagsection", [
       m("h3", "For its notes"),
-      m("p.muted", "Unless a note says otherwise. With several such tags, the first in your order wins."),
+      m("p.muted", "Unless a note says otherwise. With several such tags, the first in your order wins. A tag under another"
+        + " follows it, unless set here; stripes stack."),
       this.colorRow(attrs, "notes", "Stripe in the list"),
       m("label.checkfield.hiddenfield", [
         m("input", {
@@ -187,6 +212,7 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
         }),
         m("span", [m("strong", "Hidden"), ": its notes show only when it's selected. For an archive."]),
       ]),
+      followed((o) => o.hidden, options.hidden, "Hidden"),
       FLAGS.map(({ key, label }) => m("label.optionrow", [
         m("span.colorlabel", label),
         m("select", {
@@ -195,7 +221,8 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
             const value = (e.target as HTMLSelectElement).value;
             attrs.onOptions({ [key]: value === "on" ? true : value === "off" ? false : undefined });
           },
-        }, [m("option", { value: "" }, "Not set"), m("option", { value: "on" }, "On"), m("option", { value: "off" }, "Off")]),
+        }, [m("option", { value: "" }, notSet((o) => o[key], (on) => (on ? "on" : "off"))), m("option", { value: "on" }, "On"),
+          m("option", { value: "off" }, "Off")]),
       ])),
       fontSelect("font", "Font", false),
       fontSelect("monoFont", "Fixed-width font", true),
@@ -205,7 +232,8 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
         m("select", {
           value: options.sort ?? "",
           onchange: (e: Event) => attrs.onOptions({ sort: (e.target as HTMLSelectElement).value || undefined }),
-        }, [m("option", { value: "" }, "Not set"), SORT_ORDERS.map((o) => m("option", { value: o.id }, o.label))]),
+        }, [m("option", { value: "" }, notSet((o) => o.sort, (sort) => (SORT_ORDERS.find((o) => o.id === sort)?.label ?? sort).toLowerCase())),
+          SORT_ORDERS.map((o) => m("option", { value: o.id }, o.label))]),
       ]),
       m("p.muted", "While it's selected."),
       m("label.checkfield", [
@@ -216,6 +244,7 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
         }),
         m("span", "Markdown notes open rendered, not in the editor"),
       ]),
+      followed((o) => o.rendered, options.rendered, "Rendered"),
       m(".tagpreview", { "aria-hidden": "true" }, m(".previewnote", [
         noteStripe(options.notes ? [options.notes] : []),
         m("strong", "A note tagged " + tag),
@@ -226,10 +255,15 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
 
   private async rename() {
     const attrs = this.attrs!;
-    const to = this.name.trim();
+    // Empty levels go: "/work//clients/" is "work/clients".
+    const to = normalizeTag(this.name.trim());
     if (to === attrs.tagName) return;
     if (!isValidTag(to)) {
-      this.error = "A tag is 1 to 64 characters, without spaces.";
+      this.error = TAG_RULE;
+      return;
+    }
+    if (isUnder(to, attrs.tagName)) {
+      this.error = "A tag can't move under itself.";
       return;
     }
     if (attrs.allTags.includes(to) && !confirm("Merge \"" + attrs.tagName + "\" into \"" + to + "\"?\n\nThe " + notes(attrs.count)
@@ -239,7 +273,8 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
 
   private async remove() {
     const attrs = this.attrs!;
-    if (!confirm("Remove the tag \"" + attrs.tagName + "\" from its " + notes(attrs.count) + "?\n\nThe notes themselves stay.")) return;
+    const under = attrs.under > 0 ? " and the " + tags(attrs.under) + " under it" : "";
+    if (!confirm("Remove the tag \"" + attrs.tagName + "\"" + under + " from " + notes(attrs.count) + "?\n\nThe notes themselves stay.")) return;
     await this.run(() => attrs.onRemove(), "Not removed: ");
   }
 

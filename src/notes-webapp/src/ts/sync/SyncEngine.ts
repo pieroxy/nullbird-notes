@@ -3,7 +3,7 @@ import { ApiError, ApiErrorKind } from "../utils/api/Api";
 import { LocalNote } from "./LocalNote";
 import { LocalStore, SyncMeta } from "./LocalStore";
 import {
-  addTag, applyMetaResult, hasMetaToPush, isValidTag, metaChangeOf, noOps, prepareMeta, removeTag, retaggedNote, setOption, tagsOf,
+  addTag, applyMetaResult, hasMetaToPush, isValidTag, metaChangeOf, TAG_RULE, noOps, prepareMeta, removeTag, retaggedNote, setOption, tagsOf,
 } from "./Metadata";
 import {
   applyPushResult, applyRemote, changeOf, created, deletedLocally, edited, forResync, haveRevision, isPushable, needsFetch,
@@ -12,6 +12,7 @@ import {
 import { sha256 } from "./Sha256";
 import { SyncApi } from "./SyncApi";
 import { displayOrder, orderToSend, TagMove } from "./TagOrder";
+import { isUnder, normalizeTag, subtreeRenames, withAncestors } from "../utils/TagTree";
 import { uuid } from "./Uuid";
 
 export type SyncState = "starting" | "synced" | "saving" | "offline" | "error" | "signedOut" | "outdated";
@@ -247,8 +248,9 @@ export class SyncEngine {
     this.notify();
   }
 
-  /** @return false if {@code tag} isn't a valid tag (see isValidTag). */
+  /** @return false if {@code tag} isn't a valid tag (see isValidTag), once its empty levels are gone (see normalizeTag). */
   addTag(id: string, tag: string): boolean {
+    tag = normalizeTag(tag);
     if (!isValidTag(tag)) return false;
     const note = this.notes.get(id);
     if (note && !tagsOf(note).includes(tag)) this.changeMeta(note, addTag(note.metaOps ?? noOps(), tag));
@@ -270,7 +272,13 @@ export class SyncEngine {
 
   /** Moves a tag in the order: shown at once, sent to the server with the next push. */
   moveTag(move: TagMove) {
-    this.meta = { ...this.meta, tagMoves: [...this.tagMoves(), move] };
+    this.moveTags([move]);
+  }
+
+  /** Several moves, as one: see moveTag. */
+  moveTags(moves: TagMove[]) {
+    if (moves.length === 0) return;
+    this.meta = { ...this.meta, tagMoves: [...this.tagMoves(), ...moves] };
     void this.store.putMeta(this.meta);
     this.schedulePush(0);
     this.notify();
@@ -311,16 +319,31 @@ export class SyncEngine {
     return this.meta.tagOptionsChanges ?? [];
   }
 
-  /** Every tag of every note, deleted ones included: renaming to one of them merges (see renameTag). */
+  /**
+   * Every tag of every note, deleted ones included, and the tags above them (see TagTree): renaming
+   * to one of them merges (see renameTag).
+   */
   allTagNames(): string[] {
-    return [...this.allTags()];
+    return [...withAncestors(this.allTags())];
   }
 
-  /** How many notes have {@code tag}, deleted ones included: as many as renaming or removing it changes. */
+  /**
+   * How many notes have {@code tag} or a tag under it, deleted ones included: as many as renaming or
+   * removing it changes.
+   */
   tagNoteCount(tag: string): number {
     let count = 0;
-    for (const note of this.notes.values()) if (tagsOf(note).includes(tag)) count++;
+    for (const note of this.notes.values()) if (tagsOf(note).some((t) => isUnder(t, tag))) count++;
     return count;
+  }
+
+  /** Every name this device knows a tag by: on notes, above them, in the order, with options. */
+  private knownTagNames(): Set<string> {
+    const names = withAncestors(this.allTags());
+    for (const tag of this.meta.tagOrder?.tags ?? []) names.add(tag);
+    for (const move of this.tagMoves()) names.add(move.tag);
+    for (const tag of Object.keys(this.allTagOptions())) names.add(tag);
+    return names;
   }
 
   /**
@@ -330,16 +353,21 @@ export class SyncEngine {
    * @return the IDs of the notes the server changed.
    */
   async renameTag(from: string, to: string): Promise<string[]> {
-    if (!isValidTag(to)) throw new Error("A tag is 1 to 64 characters, without spaces.");
+    to = normalizeTag(to);
+    if (!isValidTag(to)) throw new Error(TAG_RULE);
+    if (to !== from && isUnder(to, from)) throw new Error("A tag can't move under itself.");
+    // The tags under it go along, as on the server: before asking, as they are now.
+    const renames = subtreeRenames(this.knownTagNames(), from, to);
     const output = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.renameTag(this.meta.deviceId, from, to, signal));
-    await this.applyTagEvents([{ from, to }]);
+    await this.applyTagEvents(renames);
     return output.noteIds;
   }
 
-  /** Removes {@code tag} from every note, likewise. */
+  /** Removes {@code tag} and the tags under it from every note, likewise. */
   async deleteTag(tag: string): Promise<string[]> {
+    const renames = subtreeRenames(this.knownTagNames(), tag, undefined);
     const output = await this.withTimeout(TIMINGS.requestTimeout, (signal) => this.api.deleteTag(this.meta.deviceId, tag, signal));
-    await this.applyTagEvents([{ from: tag }]);
+    await this.applyTagEvents(renames);
     return output.noteIds;
   }
 

@@ -1,10 +1,11 @@
 import m from "mithril";
 import { LocalNote } from "../../sync/LocalNote";
 import { isOn, MARKDOWN, MONOSPACE, NOWRAP, optionsOf, PINNED, publishedToken, retagged, tagsOf } from "../../sync/Metadata";
-import { activeSort, AppliedOptions, appliedOptions, FlagKey, fromTags, inUserOrder, ownValueFor, SortOrder } from "../../utils/NoteOptions";
+import { activeSort, AppliedOptions, appliedOptions, decidingTags, FlagKey, fromTags, ownValueFor, SortOrder } from "../../utils/NoteOptions";
 import { tagFontValue, useTagFonts } from "../../utils/Fonts";
 import { compareNotes } from "../../sync/Outcomes";
-import { moveTo } from "../../sync/TagOrder";
+import { movesFor } from "../../sync/TagOrder";
+import { isUnder, nearest, parentOf, siblingsOf, withSiblingMoved } from "../../utils/TagTree";
 import { session } from "../../sync/Session";
 import { SyncEngine } from "../../sync/SyncEngine";
 import { Auth } from "../../utils/Auth";
@@ -226,7 +227,12 @@ export class NotesPage extends AbstractPage {
       tagName: tag,
       count: engine.tagNoteCount(tag),
       allTags: engine.allTagNames(),
+      under: engine.allTagNames().filter((name) => name !== tag && isUnder(name, tag)).length,
       options: engine.allTagOptions()[tag],
+      inherited: (pick) => {
+        const parent = parentOf(tag);
+        return parent === undefined ? {} : nearest(parent, engine.allTagOptions(), pick);
+      },
       onOptions: (change: Partial<TagOptions>) => engine.setTagOptions(tag, { ...engine.allTagOptions()[tag], ...change }),
       onClose: () => (this.tagSettings = undefined),
       onRename: async (to: string) => {
@@ -234,15 +240,16 @@ export class NotesPage extends AbstractPage {
         this.tagSettings = undefined;
       },
       onRemove: async () => {
-        // Where it was, to put it back there on undo, if the user ordered their tags.
+        // Where they were, to put them back there on undo, if the user ordered their tags; and which
+        // notes had which of it and the tags under it.
         const listed = this.tagCounts(engine).map((count) => count.tag);
         const ordered = engine.tagOrder(listed) !== undefined;
-        const at = listed.indexOf(tag);
+        const had = new Map([...engine.list(), ...engine.trashed()].map((note) => [note.id, tagsOf(note).filter((t) => isUnder(t, tag))]));
         const ids = await engine.deleteTag(tag);
         this.tagSettings = undefined;
         this.showToast("Removed \"" + tag + "\" from " + (ids.length === 1 ? "1 note" : ids.length + " notes") + ".", () => {
-          for (const id of ids) engine.addTag(id, tag);
-          if (ordered) engine.moveTag({ tag, after: at > 0 ? listed[at - 1] : null });
+          for (const id of ids) for (const t of had.get(id) ?? [tag]) engine.addTag(id, t);
+          if (ordered) engine.moveTags(movesFor(listed));
         });
       },
     });
@@ -350,18 +357,15 @@ export class NotesPage extends AbstractPage {
         mergedCount: notes.filter(merged).length,
         trashCount: trashed.length,
         onChange: onFilter,
-        onMove: (tag: string, index: number) => {
-          const listed = this.tagCounts(engine).map((count) => count.tag);
-          engine.moveTag(moveTo(listed, tag, index));
-        },
+        onMove: (tag: string, index: number) => this.moveTag(engine, tag, index),
         onSettings: (tag: string) => (this.tagSettings = tag),
         tagOptions,
         onMoveBy: (tag: string, by: number) => {
           // From the order as it is now: the engine has the previous move already, the page may not show it yet.
-          const listed = this.tagCounts(engine).map((count) => count.tag);
-          const at = listed.indexOf(tag);
+          const siblings = siblingsOf(this.tagCounts(engine).map((count) => count.tag), tag);
+          const at = siblings.indexOf(tag);
           const to = at + by;
-          if (at >= 0 && to >= 0 && to < listed.length) engine.moveTag(moveTo(listed, tag, to));
+          if (at >= 0 && to >= 0 && to < siblings.length) this.moveTag(engine, tag, to);
         },
       }),
       this.resizer("tags"),
@@ -466,7 +470,15 @@ export class NotesPage extends AbstractPage {
     return this.engine ? this.applied(this.engine, note).markdown : isOn(note, MARKDOWN);
   }
 
-  /** Each tag's place in the user's order (see NoteOptions.inUserOrder). */
+  /**
+   * Puts {@code tag}, with the tags under it, at {@code index} among its siblings: the whole order
+   * as the panel lists it, so that each tag stays right before those under it (see TagTree.treeOrder).
+   */
+  private moveTag(engine: SyncEngine, tag: string, index: number) {
+    engine.moveTags(movesFor(withSiblingMoved(this.tagCounts(engine).map((count) => count.tag), tag, index)));
+  }
+
+  /** Each tag's place as the panel lists them (see NoteOptions.inUserOrder). */
   private rank(engine: SyncEngine): Map<string, number> {
     return new Map(this.tagCounts(engine).map((count, i) => [count.tag, i]));
   }
@@ -495,7 +507,7 @@ export class NotesPage extends AbstractPage {
     // Wrapping is the option's reverse: "nowrap" on is the box off.
     const on = key === NOWRAP ? !applied.nowrap : applied[key === MARKDOWN ? "markdown" : "monospace"];
     const from = applied.from[key];
-    const tagsSay = fromTags(key, inUserOrder(tagsOf(note), this.rank(engine)), engine.allTagOptions()).value;
+    const tagsSay = fromTags(key, decidingTags(tagsOf(note), this.rank(engine)), engine.allTagOptions()).value;
     return checkItem(label + (from ? " (from " + from + ")" : ""), on, (wanted) => {
       const value = key === NOWRAP ? !wanted : wanted;
       engine.setOptionValue(note.id, key, ownValueFor(value, tagsSay));

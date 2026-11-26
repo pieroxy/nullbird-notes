@@ -706,6 +706,73 @@ public class NoteServiceTest {
   }
 
   @Test
+  public void addedTagsLoseTheirEmptyLevelsAndEachLevelHasItsOwnLimit() throws Exception {
+    push(A, 0, "a");
+    assertEquals(PushStatus.APPLIED, pushMeta(A, List.of("/work//clients/", "work/clients"), null, null, null).status());
+    assertEquals(List.of("work/clients"), tags(A));
+    String level = "x".repeat(NoteService.MAX_TAG_LENGTH);
+    assertEquals(PushStatus.APPLIED, pushMeta(A, List.of(level + "/" + level + "/" + level), null, null, null).status());
+    assertEquals(RejectReason.INVALID, pushMeta(A, List.of("ok/" + level + "x"), null, null, null).reason());
+    String path = String.join("/", java.util.Collections.nCopies(5, level));
+    assertEquals(RejectReason.INVALID, pushMeta(A, List.of(path), null, null, null).reason());
+    assertEquals(RejectReason.INVALID, pushMeta(A, List.of("//"), null, null, null).reason());
+  }
+
+  @Test
+  public void renamingATagTakesTheTagsUnderItAlongOptionsOrderAndEventsIncluded() throws Exception {
+    push(A, 0, "a");
+    push(B, 0, "b");
+    push(C, 0, "c");
+    pushMeta(A, List.of("work/clients/acme", "home"), null, null, null);
+    pushMeta(B, List.of("work", "work/meetings"), null, null, null);
+    pushMeta(C, List.of("workshop"), null, null, null);
+    service.pushTagOrder("alice", new TagOrderChange(0, List.of("home", "work", "work/clients/acme", "work/meetings", "workshop")));
+    // Options on a tag no note has: implied by those under it.
+    service.pushTagOptions("alice", List.of(new TagOptionsChange("work/clients", colors("red", null))), null);
+    long cursor = stores.getStore("alice").getLastSeq();
+
+    assertEquals(List.of(A, B), service.renameTag("alice", "d", "work", "/job/"));
+
+    assertEquals(List.of("home", "job/clients/acme"), tags(A));
+    assertEquals(List.of("job", "job/meetings"), tags(B));
+    assertEquals(List.of("workshop"), tags(C));
+    assertEquals(List.of("home", "job", "job/clients/acme", "job/meetings", "workshop"), stores.getStore("alice").getTagOrder().tags());
+    assertEquals("red", stores.getStore("alice").getTagOptions().tags().get("job/clients").dot());
+    List<UserNoteStore.StoredTagEvent> events = stores.getStore("alice").tagEventsAfter(cursor);
+    assertEquals(List.of("work", "work/clients", "work/meetings", "work/clients/acme"), events.stream().map(UserNoteStore.StoredTagEvent::from).toList());
+    assertEquals(1, events.stream().map(UserNoteStore.StoredTagEvent::seq).distinct().count());
+
+    // A change made before the client knew follows.
+    service.pushMeta("alice", "phone", new MetaChange(nextChangeId(), C, List.of("work/clients"), null, null, null), cursor);
+    assertEquals(List.of("workshop", "job/clients"), tags(C));
+  }
+
+  @Test
+  public void movingATagUpMergesItAndItCantMoveUnderItself() throws Exception {
+    push(A, 0, "a");
+    pushMeta(A, List.of("work/clients", "work/clients/clients", "work/clients/acme"), null, null, null);
+
+    service.renameTag("alice", "d", "work/clients", "work");
+
+    assertEquals(List.of("work", "work/clients", "work/acme"), tags(A));
+    assertThrows(InvalidInputException.class, () -> service.renameTag("alice", "d", "work", "work/old"));
+  }
+
+  @Test
+  public void removingATagRemovesTheTagsUnderIt() throws Exception {
+    push(A, 0, "a");
+    push(B, 0, "b");
+    pushMeta(A, List.of("work/clients/acme", "home"), null, null, null);
+    pushMeta(B, List.of("workshop"), null, null, null);
+
+    assertEquals(List.of(A), service.deleteTag("alice", "d", "work"));
+
+    assertEquals(List.of("home"), tags(A));
+    assertEquals(List.of("workshop"), tags(B));
+    assertEquals(List.of(), service.deleteTag("alice", "d", "work"));
+  }
+
+  @Test
   public void clientsGetTheEventsWithTheChanges() throws Exception {
     push(A, 0, "a");
     pushMeta(A, List.of("work"), null, null, null);

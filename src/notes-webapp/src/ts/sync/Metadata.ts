@@ -1,5 +1,6 @@
 import { MetaChange, NoteInfo, PushResult, PushStatus } from "../auto/api-types";
 import { LocalNote, MetaOps } from "./LocalNote";
+import { normalizeTag, SEPARATOR } from "../utils/TagTree";
 
 /**
  * A note's tags and options, as pure functions. What the user sees is the server's values with
@@ -15,16 +16,23 @@ export const MONOSPACE = "monospace";
 export const NOWRAP = "nowrap";
 /** Not a boolean: the token of the note's public link. Set by the server only (see PublishPanel). */
 export const PUBLISHED = "published";
+/** A level of a nested tag (see TagTree): "acme" in "work/clients/acme". */
 export const MAX_TAG_LENGTH = 64;
+/** A whole nested tag. */
+export const MAX_TAG_PATH_LENGTH = 255;
+export const TAG_RULE = "A tag is 1 to " + MAX_TAG_LENGTH + " characters per level, without spaces.";
 
 /**
- * A tag name to give, as the server (NoteService.isValidTag): 1 to {@link MAX_TAG_LENGTH} characters,
- * no whitespace, no control characters, no bidi controls (they'd show it as another name). Joiners and
- * variation selectors are fine: emoji need them.
+ * A tag name to give, as the server (NoteService.isValidTag), once normalized (see normalizeTag):
+ * no empty level, 1 to {@link MAX_TAG_LENGTH} characters per level and {@link MAX_TAG_PATH_LENGTH}
+ * in all, no whitespace, no control characters, no bidi controls (they'd show it as another name).
+ * Joiners and variation selectors are fine: emoji need them.
  */
 export function isValidTag(tag: string): boolean {
   const length = [...tag].length;
-  return length > 0 && length <= MAX_TAG_LENGTH && !/[\s\p{Zs}\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(tag);
+  if (length === 0 || length > MAX_TAG_PATH_LENGTH || tag !== normalizeTag(tag)) return false;
+  if (tag.split(SEPARATOR).some((level) => [...level].length > MAX_TAG_LENGTH)) return false;
+  return !/[\s\p{Zs}\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(tag);
 }
 
 export function tagsOf(note: LocalNote): string[] {
