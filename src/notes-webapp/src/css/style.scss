@@ -2188,6 +2188,11 @@ button.link {
     text-overflow: ellipsis;
   }
 
+  // Where a dropdown's trigger would be (see phaseStatus): padded as it is.
+  &.alone {
+    padding: 6px;
+  }
+
   &::before {
     content: "";
     width: 8px;

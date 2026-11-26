@@ -26,7 +26,7 @@ import { icon, iconButton } from "../Icons";
 import { FindAttrs, NoteEditor } from "../NoteEditor";
 import { NoteList } from "../NoteList";
 import { noteSearch } from "../NoteSearch";
-import { SyncStatusIndicator } from "../SyncStatusIndicator";
+import { phaseStatus, SyncStatusIndicator } from "../SyncStatusIndicator";
 import { TagPanel, tagSearch } from "../TagPanel";
 import { TagSettings } from "../TagSettings";
 import { TrashedNote } from "../TrashedNote";
@@ -169,7 +169,7 @@ export class NotesPage extends AbstractPage {
         ]),
         m(".noteside", [
           iconButton("panel-left-open", "Show the notes list (" + LIST_SHORTCUT + ")", () => this.setLayout(toggleList(layout)), "listopen"),
-          this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : m("span.spacer"),
+          this.engine ? m(SyncStatusIndicator, { status: this.engine.status(), onRetry: () => this.engine?.retryNow() }) : phaseStatus(session.phase),
           engine && selected && !selected.deleted && !(this.viewing.has(selected.id) && this.canView(selected))
             && emojiHelperShown(loadChoice(EMOJI_HELPER), matchMedia(TOUCH).matches)
             ? m(EmojiPicker, {
@@ -292,17 +292,29 @@ export class NotesPage extends AbstractPage {
     switch (session.phase) {
       case "idle":
       case "opening":
-        return m(".pagemessage", "Opening your notes…");
+        return this.emptyPanes("Opening your notes…");
       case "failed":
-        return m(".pagemessage", "Your notes couldn't be opened on this device: " + session.failure);
+        return this.emptyPanes("Your notes couldn't be opened on this device: " + session.failure);
       case "elsewhere":
-        return m(".pagemessage", [
+        return this.emptyPanes([
           m("p", "Your notes are open in another tab."),
           m("button", { onclick: () => void session.takeOver() }, "Use them here"),
         ]);
       case "active":
         return this.panes(this.engine!);
     }
+  }
+
+  /**
+   * The panes, empty, lined up with the top bar as the real ones are; {@code message} in the list,
+   * or in the note's pane while the list is closed.
+   */
+  private emptyPanes(message: m.Children): m.Children {
+    return m(".panes", [
+      m("aside.tagpanel"),
+      m(".notelist", m(".pagemessage", message)),
+      m("section.editor", this.layout.list ? null : m(".pagemessage", message)),
+    ]);
   }
 
   private panes(engine: SyncEngine): m.Children {

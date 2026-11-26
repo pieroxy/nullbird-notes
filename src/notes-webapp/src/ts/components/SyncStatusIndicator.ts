@@ -1,4 +1,5 @@
 import m from "mithril";
+import { SessionPhase } from "../sync/NotesSession";
 import { SyncStatus } from "../sync/SyncEngine";
 import { time } from "../utils/format";
 import { Dropdown } from "./Dropdown";
@@ -8,6 +9,12 @@ export interface SyncStatusIndicatorAttrs {
   onRetry: () => void;
   /** Which side of the status its panel lines up with: left by default. */
   align?: "left" | "right";
+}
+
+/** Before there's a sync engine to report on: how the opening of the notes went, without a panel. */
+export function phaseStatus(phase: SessionPhase): m.Children {
+  const [state, label] = phase === "failed" ? ["error", "Not opened"] : phase === "elsewhere" ? ["starting", "In another tab"] : ["starting", "Loading…"];
+  return m(".syncindicator", m("span.syncstatus.alone." + state, m("span", label)));
 }
 
 /**
