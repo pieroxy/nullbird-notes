@@ -119,22 +119,40 @@ public class SecondFactorService implements Service {
   /**
    * A login past its password, waiting for its second factor: valid for {@link #CODE_LIFETIME}.
    *
+   * @param method {@code SecondFactor.MAIL} or {@code SecondFactor.TOTP}: the one asked.
    * @return its ID, secret: whoever has it may finish this login.
    */
-  public String startChallenge(String username) {
+  public String startChallenge(String username, String method) {
     byte[] bytes = new byte[32];
     RANDOM.nextBytes(bytes);
     String id = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     Instant now = clock.instant();
     challenges.values().removeIf(c -> !now.isBefore(c.expiresAt));
-    challenges.put(id, new Challenge(username, now.plus(CODE_LIFETIME)));
+    challenges.put(id, new Challenge(username, method, now.plus(CODE_LIFETIME)));
     return id;
   }
 
   /** @return the user logging in under challenge {@code id}, null if none is valid. */
   public String challengeUser(String id) {
+    Challenge challenge = validChallenge(id);
+    return challenge == null ? null : challenge.username;
+  }
+
+  /** @return the method challenge {@code id} asks, null if none is valid. */
+  public String challengeMethod(String id) {
+    Challenge challenge = validChallenge(id);
+    return challenge == null ? null : challenge.method;
+  }
+
+  /** Challenge {@code id} asks {@code method} from now on, its expiry unchanged; a mailed code is voided. */
+  public void switchChallenge(String id, String method) {
+    challenges.computeIfPresent(id, (k, c) -> new Challenge(c.username, method, c.expiresAt));
+    pending.remove(challengeKey(id));
+  }
+
+  private Challenge validChallenge(String id) {
     Challenge challenge = id == null ? null : challenges.get(id);
-    return challenge == null || !clock.instant().isBefore(challenge.expiresAt) ? null : challenge.username;
+    return challenge == null || !clock.instant().isBefore(challenge.expiresAt) ? null : challenge;
   }
 
   /** Ends challenge {@code id}, and voids its code. */
@@ -149,7 +167,7 @@ public class SecondFactorService implements Service {
     return "login:" + id;
   }
 
-  private record Challenge(String username, Instant expiresAt) {
+  private record Challenge(String username, String method, Instant expiresAt) {
   }
 
   /** @param secret base32, waiting for its first code. */

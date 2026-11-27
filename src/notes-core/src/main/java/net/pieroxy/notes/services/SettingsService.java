@@ -267,6 +267,20 @@ public class SettingsService implements Service {
   }
 
   /**
+   * Records a TOTP code of {@code step} as used, unless one of it or later already is: of two logins
+   * with the same code at once, one only gets through.
+   *
+   * @return false if the step was used already, or the user has no TOTP factor anymore.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized boolean useTotpStep(String username, long step) throws IOException {
+    UserCredential user = getUser(username);
+    if (user == null || user.totpFactor() == null || step <= user.totpFactor().getLastUsedStep()) return false;
+    updateUser(username, entry -> entry.getAsJsonObject("secondFactor").getAsJsonObject(SecondFactor.TOTP).addProperty("lastUsedStep", step));
+    return true;
+  }
+
+  /**
    * Sets which second factor is asked first.
    *
    * @param method {@link SecondFactor#MAIL} or {@link SecondFactor#TOTP}.

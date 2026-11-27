@@ -264,4 +264,36 @@ public class MailFactorApiTest {
     assertFalse(login.has("challenge"));
     assertTrue(login.get("error").getAsString(), login.get("error").getAsString().contains("can't send mail"));
   }
+
+  @Test
+  public void anotherCodeReplacesTheFirstWithinTheSameLogin() throws Exception {
+    assertTrue(confirm(codeSentTo("bob@example.com")).get("ok").getAsBoolean());
+    TestServer.Client phone = server.client();
+    String challenge;
+    String first;
+    try (FakeSmtpServer smtp = new FakeSmtpServer(null)) {
+      smtp.start();
+      mailOutTo(smtp);
+      JsonObject login = phone.post("Login", LOGIN).result();
+      assertEquals("mail", login.get("method").getAsString());
+      assertFalse("no app", login.has("alternative"));
+      challenge = login.get("challenge").getAsString();
+      Matcher matcher = CODE.matcher(smtp.message);
+      assertTrue(matcher.find());
+      first = matcher.group(1);
+    }
+    String second;
+    try (FakeSmtpServer smtp = new FakeSmtpServer(null)) {
+      smtp.start();
+      mailOutTo(smtp);
+      JsonObject again = phone.post("LoginMethod", "{\"challenge\":\"" + challenge + "\",\"method\":\"mail\"}").result();
+      assertEquals(challenge, again.get("challenge").getAsString());
+      Matcher matcher = CODE.matcher(smtp.message);
+      assertTrue(matcher.find());
+      second = matcher.group(1);
+    }
+
+    if (!first.equals(second)) assertEquals("This code is wrong.", loginCode(phone, challenge, first).get("error").getAsString());
+    assertTrue(loginCode(phone, challenge, second).get("ok").getAsBoolean());
+  }
 }

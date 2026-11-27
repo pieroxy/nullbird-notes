@@ -17,9 +17,11 @@ export class LoginPage extends AbstractPage {
   /** On the button that sent the request, while it runs: the mail may take seconds. */
   private waitingLabel = "";
   private error: string | undefined;
-  /** The password was right: a code is asked, mailed to {@link sentTo}. */
+  /** The password was right: a code is asked, as the server said (see LoginApiOutput). */
   private challenge: string | undefined;
+  private method: string | undefined;
   private sentTo: string | undefined;
+  private alternative: string | undefined;
   private code = "";
 
   oninit() {
@@ -70,7 +72,9 @@ export class LoginPage extends AbstractPage {
 
   private codeFields(): m.ChildArray {
     return [
-      m("p.loginhint", ["A code was mailed to ", m("strong", this.sentTo), ". Type it to finish logging in."]),
+      m("p.loginhint", this.method === "mail"
+        ? ["A code was mailed to ", m("strong", this.sentTo), ". Type it to finish logging in."]
+        : "Type the code your authenticator app shows for Notes."),
       m("input", {
         type: "text",
         placeholder: "Code",
@@ -84,14 +88,49 @@ export class LoginPage extends AbstractPage {
       }),
       m("button", { type: "submit", disabled: this.submitting || !this.code.trim() }, this.submitting ? this.waitingLabel : "Log in"),
       m(".loginlinks", [
-        m("button.link", { type: "button", disabled: this.submitting, onclick: (e: Event) => this.submit(e, "Sending code…") }, "Send a new code"),
+        this.method === "mail" ? this.methodLink("mail", "Send a new code", "Sending code…") : null,
+        this.alternative === "mail" ? this.methodLink("mail", "Mail me a code instead", "Sending code…") : null,
+        this.alternative === "totp" ? this.methodLink("totp", "Use my authenticator app instead", "Switching…") : null,
         m("button.link", { type: "button", disabled: this.submitting, onclick: () => this.restart() }, "Back"),
       ]),
     ];
   }
 
+  private methodLink(method: string, label: string, waitingLabel: string): m.Children {
+    return m("button.link", { type: "button", disabled: this.submitting, onclick: () => this.askMethod(method, waitingLabel) }, label);
+  }
+
+  /** The server's answer to a step with a challenge: the challenge as it now is. */
+  private challenged(output: LoginApiOutput) {
+    this.challenge = output.challenge;
+    this.method = output.method;
+    this.sentTo = output.sentTo;
+    this.alternative = output.alternative;
+    this.error = output.error;
+  }
+
+  private askMethod(method: string, waitingLabel: string) {
+    this.submitting = true;
+    this.waitingLabel = waitingLabel;
+    this.error = undefined;
+    ApiEndpoints.LoginMethod.call({ challenge: this.challenge!, method })
+      .then((output) => {
+        if (output.challenge) {
+          const switched = output.method !== this.method;
+          this.challenged(output);
+          if (switched) this.code = "";
+        } else {
+          this.restart(output.error);
+        }
+      })
+      .catch((err: Error) => {
+        this.error = err.message;
+      })
+      .finally(() => (this.submitting = false));
+  }
+
   private restart(error?: string) {
-    this.challenge = this.sentTo = undefined;
+    this.challenge = this.method = this.sentTo = this.alternative = undefined;
     this.code = "";
     this.error = error;
   }
@@ -104,8 +143,7 @@ export class LoginPage extends AbstractPage {
     ApiEndpoints.Login.call({ login: this.login, password: this.password })
       .then((output) => {
         if (output.challenge) {
-          this.challenge = output.challenge;
-          this.sentTo = output.sentTo;
+          this.challenged(output);
           this.code = "";
           return;
         }
@@ -127,7 +165,7 @@ export class LoginPage extends AbstractPage {
       .then((output) => {
         // A wrong code keeps the challenge; any other refusal ends it: password again.
         if (!output.ok && output.challenge) {
-          this.error = output.error;
+          this.challenged(output);
           return;
         }
         if (!output.ok) {

@@ -186,4 +186,85 @@ public class TotpFactorApiTest {
     assertEquals("You don't have this method set up.", bob.post("SetPreferredFactor", "{\"method\":\"sms\"}").result().get("error").getAsString());
     assertEquals("totp", bobsEntry().getAsJsonObject("secondFactor").get("preferred").getAsString());
   }
+
+  private static final String LOGIN = "{\"login\":\"bob\",\"password\":\"bob-password\"}";
+
+  private static JsonObject loginCode(TestServer.Client client, String challenge, String code) throws Exception {
+    return client.post("LoginCode", "{\"challenge\":\"" + challenge + "\",\"code\":\"" + code + "\"}").result();
+  }
+
+  private static boolean authenticated(TestServer.Client client) throws Exception {
+    return client.get("Session", "{}").result().get("authenticated").getAsBoolean();
+  }
+
+  @Test
+  public void withAnAppTheSessionComesWithItsCodeOnce() throws Exception {
+    // Setting up used the current step's code: the next one logs in.
+    String secret = setUpTotp();
+    TestServer.Client phone = server.client();
+    JsonObject login = phone.post("Login", LOGIN).result();
+    assertEquals("totp", login.get("method").getAsString());
+    assertFalse(login.has("alternative"));
+    assertFalse(login.has("sentTo"));
+    String challenge = login.get("challenge").getAsString();
+
+    JsonObject wrong = loginCode(phone, challenge, wrongCode(secret));
+    assertEquals("This code is wrong.", wrong.get("error").getAsString());
+    assertEquals(challenge, wrong.get("challenge").getAsString());
+    assertFalse(authenticated(phone));
+    String code = codeAt(secret, 1);
+    assertTrue(loginCode(phone, challenge, code).get("ok").getAsBoolean());
+    assertTrue(authenticated(phone));
+
+    TestServer.Client thief = server.client();
+    String again = thief.post("Login", LOGIN).result().get("challenge").getAsString();
+    assertEquals("a code works once", "This code is wrong.", loginCode(thief, again, code).get("error").getAsString());
+    assertEquals("nor one before it", "This code is wrong.", loginCode(thief, again, codeAt(secret, 0)).get("error").getAsString());
+    assertFalse(authenticated(thief));
+  }
+
+  @Test
+  public void withBothThePreferredIsAskedAndTheOtherOffered() throws Exception {
+    setUpMail();
+    String secret = setUpTotp();
+    assertTrue(bob.post("SetPreferredFactor", "{\"method\":\"totp\"}").result().get("ok").getAsBoolean());
+    TestServer.Client phone = server.client();
+    try (FakeSmtpServer smtp = new FakeSmtpServer(null)) {
+      smtp.start();
+      mailOutTo(smtp);
+      JsonObject login = phone.post("Login", LOGIN).result();
+      assertEquals("totp", login.get("method").getAsString());
+      assertEquals("mail", login.get("alternative").getAsString());
+      String challenge = login.get("challenge").getAsString();
+
+      JsonObject byMail = phone.post("LoginMethod", "{\"challenge\":\"" + challenge + "\",\"method\":\"mail\"}").result();
+
+      assertEquals(challenge, byMail.get("challenge").getAsString());
+      assertEquals("mail", byMail.get("method").getAsString());
+      assertEquals("b***@example.com", byMail.get("sentTo").getAsString());
+      assertEquals("totp", byMail.get("alternative").getAsString());
+      Matcher matcher = Pattern.compile("Subject: Notes code: (\\d{6})").matcher(smtp.message);
+      assertTrue(matcher.find());
+      assertFalse("the app's code isn't asked anymore", loginCode(phone, challenge, codeAt(secret, 1)).get("ok").getAsBoolean());
+      assertTrue(loginCode(phone, challenge, matcher.group(1)).get("ok").getAsBoolean());
+    }
+    assertTrue(authenticated(phone));
+  }
+
+  @Test
+  public void mailPreferredButNotSendableAsksTheApp() throws Exception {
+    setUpMail();
+    String secret = setUpTotp();
+    assertEquals("mail", bobsEntry().getAsJsonObject("secondFactor").get("preferred").getAsString());
+    Files.delete(new File(tmp.getRoot(), "config.json").toPath());
+    TestServer.Client phone = server.client();
+
+    JsonObject login = phone.post("Login", LOGIN).result();
+
+    assertEquals("totp", login.get("method").getAsString());
+    assertFalse(login.has("alternative"));
+    String challenge = login.get("challenge").getAsString();
+    assertEquals("Codes can't be mailed to you.", phone.post("LoginMethod", "{\"challenge\":\"" + challenge + "\",\"method\":\"mail\"}").result().get("error").getAsString());
+    assertTrue(loginCode(phone, challenge, codeAt(secret, 1)).get("ok").getAsBoolean());
+  }
 }
