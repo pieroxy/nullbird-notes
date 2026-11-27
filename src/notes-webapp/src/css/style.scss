@@ -2593,11 +2593,8 @@ button.link {
   background: var(--bg);
   box-shadow: var(--shadow);
   font-size: scaled(14px);
-
-  // Taller than the window, it scrolls: nothing is squeezed, which browsers get wrong with rows that wrap.
-  > * {
-    flex-shrink: 0;
-  }
+  // The width doesn't change when a scrollbar shows: Safari wouldn't measure again rows that then wrap.
+  scrollbar-gutter: stable;
 
   .dialoghead {
     display: flex;
