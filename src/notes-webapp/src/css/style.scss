@@ -2594,6 +2594,11 @@ button.link {
   box-shadow: var(--shadow);
   font-size: scaled(14px);
 
+  // Taller than the window, it scrolls: nothing is squeezed, which browsers get wrong with rows that wrap.
+  > * {
+    flex-shrink: 0;
+  }
+
   .dialoghead {
     display: flex;
     align-items: center;
