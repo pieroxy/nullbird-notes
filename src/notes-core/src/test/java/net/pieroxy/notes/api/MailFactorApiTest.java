@@ -177,4 +177,91 @@ public class MailFactorApiTest {
     assertEquals("ABC", factors.getAsJsonObject("totp").get("secret").getAsString());
     assertFalse(factors.has("mail"));
   }
+
+  private static final String LOGIN = "{\"login\":\"bob\",\"password\":\"bob-password\"}";
+
+  private static JsonObject loginCode(TestServer.Client client, String challenge, String code) throws Exception {
+    return client.post("LoginCode", "{\"challenge\":\"" + challenge + "\",\"code\":\"" + code + "\"}").result();
+  }
+
+  private static boolean authenticated(TestServer.Client client) throws Exception {
+    return client.get("Session", "{}").result().get("authenticated").getAsBoolean();
+  }
+
+  @Test
+  public void withAMailFactorTheSessionComesOnlyWithTheCode() throws Exception {
+    assertTrue(confirm(codeSentTo("bob@example.com")).get("ok").getAsBoolean());
+    TestServer.Client phone = server.client();
+    JsonObject login;
+    String code;
+    try (FakeSmtpServer smtp = new FakeSmtpServer(null)) {
+      smtp.start();
+      mailOutTo(smtp);
+      login = phone.post("Login", LOGIN).result();
+      Matcher matcher = CODE.matcher(smtp.message);
+      assertTrue(matcher.find());
+      code = matcher.group(1);
+      assertTrue(smtp.message.contains("To: bob@example.com\r\n"));
+    }
+    assertFalse(login.get("ok").getAsBoolean());
+    assertEquals("b***@example.com", login.get("sentTo").getAsString());
+    String challenge = login.get("challenge").getAsString();
+    assertFalse(authenticated(phone));
+
+    JsonObject wrong = loginCode(phone, challenge, code.equals("000000") ? "111111" : "000000");
+    assertEquals("This code is wrong.", wrong.get("error").getAsString());
+    assertEquals("the same challenge goes on", challenge, wrong.get("challenge").getAsString());
+    assertFalse(authenticated(phone));
+    JsonObject right = loginCode(phone, challenge, code);
+
+    assertTrue(right.get("ok").getAsBoolean());
+    assertEquals("bob", right.get("username").getAsString());
+    assertTrue(authenticated(phone));
+    JsonObject again = loginCode(server.client(), challenge, code);
+    assertFalse("used up", again.get("ok").getAsBoolean());
+    assertFalse(again.has("challenge"));
+  }
+
+  @Test
+  public void aLoginCodeWithoutAValidChallengeStartsOver() throws Exception {
+    JsonObject result = loginCode(server.client(), "made-up", "123456");
+
+    assertFalse(result.get("ok").getAsBoolean());
+    assertFalse(result.has("challenge"));
+    assertEquals("This login expired: log in again.", result.get("error").getAsString());
+  }
+
+  @Test
+  public void tooManyWrongLoginCodesEndTheChallenge() throws Exception {
+    assertTrue(confirm(codeSentTo("bob@example.com")).get("ok").getAsBoolean());
+    TestServer.Client phone = server.client();
+    String challenge;
+    String code;
+    try (FakeSmtpServer smtp = new FakeSmtpServer(null)) {
+      smtp.start();
+      mailOutTo(smtp);
+      challenge = phone.post("Login", LOGIN).result().get("challenge").getAsString();
+      Matcher matcher = CODE.matcher(smtp.message);
+      assertTrue(matcher.find());
+      code = matcher.group(1);
+    }
+    String wrong = code.equals("000000") ? "111111" : "000000";
+    for (int i = 1; i < SecondFactorService.MAX_WRONG_CODES; i++) assertTrue(loginCode(phone, challenge, wrong).has("challenge"));
+
+    assertFalse(loginCode(phone, challenge, wrong).has("challenge"));
+    assertFalse(loginCode(phone, challenge, code).get("ok").getAsBoolean());
+    assertFalse(authenticated(phone));
+  }
+
+  @Test
+  public void withoutMailOutAMailFactorLoginIsRefusedAndSaysWhy() throws Exception {
+    assertTrue(confirm(codeSentTo("bob@example.com")).get("ok").getAsBoolean());
+    Files.delete(new File(tmp.getRoot(), "config.json").toPath());
+
+    JsonObject login = server.client().post("Login", LOGIN).result();
+
+    assertFalse(login.get("ok").getAsBoolean());
+    assertFalse(login.has("challenge"));
+    assertTrue(login.get("error").getAsString(), login.get("error").getAsString().contains("can't send mail"));
+  }
 }

@@ -215,6 +215,18 @@ button {
     text-align: center;
   }
 
+  .loginhint {
+    margin: 0;
+    font-size: scaled(14px);
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+
+  .loginlinks {
+    display: flex;
+    justify-content: space-between;
+  }
+
   .loginversion {
     margin: 8px 0 0;
     color: var(--text-muted);

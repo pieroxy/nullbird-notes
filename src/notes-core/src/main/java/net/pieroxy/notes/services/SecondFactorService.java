@@ -13,15 +13,16 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
- * Codes mailed for a second factor, held in memory: a restart voids them. Each is for one purpose, its
- * key (e.g. "enroll:alice"), valid for {@link #CODE_LIFETIME} and {@link #MAX_WRONG_CODES} wrong tries;
- * a new one under the same key replaces it.
+ * Codes mailed for a second factor, and logins waiting for one, held in memory: a restart voids them.
+ * Each code is for one purpose, its key (e.g. "enroll:alice"), valid for {@link #CODE_LIFETIME} and
+ * {@link #MAX_WRONG_CODES} wrong tries; a new one under the same key replaces it.
  */
 public class SecondFactorService implements Service {
   public static final Duration CODE_LIFETIME = Duration.ofMinutes(10);
@@ -34,6 +35,7 @@ public class SecondFactorService implements Service {
   private final Clock clock;
   private final SmtpClient smtp;
   private final Map<String, Pending> pending = new ConcurrentHashMap<>();
+  private final Map<String, Challenge> challenges = new ConcurrentHashMap<>();
   private final RateLimiter sent = new RateLimiter((int) SENT_WINDOW.toMillis(), MAX_SENT);
   private SettingsService settings;
 
@@ -103,6 +105,42 @@ public class SecondFactorService implements Service {
       throw new IOException("invalid mail settings: " + e.getMessage());
     }
     smtp.send(config, mail);
+  }
+
+  /**
+   * A login past its password, waiting for its second factor: valid for {@link #CODE_LIFETIME}.
+   *
+   * @return its ID, secret: whoever has it may finish this login.
+   */
+  public String startChallenge(String username) {
+    byte[] bytes = new byte[32];
+    RANDOM.nextBytes(bytes);
+    String id = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    Instant now = clock.instant();
+    challenges.values().removeIf(c -> !now.isBefore(c.expiresAt));
+    challenges.put(id, new Challenge(username, now.plus(CODE_LIFETIME)));
+    return id;
+  }
+
+  /** @return the user logging in under challenge {@code id}, null if none is valid. */
+  public String challengeUser(String id) {
+    Challenge challenge = id == null ? null : challenges.get(id);
+    return challenge == null || !clock.instant().isBefore(challenge.expiresAt) ? null : challenge.username;
+  }
+
+  /** Ends challenge {@code id}, and voids its code. */
+  public void endChallenge(String id) {
+    if (id == null) return;
+    challenges.remove(id);
+    pending.remove(challengeKey(id));
+  }
+
+  /** The key of challenge {@code id}'s code. */
+  public static String challengeKey(String id) {
+    return "login:" + id;
+  }
+
+  private record Challenge(String username, Instant expiresAt) {
   }
 
   /** @return where the code pending under {@code key} went, null if none is valid. */
