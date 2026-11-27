@@ -1058,6 +1058,12 @@ a.button {
   background: var(--accent);
   color: var(--text-on-accent);
   text-decoration: none;
+
+  &.secondary {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border);
+  }
 }
 
 // Narrow screens: the list of sections, or one section (see sectionedPage).
@@ -1858,6 +1864,21 @@ body.resizing {
   }
 }
 
+// My Account > Security: setting up an authenticator app.
+.qrcode {
+  width: 200px;
+  height: 200px;
+  border-radius: 6px;
+}
+
+.totpkey {
+  align-self: stretch;
+
+  > .muted {
+    margin: 0 0 4px;
+  }
+}
+
 // A text to pass on, with its copy button (see CopyableText).
 .copyable {
   align-self: stretch;
@@ -1887,6 +1908,11 @@ body.resizing {
 
   &.link code.copytext {
     font-size: scaled(13px);
+  }
+
+  &.totpkey code.copytext {
+    font-size: scaled(15px);
+    letter-spacing: .04em;
   }
 
   .muted {

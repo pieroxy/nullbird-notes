@@ -19,6 +19,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
@@ -102,5 +103,18 @@ public class SecondFactorServiceTest {
     } catch (RateLimiter.RateExceededException e) {
       // Refused.
     }
+  }
+
+  @Test
+  public void aTotpSetupWaitsHalfAnHourAndAnotherReplacesIt() {
+    String first = service.startTotpSetup("alice");
+    String second = service.startTotpSetup("alice");
+    assertEquals(second, service.pendingTotpSecret("alice"));
+    assertNull(service.pendingTotpSecret("bob"));
+    assertNotEquals(first, second);
+
+    now = now.plus(SecondFactorService.TOTP_SETUP_LIFETIME);
+
+    assertNull(service.pendingTotpSecret("alice"));
   }
 }

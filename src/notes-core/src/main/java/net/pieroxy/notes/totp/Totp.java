@@ -81,4 +81,23 @@ public final class Totp {
     }
     return matched;
   }
+
+  /**
+   * How far off the clock that made {@code code} is, when it's right for a step near {@code now} but
+   * outside {@link #DRIFT_STEPS}: what's wrong at setup is usually the phone's clock. Only where codes
+   * can't be guessed, as at setup: it accepts many steps.
+   *
+   * @return the nearest step matching, from the current one, within {@code maxSteps}; null if none.
+   */
+  public static Long offsetSteps(String secret, String code, Instant now, int maxSteps) {
+    String typed = code == null ? "" : code.replaceAll("\\s", "");
+    if (typed.length() != DIGITS) return null;
+    byte[] key = Base32.decode(secret);
+    long current = step(now);
+    for (long distance = 0; distance <= maxSteps; distance++) {
+      if (code(key, current - distance).equals(typed)) return -distance;
+      if (code(key, current + distance).equals(typed)) return distance;
+    }
+    return null;
+  }
 }

@@ -229,6 +229,60 @@ public class SettingsService implements Service {
   }
 
   /**
+   * Sets the user's TOTP second factor in credentials.json, replacing any previous secret. Preferred
+   * if nothing else is.
+   *
+   * @param secret base32.
+   * @param lastUsedStep the step of the code that confirmed it.
+   * @throws IllegalArgumentException if there's no such user.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized void setTotpFactor(String username, String secret, Instant confirmedAt, long lastUsedStep) throws IOException {
+    updateUser(username, user -> {
+      if (!(user.get("secondFactor") instanceof JsonObject)) user.add("secondFactor", new JsonObject());
+      JsonObject factors = user.getAsJsonObject("secondFactor");
+      JsonObject totp = new JsonObject();
+      totp.addProperty("secret", secret);
+      totp.addProperty("confirmedAt", confirmedAt.toString());
+      totp.addProperty("lastUsedStep", lastUsedStep);
+      factors.add(SecondFactor.TOTP, totp);
+      if (!factors.has("preferred")) factors.addProperty("preferred", SecondFactor.TOTP);
+    });
+  }
+
+  /**
+   * Removes the user's TOTP second factor from credentials.json. The mail one, if any, becomes
+   * preferred; without one, "secondFactor" goes.
+   *
+   * @throws IllegalArgumentException if there's no such user.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized void removeTotpFactor(String username) throws IOException {
+    updateUser(username, user -> {
+      if (!(user.get("secondFactor") instanceof JsonObject factors)) return;
+      factors.remove(SecondFactor.TOTP);
+      if (factors.has(SecondFactor.MAIL)) factors.addProperty("preferred", SecondFactor.MAIL);
+      else user.remove("secondFactor");
+    });
+  }
+
+  /**
+   * Sets which second factor is asked first.
+   *
+   * @param method {@link SecondFactor#MAIL} or {@link SecondFactor#TOTP}.
+   * @throws IllegalArgumentException if there's no such user, or they don't have that factor.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized void setPreferredFactor(String username, String method) throws IOException {
+    updateUser(username, user -> {
+      if (!(user.get("secondFactor") instanceof JsonObject factors) || !factors.has(method)) {
+        throw new IllegalArgumentException("user \"" + username + "\" has no " + method + " second factor");
+      }
+      factors.addProperty("preferred", method);
+    });
+  }
+
+  /**
    * Adds a user at the end of credentials.json.
    *
    * @param email null for none.

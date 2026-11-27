@@ -63,6 +63,11 @@ public class UserCredential {
     this.secondFactor = secondFactor;
   }
 
+  /** @return the confirmed TOTP factor, null if none. */
+  public SecondFactor.TotpFactor totpFactor() {
+    return secondFactor == null ? null : secondFactor.getTotp();
+  }
+
   /** @return the confirmed mail factor, null if none. */
   public SecondFactor.MailFactor mailFactor() {
     return secondFactor == null ? null : secondFactor.getMail();

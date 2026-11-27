@@ -39,7 +39,7 @@ public class ConfirmMailFactorApi extends AbstractAuthenticatedEndpoint<ConfirmM
         String previous = user == null || user.mailFactor() == null ? null : user.mailFactor().getAddress();
         serviceProvider.getSettingsService().setMailFactor(username, check.address(), Instant.now());
         LOGGER.info("User \"" + username + "\" set up mail 2FA to " + check.address() + " from " + input.getClientAddress());
-        if (previous != null && !previous.equalsIgnoreCase(check.address())) MailFactorNotice.send(serviceProvider, username, previous, check.address());
+        if (previous != null && !previous.equalsIgnoreCase(check.address())) SecondFactorNotice.mailChanged(serviceProvider, username, previous, check.address());
         return AccountResult.done();
       }
     }

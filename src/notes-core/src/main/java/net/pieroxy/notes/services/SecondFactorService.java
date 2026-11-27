@@ -4,6 +4,7 @@ import net.pieroxy.notes.config.ConfigValidation;
 import net.pieroxy.notes.config.MailOutConfiguration;
 import net.pieroxy.notes.mail.Mail;
 import net.pieroxy.notes.mail.SmtpClient;
+import net.pieroxy.notes.totp.Totp;
 import net.pieroxy.notes.utils.RateLimiter;
 
 import java.io.IOException;
@@ -30,12 +31,20 @@ public class SecondFactorService implements Service {
   /** Codes mailed per user within {@link #SENT_WINDOW}, at most: a mailbox mustn't be flooded. */
   public static final int MAX_SENT = 5;
   public static final Duration SENT_WINDOW = Duration.ofMinutes(15);
+  /** How long a TOTP secret waits for its first code: time to install an app. */
+  public static final Duration TOTP_SETUP_LIFETIME = Duration.ofMinutes(30);
+  /** Wrong TOTP codes per user within {@link #WRONG_TOTP_WINDOW}, at most: the next code is always valid, unlike a mailed one. */
+  public static final int MAX_WRONG_TOTP = 10;
+  public static final Duration WRONG_TOTP_WINDOW = Duration.ofMinutes(15);
   private static final SecureRandom RANDOM = new SecureRandom();
 
   private final Clock clock;
   private final SmtpClient smtp;
   private final Map<String, Pending> pending = new ConcurrentHashMap<>();
   private final Map<String, Challenge> challenges = new ConcurrentHashMap<>();
+  // By username.
+  private final Map<String, TotpSetup> totpSetups = new ConcurrentHashMap<>();
+  private final RateLimiter wrongTotp = new RateLimiter((int) WRONG_TOTP_WINDOW.toMillis(), MAX_WRONG_TOTP);
   private final RateLimiter sent = new RateLimiter((int) SENT_WINDOW.toMillis(), MAX_SENT);
   private SettingsService settings;
 
@@ -141,6 +150,47 @@ public class SecondFactorService implements Service {
   }
 
   private record Challenge(String username, Instant expiresAt) {
+  }
+
+  /** @param secret base32, waiting for its first code. */
+  private record TotpSetup(String secret, Instant expiresAt) {
+  }
+
+  /** A new TOTP secret for {@code username}, waiting for its first code: replaces any previous one. */
+  public String startTotpSetup(String username) {
+    String secret = Totp.newSecret();
+    Instant now = clock.instant();
+    totpSetups.values().removeIf(c -> !now.isBefore(c.expiresAt));
+    totpSetups.put(username, new TotpSetup(secret, now.plus(TOTP_SETUP_LIFETIME)));
+    return secret;
+  }
+
+  /** @return the TOTP secret waiting for {@code username}'s first code, null if none is valid. */
+  public String pendingTotpSecret(String username) {
+    TotpSetup setup = totpSetups.get(username);
+    return setup == null || !clock.instant().isBefore(setup.expiresAt) ? null : setup.secret;
+  }
+
+  public void endTotpSetup(String username) {
+    totpSetups.remove(username);
+  }
+
+  /**
+   * {@link Totp#verify} now, a wrong code counted against {@code username}.
+   *
+   * @return the step matched, null if wrong.
+   * @throws RateLimiter.RateExceededException after {@link #MAX_WRONG_TOTP} wrong codes within {@link #WRONG_TOTP_WINDOW}: not checked then.
+   */
+  public Long verifyTotp(String username, String secret, String code, long lastUsedStep) {
+    wrongTotp.check(username);
+    Long step = Totp.verify(secret, code, clock.instant(), lastUsedStep);
+    if (step == null) wrongTotp.hit(username);
+    return step;
+  }
+
+  /** {@link Totp#offsetSteps}, now. */
+  public Long totpOffsetSteps(String secret, String code, int maxSteps) {
+    return Totp.offsetSteps(secret, code, clock.instant(), maxSteps);
   }
 
   /** @return where the code pending under {@code key} went, null if none is valid. */

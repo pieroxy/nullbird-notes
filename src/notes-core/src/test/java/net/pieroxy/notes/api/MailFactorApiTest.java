@@ -160,7 +160,7 @@ public class MailFactorApiTest {
       assertTrue(bob.post("RemoveMailFactor", "{\"password\":\"bob-password\"}").result().get("ok").getAsBoolean());
 
       assertTrue(smtp.message.contains("To: bob@example.com\r\n"));
-      assertTrue(smtp.message.contains("Subject: Notes: two-step verification turned off\r\n"));
+      assertTrue(smtp.message.contains("Subject: Notes: two-step verification by mail turned off\r\n"));
     }
     assertFalse(bobsEntry().has("secondFactor"));
     assertNull(bob.get("SecondFactor", "{}").result().get("mail"));

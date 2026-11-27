@@ -96,4 +96,15 @@ public class TotpTest {
   public void stepsBeforeTheEpochRoundDown() {
     assertEquals(-1, Totp.step(Instant.ofEpochSecond(-1)));
   }
+
+  @Test
+  public void offsetStepsFindsTheNearestMatchWithinTheLimit() {
+    String secret = Base32.encode(KEY);
+    Instant now = Instant.ofEpochSecond(1_800_000_000L);
+    long step = Totp.step(now);
+
+    assertEquals(Long.valueOf(4), Totp.offsetSteps(secret, Totp.code(KEY, step + 4), now, 20));
+    assertEquals(Long.valueOf(-20), Totp.offsetSteps(secret, Totp.code(KEY, step - 20), now, 20));
+    assertNull(Totp.offsetSteps(secret, Totp.code(KEY, step + 21), now, 20));
+  }
 }

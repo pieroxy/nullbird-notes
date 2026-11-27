@@ -9,7 +9,7 @@ import { EMOJI_HELPER, loadChoice, saveChoice, Setting, SPACING, TEXT_PIXELS, TE
 import { ChangePasswordForm } from "../ChangePasswordForm";
 import { FontChoices } from "../FontChoices";
 import { ImportNotes } from "../ImportNotes";
-import { MailFactorSection } from "../MailFactorSection";
+import { SecondFactorSection } from "../SecondFactorSection";
 import { PageSection, sectionedPage } from "../SectionedPage";
 import { AbstractPage } from "./AbstractPage";
 
@@ -85,7 +85,7 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
     return [
       m("h2", "Password"),
       m(ChangePasswordForm, { username: Auth.getUsername() ?? "" }),
-      m(MailFactorSection, { username: Auth.getUsername() ?? "" }),
+      m(SecondFactorSection, { username: Auth.getUsername() ?? "" }),
     ];
   }
 

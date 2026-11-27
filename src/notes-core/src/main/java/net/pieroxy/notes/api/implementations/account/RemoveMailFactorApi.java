@@ -28,7 +28,7 @@ public class RemoveMailFactorApi extends AbstractAuthenticatedEndpoint<RemoveMai
     if (user == null || user.mailFactor() == null) return AccountResult.done();
     serviceProvider.getSettingsService().removeMailFactor(username);
     LOGGER.info("User \"" + username + "\" removed their mail 2FA from " + input.getClientAddress());
-    MailFactorNotice.send(serviceProvider, username, user.mailFactor().getAddress(), null);
+    SecondFactorNotice.mailChanged(serviceProvider, username, user.mailFactor().getAddress(), null);
     return AccountResult.done();
   }
 }
