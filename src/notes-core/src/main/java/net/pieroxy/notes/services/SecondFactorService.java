@@ -1,0 +1,175 @@
+package net.pieroxy.notes.services;
+
+import net.pieroxy.notes.config.ConfigValidation;
+import net.pieroxy.notes.config.MailOutConfiguration;
+import net.pieroxy.notes.mail.Mail;
+import net.pieroxy.notes.mail.SmtpClient;
+import net.pieroxy.notes.utils.RateLimiter;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+
+/**
+ * Codes mailed for a second factor, held in memory: a restart voids them. Each is for one purpose, its
+ * key (e.g. "enroll:alice"), valid for {@link #CODE_LIFETIME} and {@link #MAX_WRONG_CODES} wrong tries;
+ * a new one under the same key replaces it.
+ */
+public class SecondFactorService implements Service {
+  public static final Duration CODE_LIFETIME = Duration.ofMinutes(10);
+  public static final int MAX_WRONG_CODES = 5;
+  /** Codes mailed per user within {@link #SENT_WINDOW}, at most: a mailbox mustn't be flooded. */
+  public static final int MAX_SENT = 5;
+  public static final Duration SENT_WINDOW = Duration.ofMinutes(15);
+  private static final SecureRandom RANDOM = new SecureRandom();
+
+  private final Clock clock;
+  private final SmtpClient smtp;
+  private final Map<String, Pending> pending = new ConcurrentHashMap<>();
+  private final RateLimiter sent = new RateLimiter((int) SENT_WINDOW.toMillis(), MAX_SENT);
+  private SettingsService settings;
+
+  public SecondFactorService() {
+    this(Clock.systemUTC(), new SmtpClient());
+  }
+
+  SecondFactorService(Clock clock, SmtpClient smtp) {
+    this.clock = clock;
+    this.smtp = smtp;
+  }
+
+  @Override
+  public List<Class<? extends Service>> getDependencies() {
+    return List.of(SettingsService.class);
+  }
+
+  @Override
+  public void init(IServiceProvider serviceProvider) {
+    settings = serviceProvider.getSettingsService();
+  }
+
+  /**
+   * @return the saved outgoing mail settings, null if no SMTP server is saved.
+   * @throws IOException if config.json can't be read.
+   */
+  public MailOutConfiguration mailOut() throws IOException {
+    MailOutConfiguration config = settings.readSavedConfig().getMailOut();
+    return config == null || config.getHost() == null || config.getHost().isBlank() ? null : config;
+  }
+
+  /**
+   * Mails a new code, replacing any pending under {@code key}.
+   *
+   * @param user the rate limit's key.
+   * @param mail the mail, given the code.
+   * @throws RateLimiter.RateExceededException if {@code user} was sent {@link #MAX_SENT} codes within {@link #SENT_WINDOW}.
+   * @throws IOException if it wasn't sent, its message for the user: no SMTP server saved, or what the server said.
+   */
+  public void sendCode(String key, String user, Function<String, Mail> mail) throws IOException {
+    MailOutConfiguration config = mailOut();
+    if (config == null) throw new IOException("This server can't send mail: its administrator hasn't set it up.");
+    try {
+      ConfigValidation.validate(config);
+    } catch (IllegalArgumentException e) {
+      throw new IOException("This server's mail settings are invalid: " + e.getMessage());
+    }
+    sent.tryHit(user);
+    String code = String.format("%06d", RANDOM.nextInt(1_000_000));
+    Mail message = mail.apply(code);
+    pending.values().removeIf(p -> p.expired(clock.instant()));
+    smtp.send(config, message);
+    pending.put(key, new Pending(code, message.to(), clock.instant().plus(CODE_LIFETIME)));
+  }
+
+  /**
+   * Mails {@code mail}, not rate limited: for notices of changes the user made with their password.
+   *
+   * @throws IOException if it wasn't sent: no SMTP server saved, invalid settings, or what the server said.
+   */
+  public void sendNotice(Mail mail) throws IOException {
+    MailOutConfiguration config = mailOut();
+    if (config == null) throw new IOException("no SMTP server is saved");
+    try {
+      ConfigValidation.validate(config);
+    } catch (IllegalArgumentException e) {
+      throw new IOException("invalid mail settings: " + e.getMessage());
+    }
+    smtp.send(config, mail);
+  }
+
+  /** @return where the code pending under {@code key} went, null if none is valid. */
+  public String pendingAddress(String key) {
+    Pending p = pending.get(key);
+    return p == null || p.expired(clock.instant()) ? null : p.address;
+  }
+
+  public void discard(String key) {
+    pending.remove(key);
+  }
+
+  /**
+   * Checks {@code code} against the one pending under {@code key}, which goes once right, or wrong
+   * {@link #MAX_WRONG_CODES} times. Spaces are ignored.
+   */
+  public Check check(String key, String code) {
+    String typed = code == null ? "" : code.replaceAll("\\s", "");
+    Check[] result = {Check.NONE};
+    pending.computeIfPresent(key, (k, p) -> {
+      if (p.expired(clock.instant())) return null;
+      if (MessageDigest.isEqual(p.code.getBytes(StandardCharsets.UTF_8), typed.getBytes(StandardCharsets.UTF_8))) {
+        result[0] = Check.right(p.address);
+        return null;
+      }
+      p.wrong++;
+      result[0] = p.wrong >= MAX_WRONG_CODES ? Check.NONE : Check.WRONG;
+      return p.wrong >= MAX_WRONG_CODES ? null : p;
+    });
+    return result[0];
+  }
+
+  /**
+   * What a code turned out to be.
+   *
+   * @param address where it went, if right.
+   */
+  public record Check(Outcome outcome, String address) {
+    public enum Outcome {
+      RIGHT,
+      WRONG,
+      /** None valid: none sent, expired, or the last wrong try. */
+      NONE
+    }
+
+    static final Check WRONG = new Check(Outcome.WRONG, null);
+    static final Check NONE = new Check(Outcome.NONE, null);
+
+    static Check right(String address) {
+      return new Check(Outcome.RIGHT, address);
+    }
+  }
+
+  private static class Pending {
+    final String code;
+    final String address;
+    final Instant expiresAt;
+    int wrong;
+
+    Pending(String code, String address, Instant expiresAt) {
+      this.code = code;
+      this.address = address;
+      this.expiresAt = expiresAt;
+    }
+
+    boolean expired(Instant now) {
+      return !now.isBefore(expiresAt);
+    }
+  }
+}

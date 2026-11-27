@@ -92,7 +92,7 @@ public class FontServiceTest {
     SettingsService settings = new SettingsService(new Configuration(), new File(tmp.getRoot(), "credentials.json"), tmp.getRoot());
     FontService service = new FontService(clock);
     ServiceProvider provider = new ServiceProvider(settings, new SessionService(), new ClientGuardService(), new NoteStoreService(),
-        new NoteService(), new ImportService(), service, new WebServerService());
+        new NoteService(), new ImportService(), service, new WebServerService(), new SecondFactorService());
     service.init(provider.scopedFor(service));
     service.start();
     return service;

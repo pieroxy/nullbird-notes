@@ -13,6 +13,7 @@ import net.pieroxy.notes.services.FontService;
 import net.pieroxy.notes.services.ImportService;
 import net.pieroxy.notes.services.NoteService;
 import net.pieroxy.notes.services.NoteStoreService;
+import net.pieroxy.notes.services.SecondFactorService;
 import net.pieroxy.notes.services.ServiceProvider;
 import net.pieroxy.notes.services.SessionService;
 import net.pieroxy.notes.services.SettingsService;
@@ -106,7 +107,8 @@ class TestServer implements AutoCloseable {
       // Plain HTTP: the client's CookieManager wouldn't send a secure cookie back.
       config.setSecureCookie(false);
       ServiceProvider services = new ServiceProvider(new SettingsService(config, credentialsPath, new File(dir, "data")), new SessionService(),
-          new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new FontService(), new WebServerService());
+          new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new FontService(), new WebServerService(),
+          new SecondFactorService());
       try {
         services.init();
         return services;

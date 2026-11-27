@@ -8,6 +8,7 @@ import net.pieroxy.notes.services.ImportService;
 import net.pieroxy.notes.services.NoteService;
 import net.pieroxy.notes.services.NoteStoreService;
 import net.pieroxy.notes.services.ServiceProvider;
+import net.pieroxy.notes.services.SecondFactorService;
 import net.pieroxy.notes.services.SessionService;
 import net.pieroxy.notes.services.SettingsService;
 import net.pieroxy.notes.services.WebServerService;
@@ -74,7 +75,8 @@ public class Runner {
     try {
       DataFormat.upgrade(dataFolder.toPath());
       serviceProvider = new ServiceProvider(new SettingsService(config, configFile, credentialsFile, dataFolder), new SessionService(),
-          new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new FontService(), new WebServerService());
+          new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new FontService(), new WebServerService(),
+          new SecondFactorService());
       serviceProvider.init();
     } catch (IllegalStateException | IllegalArgumentException | IOException e) {
       LOGGER.severe(e.getMessage());

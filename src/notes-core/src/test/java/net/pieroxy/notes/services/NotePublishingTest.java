@@ -49,7 +49,7 @@ public class NotePublishingTest {
     stores = new NoteStoreService();
     service = new NoteService();
     ServiceProvider provider = new ServiceProvider(settings, new SessionService(), new ClientGuardService(), stores, service,
-        new ImportService(), new FontService(), new WebServerService());
+        new ImportService(), new FontService(), new WebServerService(), new SecondFactorService());
     stores.init(provider);
     service.init(provider);
   }
@@ -70,7 +70,7 @@ public class NotePublishingTest {
     NoteStoreService freshStores = new NoteStoreService();
     NoteService fresh = new NoteService();
     ServiceProvider provider = new ServiceProvider(settings, new SessionService(), new ClientGuardService(), freshStores, fresh,
-        new ImportService(), new FontService(), new WebServerService());
+        new ImportService(), new FontService(), new WebServerService(), new SecondFactorService());
     freshStores.init(provider);
     fresh.init(provider);
     return fresh;

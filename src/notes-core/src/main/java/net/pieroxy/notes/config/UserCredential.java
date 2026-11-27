@@ -8,10 +8,12 @@ public class UserCredential {
   private PasswordHash password;
   /** Sees the Administration pages. Absent: false. */
   private boolean admin;
-  /** Optional: for 2FA by email, later. */
+  /** Optional: the user's contact address. The 2FA one is in {@link #secondFactor}. */
   private String email;
   /** ISO 8601, e.g. 2026-11-21T06:30:00Z. Absent for users written by hand. */
   private String createdAt;
+  /** Absent: no second factor. */
+  private SecondFactor secondFactor;
 
   public String getUsername() {
     return username;
@@ -51,6 +53,19 @@ public class UserCredential {
 
   public void setCreatedAt(String createdAt) {
     this.createdAt = createdAt;
+  }
+
+  public SecondFactor getSecondFactor() {
+    return secondFactor;
+  }
+
+  public void setSecondFactor(SecondFactor secondFactor) {
+    this.secondFactor = secondFactor;
+  }
+
+  /** @return the confirmed mail factor, null if none. */
+  public SecondFactor.MailFactor mailFactor() {
+    return secondFactor == null ? null : secondFactor.getMail();
   }
 
   /**

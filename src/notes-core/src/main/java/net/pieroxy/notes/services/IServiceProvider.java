@@ -22,4 +22,6 @@ public interface IServiceProvider {
   FontService getFontService();
 
   WebServerService getWebServerService();
+
+  SecondFactorService getSecondFactorService();
 }

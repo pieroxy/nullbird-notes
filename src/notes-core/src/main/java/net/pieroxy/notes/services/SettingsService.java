@@ -10,6 +10,7 @@ import com.google.gson.JsonParser;
 import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.config.CredentialsFile;
 import net.pieroxy.notes.config.PasswordHash;
+import net.pieroxy.notes.config.SecondFactor;
 import net.pieroxy.notes.config.UserCredential;
 import net.pieroxy.notes.utils.AtomicFiles;
 import net.pieroxy.notes.webserver.TrustedProxies;
@@ -189,6 +190,41 @@ public class SettingsService implements Service {
     updateUser(username, user -> {
       if (admin) user.addProperty("admin", true);
       else user.remove("admin");
+    });
+  }
+
+  /**
+   * Sets the user's mail second factor in credentials.json, replacing any previous address. Preferred
+   * if nothing else is.
+   *
+   * @throws IllegalArgumentException if there's no such user.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized void setMailFactor(String username, String address, Instant confirmedAt) throws IOException {
+    updateUser(username, user -> {
+      if (!(user.get("secondFactor") instanceof JsonObject)) user.add("secondFactor", new JsonObject());
+      JsonObject factors = user.getAsJsonObject("secondFactor");
+      JsonObject mail = new JsonObject();
+      mail.addProperty("address", address);
+      mail.addProperty("confirmedAt", confirmedAt.toString());
+      factors.add(SecondFactor.MAIL, mail);
+      if (!factors.has("preferred")) factors.addProperty("preferred", SecondFactor.MAIL);
+    });
+  }
+
+  /**
+   * Removes the user's mail second factor from credentials.json. The TOTP, if any, becomes preferred;
+   * without one, "secondFactor" goes.
+   *
+   * @throws IllegalArgumentException if there's no such user.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized void removeMailFactor(String username) throws IOException {
+    updateUser(username, user -> {
+      if (!(user.get("secondFactor") instanceof JsonObject factors)) return;
+      factors.remove(SecondFactor.MAIL);
+      if (factors.has(SecondFactor.TOTP)) factors.addProperty("preferred", SecondFactor.TOTP);
+      else user.remove("secondFactor");
     });
   }
 
