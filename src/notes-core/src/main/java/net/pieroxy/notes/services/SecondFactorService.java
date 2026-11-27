@@ -162,6 +162,11 @@ public class SecondFactorService implements Service {
     pending.remove(challengeKey(id));
   }
 
+  /** The key of the code proving {@code username}'s new mail factor address. */
+  public static String enrollKey(String username) {
+    return "enroll:" + username;
+  }
+
   /** The key of challenge {@code id}'s code. */
   public static String challengeKey(String id) {
     return "login:" + id;

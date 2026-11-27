@@ -24,7 +24,7 @@ public class ConfirmMailFactorApi extends AbstractAuthenticatedEndpoint<ConfirmM
   @Override
   public AccountResult processAuthenticated(ConfirmMailFactorApiInput input) throws Exception {
     String username = input.getUsername();
-    SecondFactorService.Check check = serviceProvider.getSecondFactorService().check(MailFactorKeys.enroll(username), input.getCode());
+    SecondFactorService.Check check = serviceProvider.getSecondFactorService().check(SecondFactorService.enrollKey(username), input.getCode());
     switch (check.outcome()) {
       case WRONG -> {
         LOGGER.info("Mail 2FA setup for \"" + username + "\" from " + input.getClientAddress() + ": wrong code");

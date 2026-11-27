@@ -39,6 +39,12 @@ function formatLastSeen(millis: number | undefined, now = Date.now()): string {
   return new Date(millis).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/** Their second factors: "App + mail", "App", "Mail" or "Off". */
+function secondFactor(user: AdminUser): string {
+  if (user.totpFactor && user.mailFactor) return "App + mail";
+  return user.totpFactor ? "App" : user.mailFactor ? "Mail" : "Off";
+}
+
 function badges(user: AdminUser): m.Children {
   return [
     user.admin ? m("span.badge", "admin") : null,
@@ -72,7 +78,8 @@ export class UserList implements m.ClassComponent {
           m(".userinfo", [
             m(".username", [m("span", user.username), badges(user)]),
             user.email ? m(".usermeta", user.email) : null,
-            m(".usermeta", "Created " + formatDate(user.createdAt) + " · Last seen " + formatLastSeen(user.lastSeenAt)),
+            m(".usermeta", "Created " + formatDate(user.createdAt) + " · Last seen " + formatLastSeen(user.lastSeenAt)
+              + " · 2FA " + secondFactor(user).toLowerCase()),
           ]),
           icon("chevron-right"),
         ])))),
@@ -154,7 +161,7 @@ export interface UserDetailAttrs {
   username: string;
 }
 
-/** A user's page: their admin flag and a new password. Read-only for the admin's own account. */
+/** A user's page: their admin flag, a new password, their 2FA reset. Read-only for the admin's own account. */
 export class UserDetail implements m.ClassComponent<UserDetailAttrs> {
   private readonly users = new Users();
   private busy = false;
@@ -179,9 +186,10 @@ export class UserDetail implements m.ClassComponent<UserDetailAttrs> {
         m("dt", "Email"), m("dd", user.email ?? "none"),
         m("dt", "Created"), m("dd", formatDate(user.createdAt)),
         m("dt", "Last seen online"), m("dd", formatLastSeen(user.lastSeenAt)),
+        m("dt", "Two-step verification"), m("dd", secondFactor(user)),
       ]),
       self ? m("p.muted", [
-        "This is you. Change your password in ", m(m.route.Link, { href: Endpoints.ACCOUNT + "/security" }, "My Account"),
+        "This is you. Change your password and two-step verification in ", m(m.route.Link, { href: Endpoints.ACCOUNT + "/security" }, "My Account"),
         ". Only another admin can change your admin rights.",
       ]) : [
         m("h3", "Admin"),
@@ -194,6 +202,12 @@ export class UserDetail implements m.ClassComponent<UserDetailAttrs> {
           m("p.muted", "Gives them a new password, which you then pass on to them. They're logged out everywhere."),
           m("button.secondary", { type: "button", disabled: this.busy, onclick: () => this.resetPassword(user) }, "Reset password"),
         ],
+        user.totpFactor || user.mailFactor ? [
+          m("h3", "Two-step verification"),
+          m("p.muted", "For a lost phone or mailbox: turns it off, so that their password alone logs them in. "
+            + "They stay logged in, are told by mail if they have an address, and can set it up again in My Account."),
+          m("button.secondary", { type: "button", disabled: this.busy, onclick: () => this.resetSecondFactor(user) }, "Reset 2FA"),
+        ] : null,
       ],
       this.error ? m("p.errormessage", { role: "alert" }, this.error) : null,
     ];
@@ -209,6 +223,11 @@ export class UserDetail implements m.ClassComponent<UserDetailAttrs> {
       this.password = password;
       this.users.load();
     });
+  }
+
+  private resetSecondFactor(user: AdminUser) {
+    if (!confirm("Turn off two-step verification for " + user.username + "? Their password alone will log them in.")) return;
+    this.run(ApiEndpoints.AdminResetSecondFactor.call({ user: user.username }), () => this.users.load());
   }
 
   private run(call: Promise<{ ok: boolean; error?: string; password?: string }>, done: (password?: string) => void) {

@@ -34,7 +34,7 @@ public class SendMailFactorCodeApi extends AbstractAuthenticatedEndpoint<SendMai
     if (address.length() > 254 || !Mail.ADDRESS.matcher(address).matches()) return AccountResult.refused("This isn't an email address.");
     if (!CurrentPassword.check(serviceProvider, input, input.getPassword(), "Mail 2FA setup")) return AccountResult.refused("The password is wrong.");
     try {
-      serviceProvider.getSecondFactorService().sendCode(MailFactorKeys.enroll(username), username, code -> new Mail(address,
+      serviceProvider.getSecondFactorService().sendCode(SecondFactorService.enrollKey(username), username, code -> new Mail(address,
           "Notes code: " + code,
           "Your code to confirm this address for two-step verification in Notes:\n\n" + code + "\n\n"
               + "It's valid for " + SecondFactorService.CODE_LIFETIME.toMinutes() + " minutes.\n\n"

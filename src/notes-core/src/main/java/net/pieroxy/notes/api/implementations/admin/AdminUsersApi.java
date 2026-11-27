@@ -25,7 +25,7 @@ public class AdminUsersApi extends AbstractAdminEndpoint<AdminUsersApiInput, Adm
     SessionService sessions = serviceProvider.getSessionService();
     List<AdminUser> users = serviceProvider.getSettingsService().listUsers().stream()
         .map(user -> new AdminUser(user.getUsername(), user.getEmail(), user.isAdmin(), millis(user.createdAtInstant()),
-            millis(sessions.lastSeen(user.getUsername()))))
+            millis(sessions.lastSeen(user.getUsername())), user.mailFactor() != null, user.totpFactor() != null))
         .toList();
     return new AdminUsersApiOutput(users);
   }

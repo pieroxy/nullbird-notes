@@ -7,6 +7,7 @@ import net.pieroxy.notes.api.metadata.Endpoint;
 import net.pieroxy.notes.api.metadata.Required;
 import net.pieroxy.notes.api.metadata.TypeScriptType;
 import net.pieroxy.notes.services.IServiceProvider;
+import net.pieroxy.notes.services.SecondFactorService;
 
 import java.util.logging.Logger;
 
@@ -23,7 +24,7 @@ public class RemoveMailFactorApi extends AbstractAuthenticatedEndpoint<RemoveMai
   public AccountResult processAuthenticated(RemoveMailFactorApiInput input) throws Exception {
     String username = input.getUsername();
     if (!CurrentPassword.check(serviceProvider, input, input.getPassword(), "Mail 2FA removal")) return AccountResult.refused("The password is wrong.");
-    serviceProvider.getSecondFactorService().discard(MailFactorKeys.enroll(username));
+    serviceProvider.getSecondFactorService().discard(SecondFactorService.enrollKey(username));
     var user = serviceProvider.getSettingsService().getUser(username);
     if (user == null || user.mailFactor() == null) return AccountResult.done();
     serviceProvider.getSettingsService().removeMailFactor(username);

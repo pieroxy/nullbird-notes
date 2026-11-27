@@ -9,6 +9,7 @@ import net.pieroxy.notes.api.metadata.TypeScriptType;
 import net.pieroxy.notes.config.SecondFactor;
 import net.pieroxy.notes.config.UserCredential;
 import net.pieroxy.notes.services.IServiceProvider;
+import net.pieroxy.notes.services.SecondFactorService;
 
 /** The logged-in user's second factor, and what they can set up. */
 @Endpoint(method = ApiMethod.GET)
@@ -26,7 +27,7 @@ public class SecondFactorApi extends AbstractAuthenticatedEndpoint<SecondFactorA
     SecondFactor.TotpFactor totp = user == null ? null : user.totpFactor();
     String preferred = user == null || user.getSecondFactor() == null ? null : user.getSecondFactor().getPreferred();
     return new SecondFactorStatus(factors.mailOut() != null, mail == null ? null : new MailFactorStatus(mail.getAddress(), mail.getConfirmedAt()),
-        factors.pendingAddress(MailFactorKeys.enroll(input.getUsername())), email, totp == null ? null : new TotpFactorStatus(totp.getConfirmedAt()),
+        factors.pendingAddress(SecondFactorService.enrollKey(input.getUsername())), email, totp == null ? null : new TotpFactorStatus(totp.getConfirmedAt()),
         mail != null && totp != null ? preferred : null);
   }
 }

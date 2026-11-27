@@ -267,6 +267,16 @@ public class SettingsService implements Service {
   }
 
   /**
+   * Removes the user's second factors from credentials.json, all of them.
+   *
+   * @throws IllegalArgumentException if there's no such user.
+   * @throws IOException if credentials.json can't be read, parsed or written.
+   */
+  public synchronized void removeSecondFactor(String username) throws IOException {
+    updateUser(username, user -> user.remove("secondFactor"));
+  }
+
+  /**
    * Records a TOTP code of {@code step} as used, unless one of it or later already is: of two logins
    * with the same code at once, one only gets through.
    *

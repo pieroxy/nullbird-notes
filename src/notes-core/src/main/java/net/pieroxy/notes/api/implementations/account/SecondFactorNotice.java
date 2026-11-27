@@ -11,7 +11,7 @@ import java.util.logging.Logger;
  * Tells the user their second factor changed: if it wasn't them, they learn that someone has their
  * password. Not sent is logged, and doesn't undo the change.
  */
-final class SecondFactorNotice {
+public final class SecondFactorNotice {
   private final static Logger LOGGER = Logger.getLogger(SecondFactorNotice.class.getName());
   private static final String IF_NOT_YOU = "If you didn't do it, someone knows your Notes password: change it, and set up two-step verification again.\n";
 
@@ -50,6 +50,19 @@ final class SecondFactorNotice {
       send(serviceProvider, username, to, "Notes: authenticator app changed",
           "Codes for your Notes account \"" + username + "\" now come from a newly set up authenticator app: the previous one no longer works.\n\n");
     }
+  }
+
+  /**
+   * To the mail factor's address, else the user's contact address, else nobody.
+   *
+   * @param user as before the reset.
+   */
+  public static void resetByAdmin(IServiceProvider serviceProvider, UserCredential user) {
+    String to = user.mailFactor() != null ? user.mailFactor().getAddress() : user.getEmail();
+    if (to == null || to.isBlank()) return;
+    send(serviceProvider, user.getUsername(), to, "Notes: two-step verification reset",
+        "An administrator turned off two-step verification for your Notes account \"" + user.getUsername() + "\": "
+            + "only your password is asked at login now. Set it up again in My Account, Security.\n\n");
   }
 
   private static void send(IServiceProvider serviceProvider, String username, String to, String subject, String what) {
