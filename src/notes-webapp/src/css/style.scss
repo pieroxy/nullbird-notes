@@ -1841,6 +1841,66 @@ body.resizing {
 }
 
 // Publishing the open note, its link (see PublishPanel): over the note, as the find bar.
+// The formatting stripe (see NoteEditor.formatBar): icons with a word under each, short enough
+// for a phone's width.
+.formattoggle.active {
+  color: var(--accent);
+}
+
+.formatbar {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-pane);
+
+  .formatgroup {
+    display: flex;
+  }
+
+  .formatbutton {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    min-width: 44px;
+    padding: 3px 4px 2px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+
+    svg.icon {
+      width: 18px;
+      height: 18px;
+    }
+
+    span {
+      color: var(--text-muted);
+      font-size: 10px;
+      line-height: 1.2;
+    }
+
+    @include hover-or-pressed {
+      background: var(--bg-selected);
+    }
+  }
+}
+
+@media (max-width: 400px) {
+  .formatbar {
+    justify-content: space-between;
+    gap: 0;
+    padding: 2px 4px;
+
+    .formatbutton {
+      min-width: 0;
+      padding: 3px 3px 2px;
+    }
+  }
+}
+
 .publishpanel {
   display: flex;
   flex-direction: column;
@@ -2368,7 +2428,7 @@ button.link {
         order: 3;
       }
 
-      .viewtoggle, .delete, .emojipicker {
+      .viewtoggle, .formattoggle, .delete, .emojipicker {
         order: 4;
       }
 

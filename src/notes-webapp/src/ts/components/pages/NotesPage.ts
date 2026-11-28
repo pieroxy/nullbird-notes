@@ -15,7 +15,6 @@ import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { loadLayout, PaneLayout, resetWidth, saveLayout, SidePane, tagsShown, toggleList, toggleTags, withWidth } from "../../utils/PaneLayout";
 import { findMatches, fold, matches as searchMatches, MAX_MATCHES, parseQuery, Range, SearchIndex, snippet } from "../../utils/Search";
-import { ListKind } from "../../utils/ListFormat";
 import { loadViewing, saveViewing } from "../../utils/ViewMode";
 import { EMOJI_HELPER, loadChoice } from "../../utils/Appearance";
 import { emojiHelperShown, TOUCH } from "../../utils/Emoji";
@@ -79,7 +78,8 @@ export class NotesPage extends AbstractPage {
   private tagFonts = "";
   /** The engine whose tag events the filter follows, and how to stop. */
   private following?: { engine: SyncEngine; stop: () => void };
-  private listCommand?: { kind: ListKind; seq: number };
+  /** The formatting stripe shown over Markdown notes being edited; kept on this device. */
+  private formatting = loadFormatting();
   private insertCommand?: { text: string; focus: boolean; seq: number };
   /** The notes shown rendered, kept on this device (see ViewMode). */
   private viewing = new Set<string>();
@@ -186,6 +186,13 @@ export class NotesPage extends AbstractPage {
               ? iconButton("pencil", "Edit (" + VIEW_SHORTCUT + ")", () => this.setViewing(selected.id, false), "viewtoggle")
               : iconButton("eye", "View (" + VIEW_SHORTCUT + ")", () => this.setViewing(selected.id, true), "viewtoggle"))
             : null,
+          // Markdown notes being edited only: the stripe's buttons all write Markdown.
+          engine && selected && !selected.deleted && this.canView(selected) && !this.viewing.has(selected.id)
+            ? m("button.icon.formattoggle" + (this.formatting ? ".active" : ""), {
+              type: "button", title: "Formatting", "aria-label": "Formatting", "aria-pressed": String(this.formatting),
+              onclick: () => this.setFormatting(!this.formatting),
+            }, icon("type"))
+            : null,
           engine && selected && !selected.deleted ? iconButton("trash-2", "Delete note", () => {
             if (!confirm("Delete this note?")) return;
             engine.delete(selected.id);
@@ -198,13 +205,7 @@ export class NotesPage extends AbstractPage {
               this.flagItem(engine, selected, "Markdown", MARKDOWN),
               this.flagItem(engine, selected, "Fixed-width font", MONOSPACE),
               this.flagItem(engine, selected, "Wrap long lines", NOWRAP),
-              this.viewing.has(selected.id) && this.canView(selected) ? null : [
-                m(".menuseparator"),
-                m("button.menuitem", { type: "button", onclick: () => this.makeList("bullet") }, "Bullet list"),
-                m("button.menuitem", { type: "button", onclick: () => this.makeList("number") }, "Numbered list"),
-                m("button.menuitem", { type: "button", onclick: () => this.makeList("task") }, "Task list"),
-                m(".menuseparator"),
-              ],
+              m(".menuseparator"),
               m("button.menuitem", { type: "button", onclick: () => (this.publishing = true) },
                 publishedToken(selected) ? "Published link…" : "Publish…"),
               // Offline, said why on a click rather than just disabled.
@@ -466,7 +467,7 @@ export class NotesPage extends AbstractPage {
           tagOptions,
           knownTags: [...rank.keys()],
           find,
-          listCommand: this.listCommand,
+          formatting: this.formatting,
           insertCommand: this.insertCommand,
         })
         : m("section.editor.none", { key: "none" }, m(".empty", "Select a note or create one.")),
@@ -574,11 +575,6 @@ export class NotesPage extends AbstractPage {
     });
   }
 
-  /** Applied by the editor, which keeps its selection while the menu has the focus. */
-  private makeList(kind: ListKind) {
-    this.listCommand = { kind, seq: (this.listCommand?.seq ?? 0) + 1 };
-  }
-
   /** Applied by the editor, which keeps its selection while the emoji picker has the focus. */
   private insert(text: string, focus: boolean) {
     this.insertCommand = { text, focus, seq: (this.insertCommand?.seq ?? 0) + 1 };
@@ -589,6 +585,15 @@ export class NotesPage extends AbstractPage {
     else this.viewing.delete(id);
     const username = Auth.getUsername();
     if (username && this.engine) saveViewing(username, this.viewing, new Set(this.engine.list().map((note) => note.id)));
+  }
+
+  private setFormatting(on: boolean) {
+    this.formatting = on;
+    try {
+      localStorage.setItem(FORMATTING_KEY, String(on));
+    } catch {
+      // Unavailable (private browsing, blocked site data): for this page only.
+    }
   }
 
   private setLayout(layout: PaneLayout) {
@@ -700,6 +705,16 @@ export class NotesPage extends AbstractPage {
     if (ids === this.tagFonts) return;
     this.tagFonts = ids;
     void useTagFonts(ids ? ids.split(",") : []);
+  }
+}
+
+const FORMATTING_KEY = "notes.formatting";
+
+function loadFormatting(): boolean {
+  try {
+    return localStorage.getItem(FORMATTING_KEY) === "true";
+  } catch {
+    return false;
   }
 }
 

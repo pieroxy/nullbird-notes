@@ -1,4 +1,4 @@
-import { history, historyKeymap, indentWithTab, insertNewline, isolateHistory, standardKeymap } from "@codemirror/commands";
+import { history, historyKeymap, indentLess, indentMore, indentWithTab, insertNewline, isolateHistory, standardKeymap } from "@codemirror/commands";
 import { Annotation, ChangeSet, Compartment, EditorState, Extension, RangeSetBuilder, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, keymap, placeholder, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
 import m from "mithril";
@@ -12,7 +12,8 @@ import { htmlToMarkdown } from "../utils/PasteMarkdown";
 import { syntaxTree } from "@codemirror/language";
 import { SyntaxNode } from "@lezer/common";
 import { MAX_MATCHES, Range } from "../utils/Search";
-import { iconButton } from "./Icons";
+import { icon, iconButton, IconName } from "./Icons";
+import { InlineStyle, toggleInline } from "../utils/InlineFormat";
 import { markdownStyle } from "./MarkdownStyle";
 import { toggledTask } from "./MarkdownTree";
 import { MarkdownView, ScrollAnchor, viewTop } from "./MarkdownView";
@@ -55,8 +56,8 @@ export interface NoteEditorAttrs {
   noteFont?: string;
   monoFont?: string;
   find?: FindAttrs;
-  /** Changed to make the lines at the caret or the selection a list (see {@link formatList}). */
-  listCommand?: { kind: ListKind; seq: number };
+  /** The formatting stripe shown above the text (see formatBar). */
+  formatting: boolean;
   /** Changed to replace the selection with {@code text} (none: nothing), then take the focus if {@code focus}. */
   insertCommand?: { text: string; focus: boolean; seq: number };
 }
@@ -110,6 +111,12 @@ const listKeymap = keymap.of([{
 { key: "Mod-Shift-8", run: (view) => makeList(view, "bullet") },
 { key: "Mod-Shift-7", run: (view) => makeList(view, "number") },
 { key: "Mod-Shift-9", run: (view) => makeList(view, "task") },
+]);
+
+/** Markdown notes only: elsewhere, "**" is just two asterisks. */
+const styleKeymap = keymap.of([
+  { key: "Mod-b", run: (view) => toggleStyle(view, "bold") },
+  { key: "Mod-i", run: (view) => toggleStyle(view, "italic") },
 ]);
 
 /** One undoable edit; the caret stays after a marker inserted at it. */
@@ -290,7 +297,6 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   private lastJump?: number;
   private lastMatches?: Range[];
   private lastCurrent?: number;
-  private lastListSeq?: number;
   private lastInsertSeq?: number;
   private wasViewing = false;
   /** Where the caret goes once the editor shows: where the view was double-clicked. */
@@ -304,7 +310,6 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
     this.onEdit = attrs.onEdit;
     this.text = attrs.note.text;
     this.optionsKey = optionsKey(attrs);
-    this.lastListSeq = attrs.listCommand?.seq;
     this.lastInsertSeq = attrs.insertCommand?.seq;
     const host = dom.querySelector(".cmhost")!;
     const root = host.attachShadow({ mode: "open" });
@@ -353,13 +358,6 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
     }
     this.showFind(attrs);
     this.showOrHide(attrs);
-    if (attrs.listCommand && attrs.listCommand.seq !== this.lastListSeq) {
-      this.lastListSeq = attrs.listCommand.seq;
-      if (!attrs.viewing) {
-        makeList(view, attrs.listCommand.kind);
-        view.focus();
-      }
-    }
     if (attrs.insertCommand && attrs.insertCommand.seq !== this.lastInsertSeq) {
       this.lastInsertSeq = attrs.insertCommand.seq;
       if (!attrs.viewing) {
@@ -449,6 +447,7 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
       note.metaError ? m(".banner.error", "A change to the tags or options was refused by the server: " + note.metaError.message) : null,
       attrs.find ? findBar(attrs.find) : null,
       attrs.publishing ? m(PublishPanel, { noteId: note.id, token: attrs.publishing.token, onClose: attrs.publishing.onClose }) : null,
+      attrs.formatting && attrs.markdown && !attrs.viewing ? formatBar(() => this.editor) : null,
       m(".cmhost" + (attrs.viewing ? ".hidden" : "")),
       attrs.viewing ? m(MarkdownView, {
         text: note.text,
@@ -467,6 +466,49 @@ export class NoteEditor implements m.ClassComponent<NoteEditorAttrs> {
   }
 }
 
+/** One undoable edit; the selection stays over the same text. */
+function toggleStyle(view: EditorView, style: InlineStyle): boolean {
+  const { main } = view.state.selection;
+  const edit = toggleInline(view.state.doc.toString(), main.from, main.to, style);
+  view.dispatch({ changes: edit.changes, selection: { anchor: edit.anchor, head: edit.head }, scrollIntoView: true, userEvent: "input" });
+  return true;
+}
+
+const FORMATS: { icon: IconName; label: string; title: string; run: (view: EditorView) => boolean }[][] = [
+  [
+    { icon: "bold", label: "Bold", title: "Bold (Ctrl+B)", run: (view) => toggleStyle(view, "bold") },
+    { icon: "italic", label: "Italic", title: "Italic (Ctrl+I)", run: (view) => toggleStyle(view, "italic") },
+  ],
+  [
+    { icon: "list", label: "Bullets", title: "Bullet list (Ctrl+Shift+8)", run: (view) => makeList(view, "bullet") },
+    { icon: "list-ordered", label: "Numbers", title: "Numbered list (Ctrl+Shift+7)", run: (view) => makeList(view, "number") },
+    { icon: "list-todo", label: "Tasks", title: "Task list (Ctrl+Shift+9)", run: (view) => makeList(view, "task") },
+  ],
+  [
+    { icon: "indent-decrease", label: "Outdent", title: "Remove indent (Shift+Tab)", run: indentLess },
+    { icon: "indent-increase", label: "Indent", title: "Add indent (Tab)", run: indentMore },
+  ],
+];
+
+/**
+ * Formatting a Markdown note without typing its marks: easier on a phone, with no Tab key. Its
+ * buttons never take the focus: a phone's keyboard stays up, the selection stays.
+ */
+function formatBar(editor: () => EditorView | undefined): m.Children {
+  return m(".formatbar", { role: "toolbar", "aria-label": "Formatting" }, FORMATS.map((group) => m(".formatgroup", group.map((format) =>
+    m("button.formatbutton", {
+      type: "button",
+      title: format.title,
+      onmousedown: (e: MouseEvent) => e.preventDefault(),
+      onclick: () => {
+        const view = editor();
+        if (!view) return;
+        format.run(view);
+        view.focus();
+      },
+    }, [icon(format.icon), m("span", format.label)])))));
+}
+
 /** The line at the top of the editor, and how far below the top it starts (negative: partly scrolled off). */
 function editorTop(view: EditorView): ScrollAnchor {
   const rect = view.scrollDOM.getBoundingClientRect();
@@ -483,7 +525,7 @@ function options(attrs: NoteEditorAttrs): Extension {
   return [
     attrs.nowrap ? [] : EditorView.lineWrapping,
     EditorView.editorAttributes.of({ class: attrs.monospace ? "monospace" : "" }),
-    attrs.markdown ? [markdownStyle, taskShorthandInput, markdownPaste] : [],
+    attrs.markdown ? [markdownStyle, taskShorthandInput, markdownPaste, styleKeymap] : [],
   ];
 }
 
