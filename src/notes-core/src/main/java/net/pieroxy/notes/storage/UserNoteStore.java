@@ -353,6 +353,38 @@ public class UserNoteStore {
     return revision.submittedDelta() != null || revision.submittedContent() != null;
   }
 
+  /**
+   * Every kept revision of a note, with what it changed (see {@link NoteHistory}). Read from the
+   * head down, each text from the one above, as {@link #thinNote} does: two texts in memory at a time.
+   *
+   * @return oldest first; null if there's no such note.
+   */
+  public synchronized List<NoteHistory.Step> historySteps(String noteId) throws IOException {
+    NoteMeta meta = index.get(noteId);
+    if (meta == null) return null;
+    List<Integer> revisions = existingRevisions(noteId, meta.revision());
+    List<NoteHistory.Step> steps = new ArrayList<>(revisions.size());
+    StoredRevision above = null;
+    String aboveText = null;
+    for (int i = revisions.size() - 1; i >= 0; i--) {
+      StoredRevision revision = readStored(noteId, revisions.get(i));
+      String text;
+      if (revision.content() != null) text = revision.content();
+      else if (above != null && revision.deltaBase() != null && revision.deltaBase() == above.revision()) text = revision.delta().apply(aboveText);
+      else text = readRevisionFile(noteId, revision.revision()).content();
+      if (above != null) steps.add(step(above, NoteHistory.changed(text, aboveText)));
+      above = revision;
+      aboveText = text;
+    }
+    if (above != null) steps.add(step(above, new int[]{0, 0}));
+    Collections.reverse(steps);
+    return steps;
+  }
+
+  private static NoteHistory.Step step(StoredRevision revision, int[] changed) {
+    return new NoteHistory.Step(revision.revision(), revision.at(), revision.deviceId(), revision.deleted(), changed[0], changed[1]);
+  }
+
   /** In revision order, up to {@code head}: past it are leftovers of interrupted commits. */
   private List<Integer> existingRevisions(String noteId, int head) throws IOException {
     Path dir = noteDir(noteId).resolve("revisions");

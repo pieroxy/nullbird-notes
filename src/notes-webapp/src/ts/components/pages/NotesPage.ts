@@ -10,7 +10,7 @@ import { session } from "../../sync/Session";
 import { SyncEngine } from "../../sync/SyncEngine";
 import { Auth } from "../../utils/Auth";
 import { refreshFontsOnce } from "../../utils/Fonts";
-import { titleAndExcerpt } from "../../utils/format";
+import { shortDate, titleAndExcerpt } from "../../utils/format";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { loadLayout, PaneLayout, resetWidth, saveLayout, SidePane, tagsShown, toggleList, toggleTags, withWidth } from "../../utils/PaneLayout";
@@ -31,6 +31,7 @@ import { phaseStatus, SyncStatusIndicator } from "../SyncStatusIndicator";
 import { TagPanel, tagSearch } from "../TagPanel";
 import { TagSettings } from "../TagSettings";
 import { TrashedNote } from "../TrashedNote";
+import { HistoryView } from "../HistoryView";
 import { noteStripes } from "../../utils/TagLook";
 import { TagOptions } from "../../auto/api-types";
 import { AbstractPage } from "./AbstractPage";
@@ -67,6 +68,8 @@ export class NotesPage extends AbstractPage {
   private layout: PaneLayout = loadLayout();
   /** The open note's publish panel shown. */
   private publishing = false;
+  /** The open note's history shown, over the page (see HistoryView). */
+  private history = false;
   /** The tag whose settings are open (see TagSettings). */
   private tagSettings?: string;
   /** A message at the bottom of the screen for a few seconds, with what undoes it. */
@@ -204,6 +207,13 @@ export class NotesPage extends AbstractPage {
               ],
               m("button.menuitem", { type: "button", onclick: () => (this.publishing = true) },
                 publishedToken(selected) ? "Published link…" : "Publish…"),
+              // Offline, said why on a click rather than just disabled.
+              engine.status().state === "offline"
+                ? m("button.menuitem.unavailable", {
+                  type: "button", "aria-disabled": "true",
+                  onclick: () => this.showToast("The history is kept on the server: it can be seen once back online."),
+                }, "History…")
+                : m("button.menuitem", { type: "button", onclick: () => (this.history = true) }, "History…"),
               m(".menuseparator"),
             ] : null,
             m("button.menuitem", { type: "button", onclick: () => Routing.goToScreen(Endpoints.ACCOUNT) }, "My Account"),
@@ -213,6 +223,7 @@ export class NotesPage extends AbstractPage {
       ]),
       this.body(),
       engine && this.tagSettings ? this.tagSettingsDialog(engine, this.tagSettings) : null,
+      engine && selected && !selected.deleted && this.history ? this.historyView(engine, selected) : null,
       this.toast ? m(".toast", { role: "status" }, [
         m("span", this.toast.message),
         this.toast.undo ? m("button.plain", { type: "button", onclick: () => { this.toast?.undo?.(); this.hideToast(); } }, "Undo") : null,
@@ -251,6 +262,38 @@ export class NotesPage extends AbstractPage {
           for (const id of ids) for (const t of had.get(id) ?? [tag]) engine.addTag(id, t);
           if (ordered) engine.moveTags(movesFor(listed));
         });
+      },
+    });
+  }
+
+  /** Restoring is an edit, undone from the toast; as a new note, one with the same tags. */
+  private historyView(engine: SyncEngine, note: LocalNote): m.Children {
+    return m(HistoryView, {
+      noteId: note.id,
+      title: titleAndExcerpt(note.text).title,
+      current: note.text,
+      ...this.editorOptions(this.applied(engine, note)),
+      onClose: () => (this.history = false),
+      onRestore: (text: string, at: number) => {
+        const before = note.text;
+        engine.edit(note.id, text);
+        this.history = false;
+        this.showToast("Restored the version of " + shortDate(at) + ".", () => engine.edit(note.id, before));
+      },
+      onRestoreAsNew: (text: string) => {
+        const id = engine.create(tagsOf(note));
+        engine.edit(id, text);
+        this.history = false;
+        if (this.filter.trash) this.setFilter(NO_FILTER);
+        this.clearSearch();
+        this.select(id);
+        this.showToast("Restored as a new note.");
+      },
+      onCopy: (text: string) => {
+        navigator.clipboard.writeText(text)
+          .then(() => this.showToast("Copied."))
+          .catch((err: Error) => this.showToast("It couldn't be copied: " + err.message))
+          .finally(() => m.redraw());
       },
     });
   }
@@ -640,6 +683,7 @@ export class NotesPage extends AbstractPage {
       this.matchIndex = id && this.search.trim() ? 0 : -1;
       this.jump++;
       this.publishing = false;
+      this.history = false;
     }
     this.selectedId = id;
     // A tag says its Markdown notes open rendered: each time they're opened.

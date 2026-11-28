@@ -735,4 +735,24 @@ public class UserNoteStoreTest {
     assertTrue("a change: clients must hear of it", loaded.seq() > store.get(A).seq());
     assertEquals(loaded.seq(), store.getLastSeq());
   }
+  @Test
+  public void historyStepsReadEveryKeptRevisionThroughTheDeltasWithWhatEachChanged() throws Exception {
+    store.fullRevisionInterval = 7;
+    List<String> texts = commitOverTime();
+    store.thin(clock.millis());
+
+    List<NoteHistory.Step> steps = store.historySteps(A);
+
+    assertEquals(List.of(1, 5, 15, 16, 17, 18, 19, 20), steps.stream().map(NoteHistory.Step::revision).toList());
+    assertEquals("the first: nothing before it", 0, steps.get(0).added());
+    // "version 0" to "version 4": one character replaced; to "version 14", one added.
+    assertEquals(1, steps.get(1).removed());
+    assertEquals(1, steps.get(1).added());
+    assertEquals(0, steps.get(2).removed());
+    assertEquals(1, steps.get(2).added());
+    assertEquals("device-1", steps.get(7).deviceId());
+    assertTrue(steps.get(7).at() > steps.get(0).at());
+    assertEquals(texts.get(19), store.readRevision(A, 20).content());
+    assertNull("no such note", store.historySteps(B));
+  }
 }

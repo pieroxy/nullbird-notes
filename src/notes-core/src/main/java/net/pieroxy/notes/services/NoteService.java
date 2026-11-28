@@ -3,6 +3,7 @@ package net.pieroxy.notes.services;
 import net.pieroxy.notes.api.metadata.InvalidInputException;
 import net.pieroxy.notes.storage.ChangeRecord;
 import net.pieroxy.notes.storage.MetaWrite;
+import net.pieroxy.notes.storage.NoteHistory;
 import net.pieroxy.notes.storage.NoteMeta;
 import net.pieroxy.notes.storage.NoteOptions;
 import net.pieroxy.notes.storage.NoteWrite;
@@ -401,6 +402,22 @@ public class NoteService implements Service {
       NoteMeta meta = store.get(noteId);
       return meta == null || !meta.deleted() ? null : store.readContent(noteId);
     }
+  }
+
+  /**
+   * A note's history, as editing sessions (see NoteHistory): those of a note in the trash too.
+   *
+   * @return newest first; null if there's no such note.
+   */
+  public List<NoteHistory.Entry> history(String username, String noteId) throws IOException {
+    List<NoteHistory.Step> steps = noteStores.getStore(username).historySteps(noteId);
+    return steps == null ? null : NoteHistory.sessions(steps);
+  }
+
+  /** @return a revision's text; null if there's no such note or revision (thinned out). */
+  public String revisionText(String username, String noteId, int revision) throws IOException {
+    Revision stored = noteStores.getStore(username).readRevision(noteId, revision);
+    return stored == null ? null : stored.content();
   }
 
   /**
