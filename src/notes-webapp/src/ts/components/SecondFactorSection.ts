@@ -3,6 +3,7 @@ import { ApiEndpoints } from "../auto/ApiEndpoints";
 import { AccountResult, SecondFactorStatus } from "../auto/api-types";
 import { encodeQr, qrPath } from "../utils/QrCode";
 import { CopyableText } from "./CopyableText";
+import { Platform } from "../utils/Platform";
 
 export interface SecondFactorSectionAttrs {
   username: string;
@@ -30,9 +31,9 @@ function formatDate(iso: string | undefined): string {
   return iso ? ", since " + new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "";
 }
 
-/** As the apps list it: "Notes", then the account on this server, by the name in the address bar. */
+/** As the apps list it: "Notes", then the account on this server, by the server's name. */
 function otpauthUri(username: string, secret: string): string {
-  return "otpauth://totp/Notes:" + encodeURIComponent(username + "@" + location.hostname) + "?secret=" + secret + "&issuer=Notes";
+  return "otpauth://totp/Notes:" + encodeURIComponent(username + "@" + new URL(Platform.serverOrigin()).hostname) + "?secret=" + secret + "&issuer=Notes";
 }
 
 /** The key in groups of 4, easier to type. */

@@ -2,6 +2,7 @@ import m from "mithril";
 import { ApiEndpoints } from "../auto/ApiEndpoints";
 import { CopyableText } from "./CopyableText";
 import { iconButton } from "./Icons";
+import { Platform } from "../utils/Platform";
 
 export interface PublishPanelAttrs {
   noteId: string;
@@ -33,7 +34,7 @@ export class PublishPanel implements m.ClassComponent<PublishPanelAttrs> {
         // Keyed: a new link isn't "Copied" yet.
         m(".publishlink", m(CopyableText, {
           key: token,
-          text: location.origin + "/p/" + token,
+          text: Platform.serverOrigin() + "/p/" + token,
           kind: "link",
           hint: "Anyone with this link can read the note, as it changes, without logging in.",
           selectedHint: "Selected: press Ctrl+C (⌘C on a Mac) to copy it.",

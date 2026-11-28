@@ -2,6 +2,7 @@ import m from "mithril";
 import { ApiEndpoints } from "../auto/ApiEndpoints";
 import { AdminConfig, AdminConfigApiOutput, AdminForwarder } from "../auto/api-types";
 import { configChanged, configWarnings, EditableConfig } from "../utils/ConfigWarnings";
+import { Platform } from "../utils/Platform";
 
 /** The form's fields, as typed. */
 interface Fields {
@@ -96,7 +97,7 @@ export class ConfigSection implements m.ClassComponent {
     const wanted = typeof parsed === "string" ? undefined : parsed;
     const changed = wanted !== undefined && configChanged(saved, wanted);
     const pendingRestart = configChanged(running, saved);
-    const warnings = wanted ? configWarnings(saved, wanted, { configFile: config.configFile, largeNotes: config.largeNotes, overHttps: location.protocol === "https:" }) : [];
+    const warnings = wanted ? configWarnings(saved, wanted, { configFile: config.configFile, largeNotes: config.largeNotes, overHttps: Platform.overHttps() }) : [];
 
     /** What's in effect, when the saved value differs: it takes over at the next restart. */
     const inEffect = (key: keyof EditableConfig) => {

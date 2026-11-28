@@ -9,6 +9,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import net.pieroxy.notes.services.FontService;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -37,19 +40,28 @@ public class SecurityHeadersFilter extends HttpFilter {
       // and the one that gives pasted HTML to DOMParser, which builds an inert document (see PasteMarkdown.ts).
       // Each can be created once: by the code that needs it, first.
       "trusted-types notes-sw notes-paste");
+  /** Sent with every response, as they are; the native apps serve the web app's files with them too (see AppManifest). */
+  static final Map<String, String> HEADERS;
+
+  static {
+    Map<String, String> headers = new LinkedHashMap<>();
+    headers.put("Content-Security-Policy", CSP);
+    headers.put("X-Content-Type-Options", "nosniff");
+    headers.put("Referrer-Policy", "no-referrer");
+    headers.put("X-Frame-Options", "DENY");
+    headers.put("Cross-Origin-Opener-Policy", "same-origin");
+    headers.put("Cross-Origin-Resource-Policy", "same-origin");
+    headers.put("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+    HEADERS = Collections.unmodifiableMap(headers);
+  }
+
   /** Named after their content's hash by the webapp's build: a new content is a new name. */
   private static final Pattern IMMUTABLE = Pattern.compile("/bundle-[0-9a-f]+\\.(js|css)(\\.map)?");
   private static final Pattern FONT = Pattern.compile("/fonts/" + FontService.FILE_PATTERN.pattern());
 
   @Override
   protected void doFilter(HttpServletRequest req, HttpServletResponse res, FilterChain chain) throws IOException, ServletException {
-    res.setHeader("Content-Security-Policy", CSP);
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Referrer-Policy", "no-referrer");
-    res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+    HEADERS.forEach(res::setHeader);
     res.setHeader("Cache-Control", cacheControl(req.getRequestURI()));
     // A published note's link, if it leaks, isn't to be found through a search engine.
     if (req.getRequestURI().startsWith("/p/")) res.setHeader("X-Robots-Tag", "noindex, nofollow");

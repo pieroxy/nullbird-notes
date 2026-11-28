@@ -2,10 +2,14 @@ package net.pieroxy.notes.services;
 
 import net.pieroxy.notes.api.ApiServlet;
 import net.pieroxy.notes.config.Configuration;
+import net.pieroxy.notes.utils.BuildInfo;
 import net.pieroxy.notes.webserver.AccessValve;
+import net.pieroxy.notes.webserver.AppManifest;
+import net.pieroxy.notes.webserver.AppManifestServlet;
 import net.pieroxy.notes.webserver.ExportServlet;
 import net.pieroxy.notes.webserver.FontServlet;
 import net.pieroxy.notes.webserver.ImportServlet;
+import net.pieroxy.notes.webserver.MimeTypes;
 import net.pieroxy.notes.webserver.PublishedPageServlet;
 import net.pieroxy.notes.webserver.SecurityHeadersFilter;
 import net.pieroxy.notes.webserver.WebappResourceExtractor;
@@ -84,6 +88,8 @@ public class WebServerService implements Service {
       ctx.addServletMappingDecoded(ImportServlet.PATH, "import");
       tomcat.addServlet("", "fonts", new FontServlet(endpointServiceProvider()));
       ctx.addServletMappingDecoded(FontServlet.PATH, "fonts");
+      tomcat.addServlet("", "appManifest", new AppManifestServlet(AppManifest.of(BuildInfo.ID, webappDir)));
+      ctx.addServletMappingDecoded(AppManifestServlet.PATH, "appManifest");
       tomcat.addServlet("", "published", new PublishedPageServlet());
       ctx.addServletMappingDecoded(PublishedPageServlet.PATH, "published");
       addSecurityHeaders(ctx);
@@ -203,12 +209,6 @@ public class WebServerService implements Service {
   }
 
   private static void addMimeTypes(StandardContext ctx) {
-    ctx.addMimeMapping("js", "application/javascript;charset=utf-8");
-    ctx.addMimeMapping("html", "text/html;charset=utf-8");
-    ctx.addMimeMapping("css", "text/css;charset=utf-8");
-    ctx.addMimeMapping("svg", "image/svg+xml");
-    ctx.addMimeMapping("png", "image/png");
-    ctx.addMimeMapping("ico", "image/x-icon");
-    ctx.addMimeMapping("webmanifest", "application/manifest+json");
+    MimeTypes.BY_EXTENSION.forEach(ctx::addMimeMapping);
   }
 }

@@ -6,6 +6,7 @@ import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
 import { Routing } from "../../utils/navigation/Routing";
 import { NO_FILTER, saveFilter } from "../../utils/TagFilter";
+import { Platform } from "../../utils/Platform";
 import { EMOJI_HELPER, loadChoice, saveChoice, Setting, SPACING, TEXT_PIXELS, TEXT_SIZE } from "../../utils/Appearance";
 import { ChangePasswordForm } from "../ChangePasswordForm";
 import { FontChoices } from "../FontChoices";
@@ -32,7 +33,8 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
   private readonly sections: PageSection[] = [
     { id: "appearance", title: "Appearance", render: () => this.appearance() },
     { id: "notes", title: "Notes", render: () => this.notes() },
-    { id: "data", title: "Your notes", render: () => this.data() },
+    // Export and import only: where neither is possible (see Platform), it has nothing to show.
+    ...(Platform.canExport() || Platform.canImport() ? [{ id: "data", title: "Your notes", render: () => this.data() }] : []),
     { id: "security", title: "Security", render: () => this.security() },
   ];
 
@@ -121,6 +123,13 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
   }
 
   private data(): m.Children {
+    return [
+      Platform.canExport() ? this.exportPart() : null,
+      Platform.canImport() ? this.importPart() : null,
+    ];
+  }
+
+  private exportPart(): m.Children {
     const pending = session.engine?.status().pending ?? 0;
     return [
       m("h2", "Export"),
@@ -130,6 +139,11 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
         + " changes not synced yet: the export has " + (pending > 1 ? "them" : "it") + " as last synced.") : null,
       // A plain link: the server answers with a download, the page stays.
       m("a.button", { href: "/export", download: "" }, "Export my notes"),
+    ];
+  }
+
+  private importPart(): m.Children {
+    return [
       m("h2", "Import"),
       m("p", "Adds the notes of an export to yours: this app's or Simplenote's, the .zip file or the notes.json in it. "
         + "You see what it would do before running it."),

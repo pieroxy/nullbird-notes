@@ -9,6 +9,7 @@ import { Endpoints } from "./utils/navigation/Endpoints";
 import { registerServiceWorker } from "./utils/ServiceWorker";
 import { initAppearance } from "./utils/Appearance";
 import { initFonts } from "./utils/Fonts";
+import { Platform } from "./utils/Platform";
 
 const routes: m.RouteDefs = {
   [Endpoints.LOGIN]: LoginPage,
@@ -28,5 +29,5 @@ if (root) {
   initAppearance(() => m.redraw());
   initFonts(() => m.redraw());
   m.route(root, Endpoints.HOME, routes);
-  registerServiceWorker();
+  if (Platform.usesServiceWorker()) registerServiceWorker();
 }

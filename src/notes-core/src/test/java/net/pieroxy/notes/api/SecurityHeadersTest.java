@@ -57,6 +57,17 @@ public class SecurityHeadersTest {
   }
 
   @Test
+  public void theAppManifestIsAnonymousAndListsThisBuild() throws Exception {
+    HttpResponse<String> response = server.client().raw("/app/manifest.json");
+    assertEquals(200, response.statusCode());
+    assertTrue(header(response, "Content-Type").startsWith("application/json"));
+    com.google.gson.JsonObject manifest = com.google.gson.JsonParser.parseString(response.body()).getAsJsonObject();
+    assertEquals(net.pieroxy.notes.utils.BuildInfo.ID, manifest.get("build").getAsString());
+    assertTrue(manifest.get("files").isJsonArray());
+    assertEquals("nosniff", manifest.getAsJsonObject("headers").get("X-Content-Type-Options").getAsString());
+  }
+
+  @Test
   public void errorPagesDontTellTheServersVersion() throws Exception {
     HttpResponse<String> response = server.client().raw("/no-such-file");
 

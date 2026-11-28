@@ -3,6 +3,7 @@ import { FontFamily, FontStyle, UploadedFont } from "../auto/api-types";
 import { ApiEndpoints } from "../auto/ApiEndpoints";
 import { Api } from "../utils/api/Api";
 import { Face, face, FONT_STYLES, styleFromFileName, styleLabel } from "../utils/Fonts";
+import { Platform } from "../utils/Platform";
 
 /** A file of the font being edited: one already in it, or one just uploaded. */
 interface Row {
@@ -85,7 +86,8 @@ export class FontsSection implements m.ClassComponent {
       this.loadError ? m("p.errormessage", this.loadError) : null,
       this.form ? this.editor(this.form) : [
         this.list(),
-        this.fonts ? m("button", { type: "button", onclick: () => this.edit() }, "Install a font") : null,
+        !Platform.canUploadFonts() ? m("p.muted", "Installing or changing a font takes picking files: do it from a browser.")
+          : this.fonts ? m("button", { type: "button", onclick: () => this.edit() }, "Install a font") : null,
       ],
     ];
   }
@@ -100,7 +102,7 @@ export class FontsSection implements m.ClassComponent {
           m("strong", font.name),
           font.monospace ? m("span.badge", "fixed-width") : null,
           m("span.spacer"),
-          m("button.secondary", { type: "button", onclick: () => this.edit(font) }, "Change"),
+          Platform.canUploadFonts() ? m("button.secondary", { type: "button", onclick: () => this.edit(font) }, "Change") : null,
           m("button.secondary", { type: "button", onclick: () => void this.remove(font) }, "Delete"),
         ]),
         m("p.fontsample", { style: { fontFamily: '"' + family + '", var(--font-ui-default)' } },
