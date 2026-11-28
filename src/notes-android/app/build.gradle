@@ -1,0 +1,33 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "net.pieroxy.notes.android"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "net.pieroxy.notes"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    testImplementation "junit:junit:4.13.2"
+    // org.json is part of Android, but only as stubs in local unit tests.
+    testImplementation "org.json:json:20240303"
+}

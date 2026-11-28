@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light here, dark in values-night: the webview follows it for prefers-color-scheme. -->
+    <style name="Theme.Notes" parent="android:Theme.Material.Light">
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+
+    <style name="Theme.Notes.Web" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+</resources>

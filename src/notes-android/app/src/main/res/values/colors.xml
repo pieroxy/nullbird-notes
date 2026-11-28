@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The web app's background (the bg variable in style.scss), so that nothing flashes as it loads. -->
+    <color name="background">#ffffff</color>
+    <color name="ic_launcher_background">#f5f6f8</color>
+</resources>

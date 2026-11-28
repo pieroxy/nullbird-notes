@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Long press on the app's icon: the way to the settings, the web app having the whole screen. -->
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_settings"
+        android:shortcutId="settings"
+        android:shortcutShortLabel="@string/settings_title">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="net.pieroxy.notes.android.SettingsActivity"
+            android:targetPackage="net.pieroxy.notes" />
+    </shortcut>
+</shortcuts>

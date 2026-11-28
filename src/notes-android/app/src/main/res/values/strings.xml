@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Notes</string>
+
+    <string name="setup_title">Nullbird Notes</string>
+    <string name="setup_intro">Enter the address of your Notes server.</string>
+    <string name="setup_hint">notes.example.com</string>
+    <string name="setup_connect">Connect</string>
+    <string name="setup_connecting">Connecting…</string>
+    <string name="setup_downloading">Downloading the app…</string>
+    <string name="setup_unreachable">Can\'t reach this server. Check the address and your connection.</string>
+    <string name="setup_certificate">This server\'s certificate isn\'t valid.</string>
+    <string name="setup_not_notes">This doesn\'t look like a Nullbird Notes server, or it\'s too old for the app.</string>
+    <string name="setup_corrupt">The download was damaged. Try again.</string>
+    <string name="setup_failed">Something went wrong: %1$s</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_server">Server</string>
+    <string name="settings_build">Version %1$s</string>
+    <string name="settings_open">Open my notes</string>
+    <string name="settings_change">Change server</string>
+    <string name="settings_change_title">Change server?</string>
+    <string name="settings_change_message">Your notes on this device will be removed, and you\'ll be logged out. Changes not yet synced with the server will be lost.</string>
+    <string name="settings_change_confirm">Change server</string>
+
+    <string name="webview_too_old">Notes needs Android System WebView %1$d or later. Update it from the Play Store, then open Notes again.</string>
+</resources>

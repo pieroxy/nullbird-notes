@@ -177,13 +177,24 @@ like iOS's won't work. The webview loads the server's real address instead:
   the network untouched: the real cookie, POST bodies as sent, the long poll unaffected.
 - Offline, the files still load, and the web app handles failing API calls as it does in a browser.
 
-Bridge: `WebViewCompat.addDocumentStartJavaScript` from `androidx.webkit` (when
-`WebViewFeature.DOCUMENT_START_SCRIPT` is supported), restricted to the server's origin. Injecting it
-into `index.html` instead wouldn't work: the CSP (`script-src 'self'`) blocks inline scripts.
+Bridge: as it serves `index.html`, the app adds `<script src=/nullbird-native.js></script>` before the
+page's first script, and answers `/nullbird-native.js` itself (the server has nothing there). The CSP
+allows the server's own scripts, not inline ones, so it has to be a file. This needs no library and
+works with any WebView, where `addDocumentStartJavaScript` (androidx.webkit) needs a recent one.
+
+The web app needs Chrome 111 (see `compat.js`), so the app checks the WebView's version first, and asks
+the user to update Android System WebView if it's older.
+
+Settings: the web app has the whole screen, so the settings are a launcher shortcut (long press on the
+app's icon › Settings): the server, the build, and "Change server".
+
+The code is in `src/notes-android` (see its README).
 
 ## To test first, on a device
 
-Before building on this design:
+Android was tested on an emulator (API 34, WebView 121): first launch, login and sync, the switch to a
+new build after a server upgrade, opening offline, and changing server. Before building iOS on this
+design:
 
 - **iOS:** POST bodies (the API's JSON) reach the scheme handler whole. The raw uploads, `/import` and
   `/fonts/`, are hidden in v1.
@@ -191,7 +202,6 @@ Before building on this design:
   hashes.
 - **iOS:** local storage and IndexedDB survive an app restart on the custom scheme.
 - **iOS:** the long poll streams through the handler, and stopping it cancels the upstream request.
-- **Android:** document-start scripts are available on the target WebView versions.
 
 If one of the iOS checks fails, the fallback is to load the web app straight from the server, as on
 Android but without the local copy. That's simpler, but the app can't start offline.
