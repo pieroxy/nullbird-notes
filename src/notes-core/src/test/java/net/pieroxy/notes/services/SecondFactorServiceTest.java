@@ -63,7 +63,7 @@ public class SecondFactorServiceTest {
       }
     });
     ServiceProvider provider = new ServiceProvider(settings, new SessionService(), new ClientGuardService(), new NoteStoreService(),
-        new NoteService(), new ImportService(), new FontService(), new WebServerService(), service);
+        new NoteService(), new ImportService(), new FontService(), new WebServerService(), service, new BackupService());
     service.init(provider.scopedFor(service));
   }
 

@@ -39,7 +39,7 @@ public class WebServerService implements Service {
   @Override
   public List<Class<? extends Service>> getDependencies() {
     return List.of(SettingsService.class, SessionService.class, ClientGuardService.class, NoteStoreService.class, NoteService.class,
-        ImportService.class, FontService.class, SecondFactorService.class);
+        ImportService.class, FontService.class, SecondFactorService.class, BackupService.class);
   }
 
   @Override
@@ -164,6 +164,11 @@ public class WebServerService implements Service {
       @Override
       public SecondFactorService getSecondFactorService() {
         return scoped.getSecondFactorService();
+      }
+
+      @Override
+      public BackupService getBackupService() {
+        return scoped.getBackupService();
       }
     };
   }

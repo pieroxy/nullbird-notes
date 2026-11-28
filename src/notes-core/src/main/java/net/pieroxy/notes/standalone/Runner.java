@@ -2,6 +2,7 @@ package net.pieroxy.notes.standalone;
 
 import com.google.gson.Gson;
 import net.pieroxy.notes.config.Configuration;
+import net.pieroxy.notes.services.BackupService;
 import net.pieroxy.notes.services.ClientGuardService;
 import net.pieroxy.notes.services.FontService;
 import net.pieroxy.notes.services.ImportService;
@@ -76,7 +77,7 @@ public class Runner {
       DataFormat.upgrade(dataFolder.toPath());
       serviceProvider = new ServiceProvider(new SettingsService(config, configFile, credentialsFile, dataFolder), new SessionService(),
           new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new FontService(), new WebServerService(),
-          new SecondFactorService());
+          new SecondFactorService(), new BackupService());
       serviceProvider.init();
     } catch (IllegalStateException | IllegalArgumentException | IOException e) {
       LOGGER.severe(e.getMessage());

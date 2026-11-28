@@ -48,7 +48,7 @@ public final class AtomicFiles {
   }
 
   /** Not supported everywhere (Windows can't open a directory): the rename is then as durable as the OS makes it. */
-  private static void syncDirectory(Path dir) {
+  public static void syncDirectory(Path dir) {
     try (FileChannel channel = FileChannel.open(dir, StandardOpenOption.READ)) {
       channel.force(true);
     } catch (IOException ignored) {

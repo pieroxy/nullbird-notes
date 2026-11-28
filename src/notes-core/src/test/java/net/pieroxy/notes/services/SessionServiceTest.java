@@ -73,7 +73,7 @@ public class SessionServiceTest {
     SettingsService settings = new SettingsService(new Configuration(), credentialsFile(), tmp.getRoot());
     settings.start();
     provider = new ServiceProvider(settings, new SessionService(), new ClientGuardService(), new NoteStoreService(), new NoteService(),
-        new ImportService(), new FontService(), new WebServerService(), new SecondFactorService());
+        new ImportService(), new FontService(), new WebServerService(), new SecondFactorService(), new BackupService());
   }
 
   /** A service as after a server (re)start: loaded from the data folder. */

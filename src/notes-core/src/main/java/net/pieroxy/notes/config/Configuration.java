@@ -19,6 +19,8 @@ public class Configuration {
   private int maxNoteSizeMb = 10;
   /** Absent: no mail is sent. */
   private MailOutConfiguration mailOut;
+  /** Absent: no backups. */
+  private BackupConfiguration backup;
 
   public File resolveDataFolder(File configDir) {
     File folder = new File(dataFolder);
@@ -87,5 +89,13 @@ public class Configuration {
 
   public void setSecureCookie(boolean secureCookie) {
     this.secureCookie = secureCookie;
+  }
+
+  public BackupConfiguration getBackup() {
+    return backup;
+  }
+
+  public void setBackup(BackupConfiguration backup) {
+    this.backup = backup;
   }
 }

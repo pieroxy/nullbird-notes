@@ -36,7 +36,7 @@ public class ServiceProviderTest {
   private ServiceProvider buildServiceProvider() {
     SettingsService settingsService = new SettingsService(new Configuration(), new File(tmp.getRoot(), "credentials.json"), tmp.getRoot());
     return new ServiceProvider(settingsService, new SessionService(), new ClientGuardService(), new NoteStoreService(), new NoteService(),
-        new ImportService(), new FontService(), new WebServerService(), new SecondFactorService());
+        new ImportService(), new FontService(), new WebServerService(), new SecondFactorService(), new BackupService());
   }
 
   @Test

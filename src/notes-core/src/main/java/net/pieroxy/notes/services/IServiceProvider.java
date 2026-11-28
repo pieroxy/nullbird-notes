@@ -24,4 +24,6 @@ public interface IServiceProvider {
   WebServerService getWebServerService();
 
   SecondFactorService getSecondFactorService();
+
+  BackupService getBackupService();
 }

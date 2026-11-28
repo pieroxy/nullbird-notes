@@ -132,6 +132,10 @@ public class SettingsService implements Service {
     AtomicFiles.write(configFile.toPath(), (PRETTY_GSON.toJson(root) + "\n").getBytes(StandardCharsets.UTF_8));
   }
 
+  public File getCredentialsFile() {
+    return credentialsFile;
+  }
+
   public File getDataFolder() {
     return dataFolder;
   }

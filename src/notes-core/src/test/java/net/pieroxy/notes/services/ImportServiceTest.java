@@ -96,7 +96,7 @@ public class ImportServiceTest {
     stores = new NoteStoreService();
     imports = new ImportService(clock);
     ServiceProvider provider = new ServiceProvider(settings, new SessionService(), new ClientGuardService(), stores, new NoteService(),
-        imports, new FontService(), new WebServerService(), new SecondFactorService());
+        imports, new FontService(), new WebServerService(), new SecondFactorService(), new BackupService());
     stores.init(provider);
     imports.init(provider);
     imports.start();

@@ -141,9 +141,30 @@ data is migrated on startup if needed.
 
 ## Backups
 
-Copying the files while the server runs can capture a note half written: either stop the server
-while copying (a few seconds; devices retry on their own), or copy from a filesystem snapshot
-(ZFS, btrfs, LVM): the server reads it like data left by a power cut, which is always consistent.
+Administration > Backups makes them on its own: a zip in a folder of the server, every hour or every
+day, only if something changed since the last one, the oldest beyond a number deleted. The folder
+must exist, outside the data folder, empty or with backups only: Notes checks it can write, read and
+delete a file there before activating, and never creates it, so a drive that isn't mounted makes the
+backup fail (logged as SEVERE, shown on that page) rather than fill the server's disk. With Docker,
+it must be in a mounted volume. The settings are in `config.json`:
+
+```json
+"backup": { "folder": "/mnt/backups/notes", "every": "DAILY", "keep": 14 }
+```
+
+`every` is `HOURLY` or `DAILY`; without `backup`, there are none. Each zip, named
+`notes-backup-<UTC date and time>.zip`, holds `config.json`, `credentials.json` and the data folder's
+`users` and `fonts` (as `data/...`), each user's notes copied while no change can be written to them.
+It holds secrets (password hashes, two-step verification secrets, the SMTP password): it's readable
+by the server's user only, keep it that way.
+
+To restore one, with the server stopped: unzip it into the config directory (`data/` goes to
+`<dataFolder>` if it's elsewhere), then follow steps 2 and 3 below.
+
+To make them yourself instead, mind that copying the files while the server runs can capture a note
+half written: either stop the server while copying (a few seconds; devices retry on their own), or
+copy from a filesystem snapshot (ZFS, btrfs, LVM): the server reads it like data left by a power
+cut, which is always consistent.
 
 Copy `<configDir>` and `<dataFolder>`. `<dataFolder>/tomcat` and `<dataFolder>/webapp-ui` are
 recreated on startup, `<dataFolder>/logs` is only logs, `<dataFolder>/imports` only files waiting to

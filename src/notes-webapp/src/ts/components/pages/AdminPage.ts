@@ -2,6 +2,7 @@ import m from "mithril";
 import { session } from "../../sync/Session";
 import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
+import { BackupSection } from "../AdminBackup";
 import { ConfigSection } from "../AdminConfig";
 import { FontsSection } from "../AdminFonts";
 import { LogsSection } from "../AdminLogs";
@@ -28,6 +29,7 @@ export class AdminPage extends AbstractPage<AdminPageAttrs> {
     { id: "config", title: "Config", render: () => m(ConfigSection) },
     { id: "fonts", title: "Fonts", render: () => m(FontsSection) },
     { id: "mailout", title: "Mail out", render: () => m(MailOutSection) },
+    { id: "backup", title: "Backups", render: () => m(BackupSection) },
     { id: "logs", title: "Logs", render: () => m(LogsSection), wide: true },
   ];
 

@@ -8,6 +8,7 @@ import net.pieroxy.notes.config.Configuration;
 import net.pieroxy.notes.config.CredentialsFile;
 import net.pieroxy.notes.config.PasswordHasher;
 import net.pieroxy.notes.config.UserCredential;
+import net.pieroxy.notes.services.BackupService;
 import net.pieroxy.notes.services.ClientGuardService;
 import net.pieroxy.notes.services.FontService;
 import net.pieroxy.notes.services.ImportService;
@@ -108,7 +109,7 @@ class TestServer implements AutoCloseable {
       config.setSecureCookie(false);
       ServiceProvider services = new ServiceProvider(new SettingsService(config, credentialsPath, new File(dir, "data")), new SessionService(),
           new ClientGuardService(), new NoteStoreService(), new NoteService(), new ImportService(), new FontService(), new WebServerService(),
-          new SecondFactorService());
+          new SecondFactorService(), new BackupService());
       try {
         services.init();
         return services;
