@@ -27,6 +27,7 @@ import net.pieroxy.notes.sync.PushStatus;
 import net.pieroxy.notes.sync.RejectReason;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.sync.TagEvent;
+import net.pieroxy.notes.sync.NoteDefaults;
 import net.pieroxy.notes.sync.TagOptions;
 import net.pieroxy.notes.sync.TagPaths;
 import net.pieroxy.notes.sync.TagOptionsChange;
@@ -100,8 +101,8 @@ public class NoteService implements Service {
   private record PublishedRef(String username, String noteId) {}
 
   /**
-   * A published note, as it is now: its options as they apply, its own or its tags' (see
-   * {@link TagOptions#effective}).
+   * A published note, as it is now: its options as they apply, its own, its tags' or the user's
+   * defaults (see {@link TagOptions#effective}).
    */
   public record PublishedNote(String username, NoteMeta meta, String content, boolean markdown, boolean monospace, boolean nowrap) {}
 
@@ -209,10 +210,12 @@ public class NoteService implements Service {
       NoteMeta meta = store.get(ref.noteId());
       if (meta == null || meta.deleted() || !token.equals(meta.options().get(NoteOptions.PUBLISHED))) return null;
       Map<String, String> own = meta.options();
-      boolean nowrap = TagOptions.effective(own.get(NoteOptions.NOWRAP), tagValuesInOrder(store, meta.tags(), o -> o.wrap() == null ? null : !o.wrap()));
+      NoteDefaults defaults = store.noteDefaults();
+      boolean nowrap = TagOptions.effective(own.get(NoteOptions.NOWRAP), tagValuesInOrder(store, meta.tags(), o -> o.wrap() == null ? null : !o.wrap()),
+          defaults.isNowrap());
       return new PublishedNote(ref.username(), meta, store.readContent(meta.id()),
-          TagOptions.effective(own.get(NoteOptions.MARKDOWN), tagValuesInOrder(store, meta.tags(), TagOptions::markdown)),
-          TagOptions.effective(own.get(NoteOptions.MONOSPACE), tagValuesInOrder(store, meta.tags(), TagOptions::monospace)),
+          TagOptions.effective(own.get(NoteOptions.MARKDOWN), tagValuesInOrder(store, meta.tags(), TagOptions::markdown), defaults.isMarkdown()),
+          TagOptions.effective(own.get(NoteOptions.MONOSPACE), tagValuesInOrder(store, meta.tags(), TagOptions::monospace), defaults.isMonospace()),
           nowrap);
     }
   }
@@ -477,6 +480,19 @@ public class NoteService implements Service {
   }
 
   /**
+   * Replaces the user's defaults for their notes: the last device to send wins.
+   *
+   * @return the defaults now.
+   */
+  public NoteDefaults pushNoteDefaults(String username, NoteDefaults defaults) throws IOException {
+    UserNoteStore store = noteStores.getStore(username);
+    synchronized (store) {
+      store.setNoteDefaults(defaults);
+      return store.noteDefaults();
+    }
+  }
+
+  /**
    * Replaces the user's tag order, unless it changed since {@code change}'s base: the client then
    * replays its moves on the current one. Each tag must be a valid one; tags in use but missing are
    * added at the end.
@@ -521,9 +537,11 @@ public class NoteService implements Service {
           .map(UserNoteStore.StoredTagEvent::event).toList();
       UserNoteStore.StoredTagOptions options = store.getTagOptions();
       Map<String, TagOptions> tagOptions = options != null && options.seq() > since && options.seq() <= seq ? options.tags() : null;
+      UserNoteStore.StoredNoteDefaults defaults = store.getNoteDefaults();
+      NoteDefaults noteDefaults = defaults != null && defaults.seq() > since && defaults.seq() <= seq ? defaults.defaults() : null;
       List<String> purged = store.purgesAfter(since).stream().filter(p -> p.seq() <= seq).map(UserNoteStore.StoredPurge::noteId).toList();
       return new ChangesPage(store.getStoreId(), seq, page.stream().map(NoteService::info).toList(), more, tagOrder,
-          events.isEmpty() ? null : events, tagOptions, purged.isEmpty() ? null : purged);
+          events.isEmpty() ? null : events, tagOptions, noteDefaults, purged.isEmpty() ? null : purged);
     }
   }
 

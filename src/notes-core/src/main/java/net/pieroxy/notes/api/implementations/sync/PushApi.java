@@ -10,6 +10,7 @@ import net.pieroxy.notes.api.metadata.TypeScriptType;
 import net.pieroxy.notes.services.IServiceProvider;
 import net.pieroxy.notes.services.NoteService;
 import net.pieroxy.notes.sync.MetaChange;
+import net.pieroxy.notes.sync.NoteDefaults;
 import net.pieroxy.notes.sync.NoteChange;
 import net.pieroxy.notes.sync.PushResult;
 import net.pieroxy.notes.sync.TagOptions;
@@ -57,8 +58,10 @@ public class PushApi extends AbstractAuthenticatedEndpoint<PushApiInput, PushApi
     TagOrderResult tagOrder = input.getTagOrder() == null ? null : notes.pushTagOrder(input.getUsername(), input.getTagOrder());
     Map<String, TagOptions> tagOptions = input.getTagOptions() == null ? null
         : notes.pushTagOptions(input.getUsername(), input.getTagOptions(), input.getSince());
+    NoteDefaults noteDefaults = input.getNoteDefaults() == null ? null : notes.pushNoteDefaults(input.getUsername(), input.getNoteDefaults());
     PushApiOutput output = new PushApiOutput(results, metaResults, tagOrder);
     output.setTagOptions(tagOptions);
+    output.setNoteDefaults(noteDefaults);
     return output;
   }
 }
@@ -82,6 +85,17 @@ class PushApiInput extends AuthenticatedApiInput {
 
   public void setTagOptions(List<TagOptionsChange> tagOptions) {
     this.tagOptions = tagOptions;
+  }
+
+  /** Absent: the user's defaults for their notes don't change. */
+  private NoteDefaults noteDefaults;
+
+  public NoteDefaults getNoteDefaults() {
+    return noteDefaults;
+  }
+
+  public void setNoteDefaults(NoteDefaults noteDefaults) {
+    this.noteDefaults = noteDefaults;
   }
 
   /** The client's cursor: its metadata changes follow the tags renamed or removed since (see NoteService#pushMeta). */
@@ -147,6 +161,17 @@ class PushApiOutput {
 
   public void setTagOptions(Map<String, TagOptions> tagOptions) {
     this.tagOptions = tagOptions;
+  }
+
+  /** The user's defaults for their notes now; absent if none were sent. */
+  private NoteDefaults noteDefaults;
+
+  public NoteDefaults getNoteDefaults() {
+    return noteDefaults;
+  }
+
+  public void setNoteDefaults(NoteDefaults noteDefaults) {
+    this.noteDefaults = noteDefaults;
   }
 
   public PushApiOutput() {

@@ -71,15 +71,17 @@ public record TagOptions(String dot, String stripe, String background, String te
 
   /**
    * A note's boolean option as it applies: its own value ({@code "true"} or {@code "false"}) when it
-   * has one; otherwise the first of its tags, in the user's order, to set it; otherwise off.
+   * has one; otherwise the first of its tags, in the user's order, to set it; otherwise the user's
+   * default (see {@link NoteDefaults}).
    *
    * @param ownValue the note's option, null if unset.
    * @param tagValues each of the note's tags' value for it, in the user's tag order; null for unset.
+   * @param fallback the user's default for it.
    */
-  public static boolean effective(String ownValue, Iterable<Boolean> tagValues) {
+  public static boolean effective(String ownValue, Iterable<Boolean> tagValues, boolean fallback) {
     if ("true".equals(ownValue)) return true;
     if ("false".equals(ownValue)) return false;
     for (Boolean value : tagValues) if (value != null) return value;
-    return false;
+    return fallback;
   }
 }

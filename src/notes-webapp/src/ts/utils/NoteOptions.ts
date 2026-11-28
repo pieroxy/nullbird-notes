@@ -1,10 +1,11 @@
-import { TagOptions } from "../auto/api-types";
+import { NoteDefaults, TagOptions } from "../auto/api-types";
 import { MARKDOWN, MONOSPACE, NOWRAP } from "../sync/Metadata";
 import { nearest, withoutRedundant } from "./TagTree";
 
 /**
  * A note's options as they apply: its own when set ("true" or "false"), otherwise its tags', the
- * first in the user's tag order to set one (see TagOptions on the server), otherwise the default.
+ * first in the user's tag order to set one (see TagOptions on the server), otherwise the user's
+ * default (see NoteDefaults on the server; absent, off, and long lines wrapped).
  * Notes follow their tags live: a tag's option changed, every note of it without its own follows.
  * A nested tag that doesn't set an option follows the nearest tag above it that does (see
  * TagTree.nearest), and a tag above another of the note's says nothing more: "work/clients" decides,
@@ -50,6 +51,13 @@ export function decidingTags(tags: string[], rank: Map<string, number>): string[
   return inUserOrder(withoutRedundant(tags), rank);
 }
 
+/** A flag as the user's defaults set it; their wrap is the note's nowrap, reversed. */
+export function defaultFlag(defaults: NoteDefaults, key: FlagKey): boolean {
+  if (key === MARKDOWN) return defaults.markdown === true;
+  if (key === MONOSPACE) return defaults.monospace === true;
+  return defaults.wrap === false;
+}
+
 /** What the tags say for {@code key}, and which one: the first, in the user's order, to say (or a tag above it). */
 export function fromTags(key: FlagKey, ordered: string[], tagOptions: { [tag: string]: TagOptions }): { value?: boolean; tag?: string } {
   for (const tag of ordered) {
@@ -64,7 +72,7 @@ function own(value: string | undefined): boolean | undefined {
 }
 
 export function appliedOptions(options: { [key: string]: string }, tags: string[], tagOptions: { [tag: string]: TagOptions },
-  rank: Map<string, number>): AppliedOptions {
+  rank: Map<string, number>, defaults: NoteDefaults = {}): AppliedOptions {
   const ordered = decidingTags(tags, rank);
   const from: AppliedOptions["from"] = {};
   const flag = (key: FlagKey): boolean => {
@@ -72,7 +80,7 @@ export function appliedOptions(options: { [key: string]: string }, tags: string[
     if (mine !== undefined) return mine;
     const tagged = fromTags(key, ordered, tagOptions);
     if (tagged.tag !== undefined) from[key] = tagged.tag;
-    return tagged.value ?? false;
+    return tagged.value ?? defaultFlag(defaults, key);
   };
   const first = (pick: (o: TagOptions) => string | boolean | undefined) => {
     for (const tag of ordered) {
@@ -93,11 +101,11 @@ export function appliedOptions(options: { [key: string]: string }, tags: string[
 }
 
 /**
- * The note's own value to store for {@code wanted}: none when its tags say the same (it follows them
- * again), otherwise "true" or "false". Without tags saying, off is none, as before.
+ * The note's own value to store for {@code wanted}: none when its tags say the same, or without tags
+ * saying, the user's default (it follows them again); otherwise "true" or "false".
  */
-export function ownValueFor(wanted: boolean, tagsSay: boolean | undefined): string | undefined {
-  if (wanted === (tagsSay ?? false)) return undefined;
+export function ownValueFor(wanted: boolean, tagsSay: boolean | undefined, byDefault = false): string | undefined {
+  if (wanted === (tagsSay ?? byDefault)) return undefined;
   return wanted ? "true" : "false";
 }
 

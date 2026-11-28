@@ -1,4 +1,4 @@
-import { TagOptions, TagOptionsChange, TagOrder } from "../auto/api-types";
+import { NoteDefaults, TagOptions, TagOptionsChange, TagOrder } from "../auto/api-types";
 import { TagMove } from "./TagOrder";
 import { LocalNote } from "./LocalNote";
 
@@ -16,6 +16,10 @@ export interface SyncMeta {
   tagOptions?: { [tag: string]: TagOptions };
   /** Tag options changes the server hasn't confirmed yet, oldest first. */
   tagOptionsChanges?: TagOptionsChange[];
+  /** The user's defaults for their notes, as the server last said: absent before it said. */
+  noteDefaults?: NoteDefaults;
+  /** The user's defaults as changed on this device, until the server confirms them. */
+  noteDefaultsChange?: NoteDefaults;
 }
 
 const NOTES = "notes";

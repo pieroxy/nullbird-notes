@@ -611,6 +611,34 @@ describe("SyncEngine", () => {
     });
   });
 
+  describe("note defaults", () => {
+    test("set here: shown at once, then synced; set on another device: followed", async () => {
+      await startEngine();
+      expect(engine.noteDefaults()).toEqual({});
+      engine.setNoteDefaults({ markdown: true, wrap: false });
+      expect(engine.noteDefaults()).toEqual({ markdown: true, wrap: false });
+      await until(() => engine.status().state === "synced" && server.noteDefaults !== undefined);
+      expect(server.noteDefaults?.defaults).toEqual({ markdown: true, wrap: false });
+      expect((await store.getMeta())?.noteDefaultsChange).toBeUndefined();
+
+      server.writeNoteDefaults({ monospace: true });
+      await until(() => engine.noteDefaults().monospace === true);
+      expect(engine.noteDefaults()).toEqual({ monospace: true });
+    });
+
+    test("set offline: kept, and sent once back online", async () => {
+      await startEngine();
+      server.failNext = 1000;
+      engine.setNoteDefaults({ monospace: true });
+      await until(() => engine.status().state === "offline");
+      expect(engine.noteDefaults()).toEqual({ monospace: true });
+      server.failNext = 0;
+      engine.retryNow();
+      await until(() => engine.status().state === "synced" && server.noteDefaults !== undefined, 5_000);
+      expect(server.noteDefaults?.defaults).toEqual({ monospace: true });
+    });
+  });
+
   describe("tag order", () => {
     async function withTags() {
       server.write(A, "First");

@@ -1,5 +1,5 @@
 import m from "mithril";
-import { FontFamily, TagOptions } from "../auto/api-types";
+import { FontFamily, NoteDefaults, TagOptions } from "../auto/api-types";
 import { refreshFonts } from "../utils/Fonts";
 import { SORT_ORDERS } from "../utils/NoteOptions";
 import { isValidTag, MAX_TAG_PATH_LENGTH, TAG_RULE } from "../sync/Metadata";
@@ -21,6 +21,8 @@ export interface TagSettingsAttrs {
    * follows while it doesn't set its own (see TagTree.nearest). Nothing for a tag at the top.
    */
   inherited: <T>(pick: (options: TagOptions) => T | undefined | null) => { value?: T; tag?: string };
+  /** The user's defaults for their notes: what a flag no tag sets follows. */
+  noteDefaults: NoteDefaults;
   /** Resolves once done; rejects with why not (offline…). */
   onRename: (to: string) => Promise<void>;
   onRemove: () => Promise<void>;
@@ -176,6 +178,13 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
       const from = attrs.inherited(pick);
       return from.tag === undefined ? "Not set" : "As " + from.tag + ": " + say(from.value as T);
     };
+    /** A flag no tag above sets follows the user's default: off, but wrapping, unless they said. */
+    const notSetFlag = (key: "markdown" | "monospace" | "wrap") => {
+      const from = attrs.inherited((o) => o[key]);
+      if (from.tag !== undefined) return "As " + from.tag + ": " + (from.value ? "on" : "off");
+      const byDefault = attrs.noteDefaults[key] ?? key === "wrap";
+      return "Not set: your default, " + (byDefault ? "on" : "off");
+    };
     const fontName = (id: string) => fonts?.find((f) => f.id === id)?.name ?? "a font";
     /** A box set or not: when not, what it follows meanwhile. */
     const followed = (pick: (o: TagOptions) => boolean | undefined | null, own: boolean | undefined, what: string) => {
@@ -221,7 +230,7 @@ export class TagSettings implements m.ClassComponent<TagSettingsAttrs> {
             const value = (e.target as HTMLSelectElement).value;
             attrs.onOptions({ [key]: value === "on" ? true : value === "off" ? false : undefined });
           },
-        }, [m("option", { value: "" }, notSet((o) => o[key], (on) => (on ? "on" : "off"))), m("option", { value: "on" }, "On"),
+        }, [m("option", { value: "" }, notSetFlag(key)), m("option", { value: "on" }, "On"),
           m("option", { value: "off" }, "Off")]),
       ])),
       fontSelect("font", "Font", false),

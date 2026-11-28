@@ -1,7 +1,7 @@
 import m from "mithril";
 import { LocalNote } from "../../sync/LocalNote";
 import { isOn, MARKDOWN, MONOSPACE, NOWRAP, optionsOf, PINNED, publishedToken, retagged, tagsOf } from "../../sync/Metadata";
-import { activeSort, AppliedOptions, appliedOptions, decidingTags, FlagKey, fromTags, ownValueFor, SortOrder } from "../../utils/NoteOptions";
+import { activeSort, AppliedOptions, appliedOptions, decidingTags, defaultFlag, FlagKey, fromTags, ownValueFor, SortOrder } from "../../utils/NoteOptions";
 import { tagFontValue, useTagFonts } from "../../utils/Fonts";
 import { compareNotes } from "../../sync/Outcomes";
 import { movesFor } from "../../sync/TagOrder";
@@ -245,6 +245,7 @@ export class NotesPage extends AbstractPage {
         const parent = parentOf(tag);
         return parent === undefined ? {} : nearest(parent, engine.allTagOptions(), pick);
       },
+      noteDefaults: engine.noteDefaults(),
       onOptions: (change: Partial<TagOptions>) => engine.setTagOptions(tag, { ...engine.allTagOptions()[tag], ...change }),
       onClose: () => (this.tagSettings = undefined),
       onRename: async (to: string) => {
@@ -528,9 +529,9 @@ export class NotesPage extends AbstractPage {
     return new Map(this.tagCounts(engine).map((count, i) => [count.tag, i]));
   }
 
-  /** Its options as they apply: its own, or its tags' (see NoteOptions). */
+  /** Its options as they apply: its own, its tags', or the user's defaults (see NoteOptions). */
   private applied(engine: SyncEngine, note: LocalNote): AppliedOptions {
-    return appliedOptions(optionsOf(note), tagsOf(note), engine.allTagOptions(), this.rank(engine));
+    return appliedOptions(optionsOf(note), tagsOf(note), engine.allTagOptions(), this.rank(engine), engine.noteDefaults());
   }
 
   private editorOptions(applied: AppliedOptions) {
@@ -545,7 +546,8 @@ export class NotesPage extends AbstractPage {
 
   /**
    * A flag of the note's in the menu, as it applies, saying which tag it comes from. Toggling it
-   * sets the note's own value, or unsets it when that's what its tags say: it follows them again.
+   * sets the note's own value, or unsets it when that's what its tags (or else the user's defaults)
+   * say: it follows them again.
    */
   private flagItem(engine: SyncEngine, note: LocalNote, label: string, key: FlagKey): m.Children {
     const applied = this.applied(engine, note);
@@ -555,7 +557,7 @@ export class NotesPage extends AbstractPage {
     const tagsSay = fromTags(key, decidingTags(tagsOf(note), this.rank(engine)), engine.allTagOptions()).value;
     return checkItem(label + (from ? " (from " + from + ")" : ""), on, (wanted) => {
       const value = key === NOWRAP ? !wanted : wanted;
-      engine.setOptionValue(note.id, key, ownValueFor(value, tagsSay));
+      engine.setOptionValue(note.id, key, ownValueFor(value, tagsSay, defaultFlag(engine.noteDefaults(), key)));
     });
   }
 

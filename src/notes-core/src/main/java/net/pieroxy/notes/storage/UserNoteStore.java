@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import net.jpountz.lz4.LZ4FrameInputStream;
 import net.jpountz.lz4.LZ4FrameOutputStream;
 import net.pieroxy.notes.sync.Merge3;
+import net.pieroxy.notes.sync.NoteDefaults;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.sync.TagEvent;
 import net.pieroxy.notes.sync.TagOptions;
@@ -50,6 +51,7 @@ import java.util.stream.Collectors;
  * tag-order.json                 {@link StoredTagOrder}: absent until the user first reorders their tags
  * tag-events.json                the last {@link StoredTagEvent}s: tags renamed or removed from every note
  * tag-options.json               {@link StoredTagOptions}: absent until the user first sets a tag's options
+ * note-defaults.json             {@link StoredNoteDefaults}: absent until the user first sets their notes' defaults
  * purged.json                    the last {@link StoredPurge}s: deleted notes deleted for good, for the clients to forget
  * </pre>
  * The head revision's file holds its text; an older one's, a splice turning the next revision's
@@ -119,6 +121,13 @@ public class UserNoteStore {
    */
   public record StoredTagOptions(long seq, Map<String, TagOptions> tags) {}
 
+  /**
+   * The user's defaults for their notes.
+   *
+   * @param seq when they last changed, from the same sequence as the notes: change queries report it.
+   */
+  public record StoredNoteDefaults(long seq, NoteDefaults defaults) {}
+
   /** A deleted note deleted for good, and when, from the same sequence as the notes. */
   public record StoredPurge(long seq, String noteId) {}
 
@@ -166,6 +175,8 @@ public class UserNoteStore {
   private final List<Runnable> seqWaiters = new ArrayList<>();
   private List<StoredTagEvent> tagEvents = List.of();
   private StoredTagOptions tagOptions;
+  /** Null until the user first sets their notes' defaults. */
+  private StoredNoteDefaults noteDefaults;
   private List<StoredPurge> purges = List.of();
   CommitHook commitHook = step -> {};
   /** Visible for tests. */
@@ -716,6 +727,7 @@ public class UserNoteStore {
     loadTagOrder();
     loadTagEvents();
     loadTagOptions();
+    loadNoteDefaults();
     loadPurges();
     if (storeId == null) {
       storeId = UUID.randomUUID().toString();
@@ -759,6 +771,15 @@ public class UserNoteStore {
     StoredTagOptions stored = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8), StoredTagOptions.class);
     if (stored == null || stored.tags() == null) return;
     tagOptions = stored;
+    lastSeq = Math.max(lastSeq, stored.seq());
+  }
+
+  private void loadNoteDefaults() throws IOException {
+    Path file = root.resolve("note-defaults.json");
+    if (!Files.isRegularFile(file)) return;
+    StoredNoteDefaults stored = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8), StoredNoteDefaults.class);
+    if (stored == null || stored.defaults() == null) return;
+    noteDefaults = stored;
     lastSeq = Math.max(lastSeq, stored.seq());
   }
 
@@ -866,6 +887,34 @@ public class UserNoteStore {
     } catch (IOException e) {
       LOGGER.log(Level.SEVERE, "Could not write user.json of " + root.getFileName() + " (recovered from tag-options.json on next load)", e);
     }
+  }
+
+  /** Null while the user never set them. */
+  public synchronized StoredNoteDefaults getNoteDefaults() {
+    return noteDefaults;
+  }
+
+  /** The user's defaults, the built-in ones while they never set any. */
+  public synchronized NoteDefaults noteDefaults() {
+    return noteDefaults == null ? NoteDefaults.NONE : noteDefaults.defaults();
+  }
+
+  /** Replaces the user's defaults, at a new seq. Nothing is written if nothing changes. */
+  public synchronized StoredNoteDefaults setNoteDefaults(NoteDefaults defaults) throws IOException {
+    NoteDefaults normalized = defaults.normalized();
+    if (normalized.equals(noteDefaults())) return noteDefaults;
+    long seq = lastSeq + 1;
+    StoredNoteDefaults next = new StoredNoteDefaults(seq, normalized);
+    AtomicFiles.write(root.resolve("note-defaults.json"), PRETTY_GSON.toJson(next).getBytes(StandardCharsets.UTF_8));
+    noteDefaults = next;
+    lastSeq = seq;
+    wakeSeqWaiters();
+    try {
+      writeUserState();
+    } catch (IOException e) {
+      LOGGER.log(Level.SEVERE, "Could not write user.json of " + root.getFileName() + " (recovered from note-defaults.json on next load)", e);
+    }
+    return noteDefaults;
   }
 
   private void writeUserState() throws IOException {

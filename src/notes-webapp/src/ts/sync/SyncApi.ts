@@ -1,4 +1,4 @@
-import { ChangesPage, MetaChange, NoteChange, NoteRequest, NotesResult, PushApiOutput, TagEditOutput, TagOptionsChange, TagOrderChange } from "../auto/api-types";
+import { ChangesPage, MetaChange, NoteChange, NoteDefaults, NoteRequest, NotesResult, PushApiOutput, TagEditOutput, TagOptionsChange, TagOrderChange } from "../auto/api-types";
 
 /** What a push sends. */
 export interface PushBatch {
@@ -6,6 +6,7 @@ export interface PushBatch {
   metaChanges: MetaChange[];
   tagOrder?: TagOrderChange;
   tagOptions?: TagOptionsChange[];
+  noteDefaults?: NoteDefaults;
   /** The cursor, for the server to rewrite changes made before tags were renamed (see TagEvent). */
   since: number;
 }

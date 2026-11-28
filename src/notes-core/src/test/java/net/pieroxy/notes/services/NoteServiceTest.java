@@ -16,6 +16,7 @@ import net.pieroxy.notes.sync.RejectReason;
 import net.pieroxy.notes.sync.Splice;
 import net.pieroxy.notes.sync.TagEvent;
 import net.pieroxy.notes.sync.TagOptions;
+import net.pieroxy.notes.sync.NoteDefaults;
 import net.pieroxy.notes.sync.TagOptionsChange;
 import net.pieroxy.notes.sync.TagOrderChange;
 import net.pieroxy.notes.sync.TagOrderStatus;
@@ -901,6 +902,34 @@ public class NoteServiceTest {
     UserNoteStore reopened = UserNoteStore.open(tmp.getRoot().toPath().resolve("users").resolve("alice"), java.time.Clock.systemUTC());
     assertEquals(seq, reopened.getLastSeq());
     assertEquals(Map.of("work", colors("red", "teal")), reopened.getTagOptions().tags());
+  }
+
+  @Test
+  public void noteDefaultsAreStoredNormalizedAndComeWithTheChanges() throws Exception {
+    long cursor = service.changes("alice", 0).seq();
+    assertNull(service.changes("alice", 0).noteDefaults());
+    // The built-in defaults: nothing to write.
+    assertEquals(NoteDefaults.NONE, service.pushNoteDefaults("alice", new NoteDefaults(false, false, true)));
+    assertEquals(cursor, stores.getStore("alice").getLastSeq());
+
+    NoteDefaults now = service.pushNoteDefaults("alice", new NoteDefaults(true, false, false));
+    assertEquals(new NoteDefaults(true, null, false), now);
+    ChangesPage page = service.changes("alice", cursor);
+    assertEquals(now, page.noteDefaults());
+    assertNull(service.changes("alice", page.seq()).noteDefaults());
+
+    // Back to the built-in ones: said too, for the other devices to follow.
+    now = service.pushNoteDefaults("alice", new NoteDefaults(null, null, null));
+    assertEquals(NoteDefaults.NONE, service.changes("alice", page.seq()).noteDefaults());
+  }
+
+  @Test
+  public void noteDefaultsSurviveARestart() throws Exception {
+    service.pushNoteDefaults("alice", new NoteDefaults(null, true, null));
+    long seq = stores.getStore("alice").getLastSeq();
+    UserNoteStore reopened = UserNoteStore.open(tmp.getRoot().toPath().resolve("users").resolve("alice"), java.time.Clock.systemUTC());
+    assertEquals(seq, reopened.getLastSeq());
+    assertEquals(new NoteDefaults(null, true, null), reopened.noteDefaults());
   }
 
   // ---- The trash ----

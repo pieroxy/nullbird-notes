@@ -26,6 +26,20 @@ describe("NoteOptions", () => {
     expect(appliedOptions({}, ["other"], TAGS, RANK)).toEqual({ markdown: false, monospace: false, nowrap: false, rendered: false, from: {} });
   });
 
+  test("without tags saying: the user's defaults", () => {
+    const defaults = { markdown: true, monospace: true, wrap: false };
+    expect(appliedOptions({}, ["other"], TAGS, RANK, defaults)).toEqual({ markdown: true, monospace: true, nowrap: true, rendered: false, from: {} });
+    // Tags, then the note's own, still win.
+    const applied = appliedOptions({ monospace: "false" }, ["code"], TAGS, RANK, defaults);
+    expect([applied.markdown, applied.monospace, applied.nowrap]).toEqual([false, false, false]);
+  });
+
+  test("toggling, without tags saying: the note's own value only when it differs from the user's default", () => {
+    expect(ownValueFor(true, undefined, true)).toBeUndefined();
+    expect(ownValueFor(false, undefined, true)).toBe("false");
+    expect(ownValueFor(true, false, true)).toBe("true");
+  });
+
   test("toggling: the note's own value only when it differs from its tags'", () => {
     expect(ownValueFor(true, true)).toBeUndefined();
     expect(ownValueFor(false, true)).toBe("false");

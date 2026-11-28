@@ -2,6 +2,7 @@ package net.pieroxy.notes.services;
 
 import net.pieroxy.notes.sync.TagOrderChange;
 
+import net.pieroxy.notes.sync.NoteDefaults;
 import net.pieroxy.notes.sync.TagOptionsChange;
 
 import net.pieroxy.notes.sync.TagOptions;
@@ -204,5 +205,23 @@ public class NotePublishingTest {
     service.pushMeta("alice", "device", new MetaChange("m2", A, List.of("code"), null, null, null));
     service.pushTagOrder("alice", new TagOrderChange(0, List.of("code", "code/python")));
     assertFalse(service.findPublished(token).monospace());
+  }
+
+  @Test
+  public void thePublishedNoteFollowsTheUsersDefaultsWhenNeitherItNorItsTagsSay() throws Exception {
+    create("alice", A, "x");
+    service.pushMeta("alice", "device", new MetaChange("m1", A, List.of("code"), null, null, null));
+    service.pushTagOptions("alice", List.of(new TagOptionsChange("code", noteOptions(null, false, null))), null);
+    String token = service.publish("alice", A, false);
+    service.pushNoteDefaults("alice", new NoteDefaults(true, true, false));
+    NoteService.PublishedNote found = service.findPublished(token);
+    assertTrue(found.markdown());
+    // Its tag says.
+    assertFalse(found.monospace());
+    assertTrue(found.nowrap());
+
+    // Its own option wins.
+    service.pushMeta("alice", "device", new MetaChange("m2", A, null, null, java.util.Map.of("markdown", "false"), null));
+    assertFalse(service.findPublished(token).markdown());
   }
 }

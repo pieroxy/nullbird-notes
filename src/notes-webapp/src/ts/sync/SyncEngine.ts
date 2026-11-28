@@ -1,4 +1,4 @@
-import { ChangesPage, MetaChange, NoteChange, NoteContent, NoteRequest, PushResult, TagEvent, TagOptions, TagOptionsChange, TagOrderChange, TagOrderResult, TagOrderStatus } from "../auto/api-types";
+import { ChangesPage, MetaChange, NoteChange, NoteContent, NoteDefaults, NoteRequest, PushResult, TagEvent, TagOptions, TagOptionsChange, TagOrderChange, TagOrderResult, TagOrderStatus } from "../auto/api-types";
 import { ApiError, ApiErrorKind } from "../utils/api/Api";
 import { LocalNote } from "./LocalNote";
 import { LocalStore, SyncMeta } from "./LocalStore";
@@ -319,6 +319,19 @@ export class SyncEngine {
     return this.meta.tagOptionsChanges ?? [];
   }
 
+  /** The user's defaults for their notes: the server's, or the change it hasn't confirmed yet. */
+  noteDefaults(): NoteDefaults {
+    return this.meta.noteDefaultsChange ?? this.meta.noteDefaults ?? {};
+  }
+
+  /** Replaces the user's defaults for their notes: shown at once, sent with the next push. */
+  setNoteDefaults(defaults: NoteDefaults) {
+    this.meta = { ...this.meta, noteDefaultsChange: defaults };
+    void this.store.putMeta(this.meta);
+    this.schedulePush(0);
+    this.notify();
+  }
+
   /**
    * Every tag of every note, deleted ones included, and the tags above them (see TagTree): renaming
    * to one of them merges (see renameTag).
@@ -515,6 +528,7 @@ export class SyncEngine {
     this.meta = { ...this.meta, storeId: page.storeId, cursor: page.seq };
     if (page.tagOrder && page.tagOrder.revision > (this.meta.tagOrder?.revision ?? 0)) this.meta = { ...this.meta, tagOrder: page.tagOrder };
     if (page.tagOptions) this.meta = { ...this.meta, tagOptions: page.tagOptions };
+    if (page.noteDefaults) this.meta = { ...this.meta, noteDefaults: page.noteDefaults };
     await this.store.putMeta(this.meta);
     this.notify();
   }
@@ -543,8 +557,9 @@ export class SyncEngine {
     const all = [...this.notes.values()].map(forResync);
     for (const note of all) this.notes.set(note.id, note);
     await this.store.putNotes(all);
-    // The new data's tag order comes with it; the moves not sent yet are replayed on it.
-    this.meta = { deviceId: this.meta.deviceId, cursor: 0, tagMoves: this.meta.tagMoves };
+    // The new data's tag order comes with it; the moves not sent yet are replayed on it. Defaults
+    // changed and not sent yet are sent still.
+    this.meta = { deviceId: this.meta.deviceId, cursor: 0, tagMoves: this.meta.tagMoves, noteDefaultsChange: this.meta.noteDefaultsChange };
     await this.store.putMeta(this.meta);
     this.notify();
   }
@@ -567,7 +582,8 @@ export class SyncEngine {
   private async push() {
     if (!this.running || this.pushing || this.signedOut || this.outdated || this.nextRetryAt !== undefined) return;
     const candidates = [...this.notes.values()].filter(hasWork);
-    if (candidates.length === 0 && this.tagMoves().length === 0 && this.tagOptionsChanges().length === 0) return;
+    if (candidates.length === 0 && this.tagMoves().length === 0 && this.tagOptionsChanges().length === 0
+      && !this.meta.noteDefaultsChange) return;
     this.pushing = true;
     this.notify();
     try {
@@ -583,9 +599,11 @@ export class SyncEngine {
       // Those made while the push is out stay for the next one, as moves.
       const sentOptions = this.tagOptionsChanges();
       const tagOptions = sentOptions.length > 0 ? sentOptions : undefined;
-      if (batch.changes.length > 0 || batch.metaChanges.length > 0 || tagOrder || tagOptions) {
+      // Likewise: changed again while the push is out, it's sent with the next one.
+      const noteDefaults = this.meta.noteDefaultsChange;
+      if (batch.changes.length > 0 || batch.metaChanges.length > 0 || tagOrder || tagOptions || noteDefaults) {
         const output = await this.withTimeout(TIMINGS.requestTimeout,
-          (signal) => this.api.push(this.meta.deviceId, { ...batch, tagOrder, tagOptions, since: this.meta.cursor }, signal));
+          (signal) => this.api.push(this.meta.deviceId, { ...batch, tagOrder, tagOptions, noteDefaults, since: this.meta.cursor }, signal));
         // Stopped meanwhile: another engine may own the store now. Pending changes get resent, then replayed.
         if (!this.running) return;
         await this.applyPushResults(output.results, output.metaResults);
@@ -594,11 +612,16 @@ export class SyncEngine {
           this.meta = { ...this.meta, tagOptions: output.tagOptions, tagOptionsChanges: this.tagOptionsChanges().filter((c) => !sentOptions.includes(c)) };
           await this.store.putMeta(this.meta);
         }
+        if (output.noteDefaults) {
+          const confirmed = this.meta.noteDefaultsChange === noteDefaults;
+          this.meta = { ...this.meta, noteDefaults: output.noteDefaults, noteDefaultsChange: confirmed ? undefined : this.meta.noteDefaultsChange };
+          await this.store.putMeta(this.meta);
+        }
       }
       this.succeeded();
       this.pushing = false;
       if ([...this.notes.values()].some((note) => isPushable(note) || hasMetaToPush(note)) || this.tagMoves().length > 0
-        || this.tagOptionsChanges().length > 0) this.schedulePush(0);
+        || this.tagOptionsChanges().length > 0 || this.meta.noteDefaultsChange) this.schedulePush(0);
     } catch (e) {
       this.pushing = false;
       await this.failed(e);

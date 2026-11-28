@@ -1,5 +1,6 @@
 import m from "mithril";
 import { ApiEndpoints } from "../../auto/ApiEndpoints";
+import { NoteDefaults } from "../../auto/api-types";
 import { session } from "../../sync/Session";
 import { Auth } from "../../utils/Auth";
 import { Endpoints } from "../../utils/navigation/Endpoints";
@@ -30,6 +31,7 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
   private loggingOut = false;
   private readonly sections: PageSection[] = [
     { id: "appearance", title: "Appearance", render: () => this.appearance() },
+    { id: "notes", title: "Notes", render: () => this.notes() },
     { id: "data", title: "Your notes", render: () => this.data() },
     { id: "security", title: "Security", render: () => this.security() },
   ];
@@ -78,6 +80,35 @@ export class AccountPage extends AbstractPage<AccountPageAttrs> {
       m("p.muted", "A button by the note's, to insert emojis. Phones and tablets have them on their keyboard already."),
       choices(EMOJI_HELPER, "emojihelper", "Emoji button", (id) => m("span.sample.words", EMOJI_SAMPLES[id])),
       m("p.muted.devicenote", "All of these are for this device only: each of yours keeps its own."),
+    ];
+  }
+
+  /** What notes get when neither they nor their tags say otherwise (see NoteOptions): synced, for every device. */
+  private notes(): m.Children {
+    const engine = session.engine;
+    const intro = [
+      m("h2", "Defaults"),
+      m("p.muted", "What your notes get unless they, or one of their tags, say otherwise. Changing it changes every note that"
+        + " follows it, as tags do."),
+    ];
+    if (!engine || session.phase !== "active") {
+      return [...intro, m("p", session.phase === "elsewhere" ? "Your notes are open in another tab: change these there."
+        : session.phase === "failed" ? "Your notes couldn't be opened on this device." : "Opening your notes…")];
+    }
+    const defaults = engine.noteDefaults();
+    const flag = (key: keyof NoteDefaults, label: string, on: boolean, about: string) => m("label.checkfield", [
+      m("input", {
+        type: "checkbox",
+        checked: on,
+        onchange: (e: Event) => engine.setNoteDefaults({ ...engine.noteDefaults(), [key]: (e.target as HTMLInputElement).checked }),
+      }),
+      m("span", [m("strong", label), ": " + about]),
+    ]);
+    return [
+      ...intro,
+      flag("markdown", "Markdown", defaults.markdown === true, "rendered as Markdown."),
+      flag("monospace", "Fixed-width font", defaults.monospace === true, "for code, tables and ASCII art."),
+      flag("wrap", "Wrap long lines", defaults.wrap !== false, "or scroll sideways to read them."),
     ];
   }
 
